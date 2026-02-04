@@ -9,6 +9,7 @@ import {
   downloadSubtitles,
   extractVideoId,
   fetchAvailableSubtitles,
+  fetchVideoChapters,
   fetchVideoInfo,
   parseSubtitles,
 } from './youtube.js';
@@ -74,6 +75,35 @@ const videoInfoOutputSchema = z.object({
   webpageUrl: z.string().nullable(),
   viewCount: z.number().nullable(),
   likeCount: z.number().nullable(),
+  commentCount: z.number().nullable(),
+  tags: z.array(z.string()).nullable(),
+  categories: z.array(z.string()).nullable(),
+  liveStatus: z.string().nullable(),
+  isLive: z.boolean().nullable(),
+  wasLive: z.boolean().nullable(),
+  availability: z.string().nullable(),
+  thumbnail: z.string().nullable(),
+  thumbnails: z
+    .array(
+      z.object({
+        url: z.string(),
+        width: z.number().optional(),
+        height: z.number().optional(),
+        id: z.string().optional(),
+      })
+    )
+    .nullable(),
+});
+
+const videoChaptersOutputSchema = z.object({
+  videoId: z.string(),
+  chapters: z.array(
+    z.object({
+      startTime: z.number(),
+      endTime: z.number(),
+      title: z.string(),
+    })
+  ),
 });
 
 type TextContent = { type: 'text'; text: string };
@@ -224,7 +254,8 @@ export function createMcpServer() {
     'get_video_info',
     {
       title: 'Get YouTube video info',
-      description: 'Fetch basic metadata for a YouTube video.',
+      description:
+        'Fetch extended metadata for a YouTube video (title, channel, duration, tags, thumbnails, etc.).',
       inputSchema: baseInputSchema,
       outputSchema: videoInfoOutputSchema,
     },
@@ -243,6 +274,7 @@ export function createMcpServer() {
         info.title ? `Title: ${info.title}` : null,
         info.channel ? `Channel: ${info.channel}` : null,
         info.duration === null ? null : `Duration: ${info.duration}s`,
+        info.viewCount !== null ? `Views: ${info.viewCount}` : null,
         info.webpageUrl ? `URL: ${info.webpageUrl}` : null,
       ].filter(Boolean) as string[];
 
@@ -262,6 +294,54 @@ export function createMcpServer() {
           webpageUrl: info.webpageUrl,
           viewCount: info.viewCount,
           likeCount: info.likeCount,
+          commentCount: info.commentCount,
+          tags: info.tags,
+          categories: info.categories,
+          liveStatus: info.liveStatus,
+          isLive: info.isLive,
+          wasLive: info.wasLive,
+          availability: info.availability,
+          thumbnail: info.thumbnail,
+          thumbnails: info.thumbnails,
+        },
+      };
+    }
+  );
+
+  /**
+   * Get YouTube video chapters
+   * @param args - Arguments for the tool
+   * @returns Video chapters
+   */
+  server.registerTool(
+    'get_video_chapters',
+    {
+      title: 'Get YouTube video chapters',
+      description: 'Fetch chapter markers (start/end time, title) for a YouTube video.',
+      inputSchema: baseInputSchema,
+      outputSchema: videoChaptersOutputSchema,
+    },
+    async (args, _extra) => {
+      const videoId = resolveVideoId(args.url);
+      if (!videoId) {
+        return toolError('Invalid YouTube URL or video ID.');
+      }
+
+      const chapters = await fetchVideoChapters(videoId);
+      if (chapters === null) {
+        return toolError(`Failed to fetch chapters for "${videoId}".`);
+      }
+
+      const text =
+        chapters.length === 0
+          ? `No chapters found for "${videoId}".`
+          : chapters.map((ch) => `${ch.startTime}s - ${ch.endTime}s: ${ch.title}`).join('\n');
+
+      return {
+        content: [textContent(text)],
+        structuredContent: {
+          videoId,
+          chapters,
         },
       };
     }

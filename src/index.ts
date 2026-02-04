@@ -6,8 +6,11 @@ import { parseSubtitles, detectSubtitleFormat } from './youtube.js';
 import {
   GetAvailableSubtitlesRequest,
   GetSubtitlesRequest,
+  GetVideoInfoRequest,
   validateAndDownloadSubtitles,
   validateAndFetchAvailableSubtitles,
+  validateAndFetchVideoInfo,
+  validateAndFetchVideoChapters,
 } from './validation.js';
 
 const fastify = Fastify({
@@ -113,6 +116,56 @@ fastify.post('/subtitles/available', async (request, reply) => {
       videoId,
       official,
       auto,
+    });
+  } catch (error) {
+    fastify.log.error(error);
+    return reply.code(500).send({
+      error: 'Internal server error',
+      message: error instanceof Error ? error.message : 'Unknown error occurred',
+    });
+  }
+});
+
+// Endpoint for getting extended video info
+fastify.post('/video/info', async (request, reply) => {
+  try {
+    const body = request.body as GetVideoInfoRequest;
+
+    const result = await validateAndFetchVideoInfo(body, reply, fastify.log);
+    if (!result) {
+      return;
+    }
+
+    const { videoId, info } = result;
+
+    return reply.send({
+      videoId,
+      ...info,
+    });
+  } catch (error) {
+    fastify.log.error(error);
+    return reply.code(500).send({
+      error: 'Internal server error',
+      message: error instanceof Error ? error.message : 'Unknown error occurred',
+    });
+  }
+});
+
+// Endpoint for getting video chapters
+fastify.post('/video/chapters', async (request, reply) => {
+  try {
+    const body = request.body as GetVideoInfoRequest;
+
+    const result = await validateAndFetchVideoChapters(body, reply, fastify.log);
+    if (!result) {
+      return;
+    }
+
+    const { videoId, chapters } = result;
+
+    return reply.send({
+      videoId,
+      chapters,
     });
   } catch (error) {
     fastify.log.error(error);

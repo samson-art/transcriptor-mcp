@@ -21,6 +21,16 @@ type YtDlpVideoInfo = {
   webpage_url?: string;
   view_count?: number;
   like_count?: number;
+  comment_count?: number;
+  tags?: string[];
+  categories?: string[];
+  live_status?: string;
+  is_live?: boolean;
+  was_live?: boolean;
+  availability?: string;
+  thumbnail?: string;
+  thumbnails?: Array<{ url?: string; width?: number; height?: number; id?: string }>;
+  chapters?: Array<{ start_time?: number; end_time?: number; title?: string }>;
   subtitles?: Record<string, Array<{ ext?: string; url?: string }>>;
   automatic_captions?: Record<string, Array<{ ext?: string; url?: string }>>;
 };
@@ -39,6 +49,21 @@ export type VideoInfo = {
   webpageUrl: string | null;
   viewCount: number | null;
   likeCount: number | null;
+  commentCount: number | null;
+  tags: string[] | null;
+  categories: string[] | null;
+  liveStatus: string | null;
+  isLive: boolean | null;
+  wasLive: boolean | null;
+  availability: string | null;
+  thumbnail: string | null;
+  thumbnails: Array<{ url: string; width?: number; height?: number; id?: string }> | null;
+};
+
+export type VideoChapter = {
+  startTime: number;
+  endTime: number;
+  title: string;
 };
 
 export type AvailableSubtitles = {
@@ -177,6 +202,15 @@ export async function fetchVideoInfo(
     return null;
   }
 
+  const thumbnails =
+    data.thumbnails && Array.isArray(data.thumbnails)
+      ? data.thumbnails
+          .filter(
+            (t): t is { url: string; width?: number; height?: number; id?: string } => !!t?.url
+          )
+          .map((t) => ({ url: t.url, width: t.width, height: t.height, id: t.id }))
+      : null;
+
   return {
     id: data.id ?? null,
     title: data.title ?? null,
@@ -191,7 +225,38 @@ export async function fetchVideoInfo(
     webpageUrl: data.webpage_url ?? null,
     viewCount: typeof data.view_count === 'number' ? data.view_count : null,
     likeCount: typeof data.like_count === 'number' ? data.like_count : null,
+    commentCount: typeof data.comment_count === 'number' ? data.comment_count : null,
+    tags: Array.isArray(data.tags) ? data.tags : null,
+    categories: Array.isArray(data.categories) ? data.categories : null,
+    liveStatus: data.live_status ?? null,
+    isLive: typeof data.is_live === 'boolean' ? data.is_live : null,
+    wasLive: typeof data.was_live === 'boolean' ? data.was_live : null,
+    availability: data.availability ?? null,
+    thumbnail: data.thumbnail ?? null,
+    thumbnails,
   };
+}
+
+export async function fetchVideoChapters(
+  videoId: string,
+  logger?: FastifyBaseLogger
+): Promise<VideoChapter[] | null> {
+  const data = await fetchYtDlpJson(videoId, logger);
+  if (!data) {
+    return null;
+  }
+  if (!data.chapters || !Array.isArray(data.chapters)) {
+    return [];
+  }
+
+  const chapters: VideoChapter[] = [];
+  for (const ch of data.chapters) {
+    const startTime = typeof ch.start_time === 'number' ? ch.start_time : 0;
+    const endTime = typeof ch.end_time === 'number' ? ch.end_time : 0;
+    const title = ch.title ?? '';
+    chapters.push({ startTime, endTime, title });
+  }
+  return chapters;
 }
 
 export async function fetchAvailableSubtitles(
@@ -219,8 +284,10 @@ export async function fetchAvailableSubtitles(
  * Finds subtitle file in the specified directory
  * yt-dlp creates files in format: baseName.language.srt or baseName.language.vtt
  * @param logger - Fastify logger instance for structured logging
+ *
+ * Exported for testing.
  */
-async function findSubtitleFile(
+export async function findSubtitleFile(
   basePath: string,
   searchDir?: string,
   logger?: FastifyBaseLogger
@@ -297,7 +364,8 @@ async function findSubtitleFile(
   }
 }
 
-function getYtDlpEnv() {
+// Exported for testing.
+export function getYtDlpEnv() {
   return {
     jsRuntimes: process.env.YT_DLP_JS_RUNTIMES?.trim(),
     remoteComponents: process.env.YT_DLP_REMOTE_COMPONENTS?.trim() || 'ejs:github',
@@ -305,7 +373,8 @@ function getYtDlpEnv() {
   };
 }
 
-function appendYtDlpEnvArgs(
+// Exported for testing.
+export function appendYtDlpEnvArgs(
   args: string[],
   env: { jsRuntimes?: string; remoteComponents?: string; cookiesFilePathFromEnv?: string }
 ) {
@@ -322,7 +391,8 @@ function appendYtDlpEnvArgs(
   }
 }
 
-async function fetchYtDlpJson(
+// Exported for testing.
+export async function fetchYtDlpJson(
   videoId: string,
   logger?: FastifyBaseLogger
 ): Promise<YtDlpVideoInfo | null> {

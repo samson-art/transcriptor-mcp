@@ -1,6 +1,12 @@
 import { FastifyReply, FastifyBaseLogger } from 'fastify';
 import { Type, Static } from '@sinclair/typebox';
-import { extractVideoId, downloadSubtitles, fetchAvailableSubtitles } from './youtube.js';
+import {
+  extractVideoId,
+  downloadSubtitles,
+  fetchAvailableSubtitles,
+  fetchVideoInfo,
+  fetchVideoChapters,
+} from './youtube.js';
 
 // TypeBox schema for subtitle request
 export const GetSubtitlesRequestSchema = Type.Object({
@@ -36,6 +42,16 @@ export const GetAvailableSubtitlesRequestSchema = Type.Object({
 });
 
 export type GetAvailableSubtitlesRequest = Static<typeof GetAvailableSubtitlesRequestSchema>;
+
+// Schema for request to get video info or chapters
+export const GetVideoInfoRequestSchema = Type.Object({
+  url: Type.String({
+    minLength: 1,
+    description: 'YouTube video URL',
+  }),
+});
+
+export type GetVideoInfoRequest = Static<typeof GetVideoInfoRequestSchema>;
 
 /**
  * Validates and sanitizes YouTube URL
@@ -251,4 +267,100 @@ export async function validateAndFetchAvailableSubtitles(
   }
 
   return { videoId, official: availableSubtitles.official, auto: availableSubtitles.auto };
+}
+
+/**
+ * Validates request and returns video info
+ */
+export async function validateAndFetchVideoInfo(
+  request: GetVideoInfoRequest,
+  reply: FastifyReply,
+  logger?: FastifyBaseLogger
+): Promise<{ videoId: string; info: Awaited<ReturnType<typeof fetchVideoInfo>> } | null> {
+  const { url } = request;
+
+  if (!isValidYouTubeUrl(url)) {
+    reply.code(400).send({
+      error: 'Invalid YouTube URL',
+      message: 'Please provide a valid YouTube video URL',
+    });
+    return null;
+  }
+
+  const extractedVideoId = extractVideoId(url);
+  if (!extractedVideoId) {
+    reply.code(400).send({
+      error: 'Invalid YouTube URL',
+      message: 'Could not extract video ID from the provided URL',
+    });
+    return null;
+  }
+
+  const videoId = sanitizeVideoId(extractedVideoId);
+  if (!videoId) {
+    reply.code(400).send({
+      error: 'Invalid video ID',
+      message: 'Video ID contains invalid characters',
+    });
+    return null;
+  }
+
+  const info = await fetchVideoInfo(videoId, logger);
+  if (!info) {
+    reply.code(404).send({
+      error: 'Video not found',
+      message: 'Could not fetch video info for the provided URL',
+    });
+    return null;
+  }
+
+  return { videoId, info };
+}
+
+/**
+ * Validates request and returns video chapters
+ */
+export async function validateAndFetchVideoChapters(
+  request: GetVideoInfoRequest,
+  reply: FastifyReply,
+  logger?: FastifyBaseLogger
+): Promise<{ videoId: string; chapters: Awaited<ReturnType<typeof fetchVideoChapters>> } | null> {
+  const { url } = request;
+
+  if (!isValidYouTubeUrl(url)) {
+    reply.code(400).send({
+      error: 'Invalid YouTube URL',
+      message: 'Please provide a valid YouTube video URL',
+    });
+    return null;
+  }
+
+  const extractedVideoId = extractVideoId(url);
+  if (!extractedVideoId) {
+    reply.code(400).send({
+      error: 'Invalid YouTube URL',
+      message: 'Could not extract video ID from the provided URL',
+    });
+    return null;
+  }
+
+  const videoId = sanitizeVideoId(extractedVideoId);
+  if (!videoId) {
+    reply.code(400).send({
+      error: 'Invalid video ID',
+      message: 'Video ID contains invalid characters',
+    });
+    return null;
+  }
+
+  const chapters = await fetchVideoChapters(videoId, logger);
+  if (chapters === null) {
+    reply.code(404).send({
+      error: 'Video not found',
+      message: 'Could not fetch chapters for the provided URL',
+    });
+    return null;
+  }
+
+  return { videoId, chapters };
 }

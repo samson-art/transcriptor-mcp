@@ -1,4 +1,27 @@
-import { extractVideoId, detectSubtitleFormat, parseSubtitles } from './youtube.js';
+import { execFile } from 'node:child_process';
+import { tmpdir } from 'os';
+import { join, basename } from 'path';
+import { access, constants, writeFile, unlink } from 'node:fs/promises';
+import * as youtube from './youtube.js';
+
+jest.mock('node:child_process', () => ({
+  execFile: jest.fn(),
+}));
+
+const execFileMock = execFile as unknown as jest.Mock;
+
+const {
+  extractVideoId,
+  detectSubtitleFormat,
+  parseSubtitles,
+  downloadSubtitles,
+  fetchVideoInfo,
+  fetchVideoChapters,
+  fetchYtDlpJson,
+  findSubtitleFile,
+  getYtDlpEnv,
+  appendYtDlpEnvArgs,
+} = youtube;
 
 describe('youtube', () => {
   describe('extractVideoId', () => {
@@ -19,9 +42,9 @@ describe('youtube', () => {
     });
 
     it('should return null for invalid URLs', () => {
-      expect(extractVideoId('not-a-url')).toBe(null);
-      expect(extractVideoId('https://example.com')).toBe(null);
-      expect(extractVideoId('')).toBe(null);
+      expect(extractVideoId('not-a-url')).toBeNull();
+      expect(extractVideoId('https://example.com')).toBeNull();
+      expect(extractVideoId('')).toBeNull();
     });
   });
 
@@ -155,6 +178,486 @@ Hello world`;
 
       const result = parseSubtitles(vttContent);
       expect(result).toBe('Hello world');
+    });
+  });
+
+  describe('downloadSubtitles', () => {
+    beforeEach(() => {
+      jest.clearAllMocks();
+    });
+
+    it('should return subtitles content and remove file on successful download', async () => {
+      const videoId = 'video123';
+      const content = 'subtitle content';
+
+      const timestamp = 1234567890;
+      const dateSpy = jest.spyOn(Date, 'now').mockReturnValue(timestamp);
+      const tempDir = tmpdir();
+      const baseName = `subtitles_${videoId}_${timestamp}`;
+      const subtitleFileName = `${baseName}.en.srt`;
+      const subtitleFilePath = join(tempDir, subtitleFileName);
+
+      await writeFile(subtitleFilePath, content, 'utf-8');
+
+      execFileMock.mockImplementation(
+        (
+          _file: string,
+          _args: string[],
+          _options: unknown,
+          callback: (error: Error | null, result: { stdout: string; stderr: string }) => void
+        ) => {
+          callback(null, { stdout: '', stderr: '' });
+        }
+      );
+
+      const result = await downloadSubtitles(videoId, 'auto', 'en');
+
+      expect(execFileMock).toHaveBeenCalled();
+      expect(result).toBe(content);
+      await expect(access(subtitleFilePath, constants.F_OK)).rejects.toThrow();
+
+      dateSpy.mockRestore();
+    });
+
+    it('should return null when no subtitle file is found', async () => {
+      const videoId = 'video-no-file';
+      const timestamp = 1234567891;
+      const dateSpy = jest.spyOn(Date, 'now').mockReturnValue(timestamp);
+      const tempDir = tmpdir();
+      const baseName = `subtitles_${videoId}_${timestamp}`;
+      const subtitleFileName = `${baseName}.en.srt`;
+      const subtitleFilePath = join(tempDir, subtitleFileName);
+
+      // Ensure file does not exist
+      await unlink(subtitleFilePath).catch(() => {});
+
+      execFileMock.mockImplementation(
+        (
+          _file: string,
+          _args: string[],
+          _options: unknown,
+          callback: (error: Error | null, result: { stdout: string; stderr: string }) => void
+        ) => {
+          callback(null, { stdout: '', stderr: '' });
+        }
+      );
+
+      const result = await downloadSubtitles(videoId, 'auto', 'en');
+
+      expect(result).toBeNull();
+
+      dateSpy.mockRestore();
+    });
+
+    it('should return null when subtitle file is empty', async () => {
+      const videoId = 'video-empty';
+      const content = '   ';
+      const timestamp = 1234567892;
+      const dateSpy = jest.spyOn(Date, 'now').mockReturnValue(timestamp);
+      const tempDir = tmpdir();
+      const baseName = `subtitles_${videoId}_${timestamp}`;
+      const subtitleFileName = `${baseName}.en.srt`;
+      const subtitleFilePath = join(tempDir, subtitleFileName);
+
+      await writeFile(subtitleFilePath, content, 'utf-8');
+
+      execFileMock.mockImplementation(
+        (
+          _file: string,
+          _args: string[],
+          _options: unknown,
+          callback: (error: Error | null, result: { stdout: string; stderr: string }) => void
+        ) => {
+          callback(null, { stdout: '', stderr: '' });
+        }
+      );
+
+      const result = await downloadSubtitles(videoId, 'auto', 'en');
+
+      expect(result).toBeNull();
+      await expect(access(subtitleFilePath, constants.F_OK)).resolves.toBeUndefined();
+
+      dateSpy.mockRestore();
+    });
+
+    it('should still return content when yt-dlp fails but file exists', async () => {
+      const videoId = 'video123';
+      const content = 'subtitle content after error';
+
+      const timestamp = 1234567893;
+      const dateSpy = jest.spyOn(Date, 'now').mockReturnValue(timestamp);
+      const tempDir = tmpdir();
+      const baseName = `subtitles_${videoId}_${timestamp}`;
+      const subtitleFileName = `${baseName}.en.srt`;
+      const subtitleFilePath = join(tempDir, subtitleFileName);
+
+      await writeFile(subtitleFilePath, content, 'utf-8');
+
+      execFileMock.mockImplementation(
+        (
+          _file: string,
+          _args: string[],
+          _options: unknown,
+          callback: (error: Error | null, result: { stdout: string; stderr: string }) => void
+        ) => {
+          const error = new Error('yt-dlp error') as any;
+          error.stdout = '';
+          error.stderr = 'error';
+          callback(error, { stdout: '', stderr: 'error' });
+        }
+      );
+
+      const result = await downloadSubtitles(videoId, 'auto', 'en');
+
+      expect(result).toBe(content);
+      await expect(access(subtitleFilePath, constants.F_OK)).rejects.toThrow();
+
+      dateSpy.mockRestore();
+    });
+  });
+
+  describe('findSubtitleFile', () => {
+    beforeEach(() => {
+      jest.clearAllMocks();
+    });
+
+    it('should find file that starts with base name and has subtitle extension', async () => {
+      const tempDir = tmpdir();
+      const basePath = join(tempDir, 'subtitles_video123_1');
+      const baseName = basename(basePath);
+      const subtitleFilePath = join(tempDir, `${baseName}.en.srt`);
+
+      await writeFile(subtitleFilePath, 'dummy', 'utf-8');
+      await writeFile(join(tempDir, 'other.txt'), 'other', 'utf-8');
+
+      const result = await findSubtitleFile(basePath, tempDir);
+
+      expect(result).toBe(subtitleFilePath);
+    });
+
+    it('should return null when no suitable files are found', async () => {
+      const tempDir = tmpdir();
+      const basePath = join(tempDir, 'subtitles_video123_2');
+
+      await writeFile(join(tempDir, 'file.txt'), 'file', 'utf-8');
+
+      const result = await findSubtitleFile(basePath, tempDir);
+
+      expect(result).toBeNull();
+    });
+  });
+
+  describe('getYtDlpEnv and appendYtDlpEnvArgs', () => {
+    afterEach(() => {
+      delete process.env.YT_DLP_JS_RUNTIMES;
+      delete process.env.YT_DLP_REMOTE_COMPONENTS;
+      delete process.env.COOKIES_FILE_PATH;
+    });
+
+    it('should read and trim environment variables for yt-dlp', () => {
+      process.env.YT_DLP_JS_RUNTIMES = ' node ';
+      process.env.YT_DLP_REMOTE_COMPONENTS = ' custom ';
+      process.env.COOKIES_FILE_PATH = ' /path/to/cookies.txt ';
+
+      const env = getYtDlpEnv();
+
+      expect(env).toEqual({
+        jsRuntimes: 'node',
+        remoteComponents: 'custom',
+        cookiesFilePathFromEnv: '/path/to/cookies.txt',
+      });
+    });
+
+    it('should provide default remoteComponents when not set', () => {
+      const env = getYtDlpEnv();
+
+      expect(env.remoteComponents).toBe('ejs:github');
+    });
+
+    it('should insert yt-dlp flags before the URL argument', () => {
+      const args = ['--dump-single-json', '--skip-download', 'https://example.com'];
+
+      const env = {
+        jsRuntimes: 'node',
+        remoteComponents: 'ejs:github',
+        cookiesFilePathFromEnv: '/cookies.txt',
+      };
+
+      appendYtDlpEnvArgs(args, env);
+
+      expect(args).toEqual([
+        '--dump-single-json',
+        '--skip-download',
+        '--cookies',
+        '/cookies.txt',
+        '--js-runtimes',
+        'node',
+        '--remote-components',
+        'ejs:github',
+        'https://example.com',
+      ]);
+    });
+  });
+
+  describe('fetchYtDlpJson and fetchVideoInfo', () => {
+    beforeEach(() => {
+      jest.clearAllMocks();
+    });
+
+    it('should return parsed JSON from yt-dlp', async () => {
+      const videoId = 'video123';
+      const ytDlpJson = {
+        id: 'video123',
+        title: 'Test title',
+        duration: 120,
+        view_count: 10,
+      };
+
+      execFileMock.mockImplementation(
+        (
+          _file: string,
+          _args: string[],
+          _options: unknown,
+          callback: (error: Error | null, result: { stdout: string; stderr: string }) => void
+        ) => {
+          callback(null, { stdout: JSON.stringify(ytDlpJson), stderr: '' });
+        }
+      );
+
+      const result = await fetchYtDlpJson(videoId);
+
+      expect(result).toEqual(ytDlpJson);
+    });
+
+    it('should return null when yt-dlp stdout is empty', async () => {
+      execFileMock.mockImplementation(
+        (
+          _file: string,
+          _args: string[],
+          _options: unknown,
+          callback: (error: Error | null, result: { stdout: string; stderr: string }) => void
+        ) => {
+          callback(null, { stdout: '   ', stderr: '' });
+        }
+      );
+
+      const result = await fetchYtDlpJson('video123');
+
+      expect(result).toBeNull();
+    });
+
+    it('should return null when yt-dlp throws an error', async () => {
+      execFileMock.mockImplementation(
+        (
+          _file: string,
+          _args: string[],
+          _options: unknown,
+          callback: (error: Error | null, result: { stdout: string; stderr: string }) => void
+        ) => {
+          const error = new Error('yt-dlp failed') as any;
+          error.stdout = '';
+          error.stderr = 'error';
+          callback(error, { stdout: '', stderr: 'error' });
+        }
+      );
+
+      const result = await fetchYtDlpJson('video123');
+
+      expect(result).toBeNull();
+    });
+
+    it('should map YtDlpVideoInfo to VideoInfo', async () => {
+      const videoId = 'video123';
+      const ytDlpJson = {
+        id: 'video123',
+        title: 'Test title',
+        uploader: 'Uploader',
+        uploader_id: 'uploader123',
+        channel: 'Channel',
+        channel_id: 'channel123',
+        channel_url: 'https://example.com/channel',
+        duration: 120,
+        description: 'Description',
+        upload_date: '20250101',
+        webpage_url: 'https://example.com/watch?v=video123',
+        view_count: 42,
+        like_count: 5,
+      };
+
+      execFileMock.mockImplementation(
+        (
+          _file: string,
+          _args: string[],
+          _options: unknown,
+          callback: (error: Error | null, result: { stdout: string; stderr: string }) => void
+        ) => {
+          callback(null, { stdout: JSON.stringify(ytDlpJson), stderr: '' });
+        }
+      );
+
+      const info = await fetchVideoInfo(videoId);
+
+      expect(info).toEqual({
+        id: 'video123',
+        title: 'Test title',
+        uploader: 'Uploader',
+        uploaderId: 'uploader123',
+        channel: 'Channel',
+        channelId: 'channel123',
+        channelUrl: 'https://example.com/channel',
+        duration: 120,
+        description: 'Description',
+        uploadDate: '20250101',
+        webpageUrl: 'https://example.com/watch?v=video123',
+        viewCount: 42,
+        likeCount: 5,
+        commentCount: null,
+        tags: null,
+        categories: null,
+        liveStatus: null,
+        isLive: null,
+        wasLive: null,
+        availability: null,
+        thumbnail: null,
+        thumbnails: null,
+      });
+    });
+
+    it('should map extended YtDlpVideoInfo fields to VideoInfo', async () => {
+      const ytDlpJson = {
+        id: 'video123',
+        title: 'Test',
+        comment_count: 100,
+        tags: ['tag1', 'tag2'],
+        categories: ['Education'],
+        live_status: 'not_live',
+        is_live: false,
+        was_live: false,
+        availability: 'public',
+        thumbnail: 'https://example.com/thumb.jpg',
+        thumbnails: [
+          { url: 'https://example.com/thumb1.jpg', width: 120, height: 90, id: '0' },
+          { url: 'https://example.com/thumb2.jpg', width: 320, height: 180 },
+        ],
+      };
+
+      execFileMock.mockImplementation(
+        (
+          _file: string,
+          _args: string[],
+          _options: unknown,
+          callback: (error: Error | null, result: { stdout: string; stderr: string }) => void
+        ) => {
+          callback(null, { stdout: JSON.stringify(ytDlpJson), stderr: '' });
+        }
+      );
+
+      const info = await fetchVideoInfo('video123');
+
+      expect(info?.commentCount).toBe(100);
+      expect(info?.tags).toEqual(['tag1', 'tag2']);
+      expect(info?.categories).toEqual(['Education']);
+      expect(info?.liveStatus).toBe('not_live');
+      expect(info?.isLive).toBe(false);
+      expect(info?.wasLive).toBe(false);
+      expect(info?.availability).toBe('public');
+      expect(info?.thumbnail).toBe('https://example.com/thumb.jpg');
+      expect(info?.thumbnails).toEqual([
+        { url: 'https://example.com/thumb1.jpg', width: 120, height: 90, id: '0' },
+        { url: 'https://example.com/thumb2.jpg', width: 320, height: 180 },
+      ]);
+    });
+
+    it('should return null from fetchVideoInfo when yt-dlp returns empty output', async () => {
+      execFileMock.mockImplementation(
+        (
+          _file: string,
+          _args: string[],
+          _options: unknown,
+          callback: (error: Error | null, result: { stdout: string; stderr: string }) => void
+        ) => {
+          callback(null, { stdout: '   ', stderr: '' });
+        }
+      );
+
+      const info = await fetchVideoInfo('video123');
+
+      expect(info).toBeNull();
+    });
+  });
+
+  describe('fetchVideoChapters', () => {
+    beforeEach(() => {
+      jest.clearAllMocks();
+    });
+
+    it('should return chapters from yt-dlp JSON', async () => {
+      const ytDlpJson = {
+        id: 'video123',
+        chapters: [
+          { start_time: 0, end_time: 60, title: 'Intro' },
+          { start_time: 60, end_time: 300, title: 'Main content' },
+          { start_time: 300, end_time: 320, title: 'Outro' },
+        ],
+      };
+
+      execFileMock.mockImplementation(
+        (
+          _file: string,
+          _args: string[],
+          _options: unknown,
+          callback: (error: Error | null, result: { stdout: string; stderr: string }) => void
+        ) => {
+          callback(null, { stdout: JSON.stringify(ytDlpJson), stderr: '' });
+        }
+      );
+
+      const chapters = await fetchVideoChapters('video123');
+
+      expect(chapters).toEqual([
+        { startTime: 0, endTime: 60, title: 'Intro' },
+        { startTime: 60, endTime: 300, title: 'Main content' },
+        { startTime: 300, endTime: 320, title: 'Outro' },
+      ]);
+    });
+
+    it('should return empty array when video has no chapters', async () => {
+      const ytDlpJson = { id: 'video123' };
+
+      execFileMock.mockImplementation(
+        (
+          _file: string,
+          _args: string[],
+          _options: unknown,
+          callback: (error: Error | null, result: { stdout: string; stderr: string }) => void
+        ) => {
+          callback(null, { stdout: JSON.stringify(ytDlpJson), stderr: '' });
+        }
+      );
+
+      const chapters = await fetchVideoChapters('video123');
+
+      expect(chapters).toEqual([]);
+    });
+
+    it('should return null when yt-dlp fails', async () => {
+      execFileMock.mockImplementation(
+        (
+          _file: string,
+          _args: string[],
+          _options: unknown,
+          callback: (error: Error | null, result: { stdout: string; stderr: string }) => void
+        ) => {
+          const error = new Error('yt-dlp failed') as any;
+          error.stdout = '';
+          error.stderr = 'error';
+          callback(error, { stdout: '', stderr: 'error' });
+        }
+      );
+
+      const chapters = await fetchVideoChapters('video123');
+
+      expect(chapters).toBeNull();
     });
   });
 });

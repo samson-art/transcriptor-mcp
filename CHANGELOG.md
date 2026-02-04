@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.4] - 2026-02-04
+
+### Added
+
+- Docker-based e2e smoke test for the REST API (`src/e2e/api-smoke.ts`) that builds a local image, starts a container and verifies `POST /subtitles` against a real YouTube video.
+- Documentation in `README` for running Docker smoke tests locally and as part of the `make publish` workflow.
+- Additional unit tests for validation helpers and yt-dlp integration (URL / video ID / language sanitization, video info and chapter extraction, environment-driven yt-dlp flags).
+- Dedicated test suite for MCP tools (`src/mcp-core.test.ts`) covering success and error paths for transcripts, raw subtitles, available subtitles, video info and chapters.
+
+### Changed
+
+- Hardened `validation.ts` helpers to provide more explicit 4xx errors for invalid URLs, video IDs and language codes across subtitles, available subtitles, video info and chapters endpoints.
+- Improved `youtube.ts` helpers to map more yt-dlp metadata, expose chapter markers, and sort official vs auto subtitle language codes for stable output.
+- Refined MCP core implementation to use stricter validation and add pagination/error handling tests for all tools.
+- Updated Jest configuration to collect coverage from `src`, exclude entrypoints (REST + MCP) and enable verbose output.
+
 ## [0.3.3] - 2026-02-04
 
 ### Added
