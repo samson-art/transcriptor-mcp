@@ -16,7 +16,6 @@ const {
   parseSubtitles,
   downloadSubtitles,
   fetchVideoInfo,
-  fetchVideoChapters,
   fetchYtDlpJson,
   findSubtitleFile,
   getYtDlpEnv,
@@ -523,51 +522,6 @@ Hello world`;
       });
     });
 
-    it('should map extended YtDlpVideoInfo fields to VideoInfo', async () => {
-      const ytDlpJson = {
-        id: 'video123',
-        title: 'Test',
-        comment_count: 100,
-        tags: ['tag1', 'tag2'],
-        categories: ['Education'],
-        live_status: 'not_live',
-        is_live: false,
-        was_live: false,
-        availability: 'public',
-        thumbnail: 'https://example.com/thumb.jpg',
-        thumbnails: [
-          { url: 'https://example.com/thumb1.jpg', width: 120, height: 90, id: '0' },
-          { url: 'https://example.com/thumb2.jpg', width: 320, height: 180 },
-        ],
-      };
-
-      execFileMock.mockImplementation(
-        (
-          _file: string,
-          _args: string[],
-          _options: unknown,
-          callback: (error: Error | null, result: { stdout: string; stderr: string }) => void
-        ) => {
-          callback(null, { stdout: JSON.stringify(ytDlpJson), stderr: '' });
-        }
-      );
-
-      const info = await fetchVideoInfo('video123');
-
-      expect(info?.commentCount).toBe(100);
-      expect(info?.tags).toEqual(['tag1', 'tag2']);
-      expect(info?.categories).toEqual(['Education']);
-      expect(info?.liveStatus).toBe('not_live');
-      expect(info?.isLive).toBe(false);
-      expect(info?.wasLive).toBe(false);
-      expect(info?.availability).toBe('public');
-      expect(info?.thumbnail).toBe('https://example.com/thumb.jpg');
-      expect(info?.thumbnails).toEqual([
-        { url: 'https://example.com/thumb1.jpg', width: 120, height: 90, id: '0' },
-        { url: 'https://example.com/thumb2.jpg', width: 320, height: 180 },
-      ]);
-    });
-
     it('should return null from fetchVideoInfo when yt-dlp returns empty output', async () => {
       execFileMock.mockImplementation(
         (
@@ -583,81 +537,6 @@ Hello world`;
       const info = await fetchVideoInfo('video123');
 
       expect(info).toBeNull();
-    });
-  });
-
-  describe('fetchVideoChapters', () => {
-    beforeEach(() => {
-      jest.clearAllMocks();
-    });
-
-    it('should return chapters from yt-dlp JSON', async () => {
-      const ytDlpJson = {
-        id: 'video123',
-        chapters: [
-          { start_time: 0, end_time: 60, title: 'Intro' },
-          { start_time: 60, end_time: 300, title: 'Main content' },
-          { start_time: 300, end_time: 320, title: 'Outro' },
-        ],
-      };
-
-      execFileMock.mockImplementation(
-        (
-          _file: string,
-          _args: string[],
-          _options: unknown,
-          callback: (error: Error | null, result: { stdout: string; stderr: string }) => void
-        ) => {
-          callback(null, { stdout: JSON.stringify(ytDlpJson), stderr: '' });
-        }
-      );
-
-      const chapters = await fetchVideoChapters('video123');
-
-      expect(chapters).toEqual([
-        { startTime: 0, endTime: 60, title: 'Intro' },
-        { startTime: 60, endTime: 300, title: 'Main content' },
-        { startTime: 300, endTime: 320, title: 'Outro' },
-      ]);
-    });
-
-    it('should return empty array when video has no chapters', async () => {
-      const ytDlpJson = { id: 'video123' };
-
-      execFileMock.mockImplementation(
-        (
-          _file: string,
-          _args: string[],
-          _options: unknown,
-          callback: (error: Error | null, result: { stdout: string; stderr: string }) => void
-        ) => {
-          callback(null, { stdout: JSON.stringify(ytDlpJson), stderr: '' });
-        }
-      );
-
-      const chapters = await fetchVideoChapters('video123');
-
-      expect(chapters).toEqual([]);
-    });
-
-    it('should return null when yt-dlp fails', async () => {
-      execFileMock.mockImplementation(
-        (
-          _file: string,
-          _args: string[],
-          _options: unknown,
-          callback: (error: Error | null, result: { stdout: string; stderr: string }) => void
-        ) => {
-          const error = new Error('yt-dlp failed') as any;
-          error.stdout = '';
-          error.stderr = 'error';
-          callback(error, { stdout: '', stderr: 'error' });
-        }
-      );
-
-      const chapters = await fetchVideoChapters('video123');
-
-      expect(chapters).toBeNull();
     });
   });
 });

@@ -12,6 +12,7 @@ import {
   fetchVideoChapters,
   fetchVideoInfo,
   parseSubtitles,
+  type VideoChapter,
 } from './youtube.js';
 import { isValidYouTubeUrl, sanitizeLang, sanitizeVideoId } from './validation.js';
 
@@ -335,7 +336,9 @@ export function createMcpServer() {
       const text =
         chapters.length === 0
           ? `No chapters found for "${videoId}".`
-          : chapters.map((ch) => `${ch.startTime}s - ${ch.endTime}s: ${ch.title}`).join('\n');
+          : chapters
+              .map((ch: VideoChapter) => `${ch.startTime}s - ${ch.endTime}s: ${ch.title}`)
+              .join('\n');
 
       return {
         content: [textContent(text)],

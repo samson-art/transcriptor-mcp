@@ -84,11 +84,38 @@ async function waitForApiReady(baseUrl: string, timeoutMs: number): Promise<void
   throw new Error(`API did not become ready within ${timeoutMs}ms`);
 }
 
+const SWAGGER_DOCS_PATH = '/docs';
+
+async function checkSwaggerDocs(apiBaseUrl: string): Promise<void> {
+  const fetchImpl: any = (globalThis as any).fetch;
+  if (!fetchImpl) {
+    throw new Error('Global fetch is not available in this Node.js runtime');
+  }
+
+  const response = await fetchImpl(`${apiBaseUrl}${SWAGGER_DOCS_PATH}`, { method: 'GET' });
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Swagger docs failed with HTTP ${response.status}: ${text.slice(0, 200)}`);
+  }
+
+  const html = await response.text();
+  if (!html.includes('swagger') && !html.includes('openapi')) {
+    throw new Error(
+      `Swagger docs at ${SWAGGER_DOCS_PATH} did not return expected content (no swagger/openapi in body)`
+    );
+  }
+
+  // eslint-disable-next-line no-console
+  console.log(`[smoke] ${SWAGGER_DOCS_PATH} OK (Swagger UI reachable)`);
+}
+
 async function runApiSmokeTest(apiBaseUrl: string): Promise<void> {
   const fetchImpl: any = (globalThis as any).fetch;
   if (!fetchImpl) {
     throw new Error('Global fetch is not available in this Node.js runtime');
   }
+
+  await checkSwaggerDocs(apiBaseUrl);
 
   const videoUrl = getEnvVar('SMOKE_VIDEO_URL', DEFAULT_VIDEO_URL);
   const requestTimeoutMs = Number.parseInt(getEnvVar('SMOKE_API_REQUEST_TIMEOUT_MS', '90000'), 10);

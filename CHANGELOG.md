@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.5] - 2026-02-04
+
+### Added
+
+- OpenAPI/Swagger documentation at `/docs` with request/response schemas for all REST endpoints (subtitles, raw subtitles, available subtitles, video info, chapters).
+- E2E smoke test now verifies that Swagger UI at `/docs` is reachable.
+
+### Changed
+
+- REST routes registered with `@fastify/swagger` and `@fastify/swagger-ui`; each endpoint documents body and response schemas for generated OpenAPI spec.
+
 ## [0.3.4] - 2026-02-04
 
 ### Added

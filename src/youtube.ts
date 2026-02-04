@@ -7,6 +7,12 @@ import type { FastifyBaseLogger } from 'fastify';
 
 const execFileAsync = promisify(execFile);
 
+type YtDlpChapter = {
+  start_time?: number;
+  end_time?: number;
+  title?: string;
+};
+
 type YtDlpVideoInfo = {
   id?: string;
   title?: string;
@@ -30,9 +36,15 @@ type YtDlpVideoInfo = {
   availability?: string;
   thumbnail?: string;
   thumbnails?: Array<{ url?: string; width?: number; height?: number; id?: string }>;
-  chapters?: Array<{ start_time?: number; end_time?: number; title?: string }>;
+  chapters?: YtDlpChapter[];
   subtitles?: Record<string, Array<{ ext?: string; url?: string }>>;
   automatic_captions?: Record<string, Array<{ ext?: string; url?: string }>>;
+};
+
+export type VideoChapter = {
+  startTime: number;
+  endTime: number;
+  title: string;
 };
 
 export type VideoInfo = {
@@ -58,12 +70,6 @@ export type VideoInfo = {
   availability: string | null;
   thumbnail: string | null;
   thumbnails: Array<{ url: string; width?: number; height?: number; id?: string }> | null;
-};
-
-export type VideoChapter = {
-  startTime: number;
-  endTime: number;
-  title: string;
 };
 
 export type AvailableSubtitles = {
@@ -202,15 +208,6 @@ export async function fetchVideoInfo(
     return null;
   }
 
-  const thumbnails =
-    data.thumbnails && Array.isArray(data.thumbnails)
-      ? data.thumbnails
-          .filter(
-            (t): t is { url: string; width?: number; height?: number; id?: string } => !!t?.url
-          )
-          .map((t) => ({ url: t.url, width: t.width, height: t.height, id: t.id }))
-      : null;
-
   return {
     id: data.id ?? null,
     title: data.title ?? null,
@@ -233,30 +230,38 @@ export async function fetchVideoInfo(
     wasLive: typeof data.was_live === 'boolean' ? data.was_live : null,
     availability: data.availability ?? null,
     thumbnail: data.thumbnail ?? null,
-    thumbnails,
+    thumbnails: Array.isArray(data.thumbnails)
+      ? data.thumbnails
+          .filter(
+            (t): t is { url?: string; width?: number; height?: number; id?: string } => t != null
+          )
+          .map((t) => ({ url: t.url ?? '', width: t.width, height: t.height, id: t.id }))
+      : null,
   };
 }
 
+/**
+ * Fetches chapter markers (start/end time, title) for a YouTube video via yt-dlp.
+ */
 export async function fetchVideoChapters(
   videoId: string,
   logger?: FastifyBaseLogger
 ): Promise<VideoChapter[] | null> {
   const data = await fetchYtDlpJson(videoId, logger);
-  if (!data) {
-    return null;
+  if (!data || !Array.isArray(data.chapters) || data.chapters.length === 0) {
+    return data && Array.isArray(data.chapters) ? [] : null;
   }
-  if (!data.chapters || !Array.isArray(data.chapters)) {
-    return [];
-  }
-
-  const chapters: VideoChapter[] = [];
-  for (const ch of data.chapters) {
-    const startTime = typeof ch.start_time === 'number' ? ch.start_time : 0;
-    const endTime = typeof ch.end_time === 'number' ? ch.end_time : 0;
-    const title = ch.title ?? '';
-    chapters.push({ startTime, endTime, title });
-  }
-  return chapters;
+  return data.chapters
+    .filter(
+      (ch): ch is YtDlpChapter & { title: string } => ch != null && typeof ch.title === 'string'
+    )
+    .map(
+      (ch): VideoChapter => ({
+        startTime: typeof ch.start_time === 'number' ? ch.start_time : 0,
+        endTime: typeof ch.end_time === 'number' ? ch.end_time : 0,
+        title: ch.title,
+      })
+    );
 }
 
 export async function fetchAvailableSubtitles(

@@ -14,7 +14,7 @@ services:
       YT_DLP_JS_RUNTIMES: "node"
       COOKIES_FILE_PATH: "/cookies.txt"
     volumes:
-      - "./cookies.txt:/cookies.txt:ro"
+      - "./cookies.txt:/cookies.txt"
     restart: unless-stopped
 
   yt-captions-mcp:
@@ -32,4 +32,4 @@ services:
     ports:
       - "4200:4200"
     volumes:
-      - "./cookies.txt:/cookies.txt:ro"
+      - "./cookies.txt:/cookies.txt"
