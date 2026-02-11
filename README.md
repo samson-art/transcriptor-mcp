@@ -277,49 +277,41 @@ see [`docs/cookies.md`](docs/cookies.md).
 docker run -d -p 3000:3000 --name yt-captions yt-captions-downloader
 ```
 
-### E2E smoke tests for REST API (Docker)
+### E2E smoke tests (REST API + MCP, Docker)
 
 Before publishing Docker images, you can run a small **e2e smoke test** that:
 
-- Builds a local REST API image
-- Starts a container from that image
-- Performs a real `POST /subtitles` request for a stable YouTube video
-- Fails fast if something is broken (build, startup, or basic functionality)
+- Starts a REST API container and checks Swagger + `POST /subtitles` with a stable YouTube video
+- Optionally starts an MCP container and checks **MCP stdio** (initialize over stdin/stdout), **streamable HTTP** (`POST /mcp` with initialize), and **SSE** (`GET /sse`)
 
-#### Run smoke tests locally
-
-Build the local image and run the smoke test:
+Run the smoke test (requires built images):
 
 ```bash
-make docker-build-api
-make docker-smoke-api-local
+npm run build
+docker build -t artsamsonov/yt-captions-downloader:latest -f Dockerfile .
+docker build -t artsamsonov/yt-captions-mcp:latest -f Dockerfile.mcp .
+npm run test:e2e:api
 ```
 
-Or run the aggregated target (includes all Docker-based smoke tests that are defined):
+**Environment variables:**
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `SMOKE_IMAGE_API` | — | Full API image reference (overrides name/tag). |
+| `DOCKER_API_IMAGE` / `TAG` | `artsamsonov/yt-captions-downloader`, `latest` | API image name and tag. |
+| `SMOKE_API_URL` / `SMOKE_API_PORT` | `http://127.0.0.1:33000`, `33000` | API base URL and port. |
+| `SMOKE_VIDEO_URL` | `https://www.youtube.com/watch?v=dQw4w9WgXcQ` | Video used for `/subtitles` check. |
+| `SMOKE_SKIP_MCP` | — | Set to `1` (or `true`/`yes`) to skip MCP checks. |
+| `SMOKE_MCP_IMAGE` | — | Full MCP image reference (overrides name/tag). |
+| `DOCKER_MCP_IMAGE` / `TAG` | `artsamsonov/yt-captions-mcp`, `latest` | MCP image name and tag. |
+| `SMOKE_MCP_URL` / `SMOKE_MCP_PORT` | `http://127.0.0.1:4200`, `4200` | MCP base URL and port. |
+| `SMOKE_MCP_AUTH_TOKEN` | — | If set, passed to MCP container as `MCP_AUTH_TOKEN` and sent as Bearer in MCP requests. |
+
+Example: skip MCP and use a custom video:
 
 ```bash
-make smoke
+SMOKE_SKIP_MCP=1 SMOKE_VIDEO_URL="https://www.youtube.com/watch?v=YOUR_ID" npm run test:e2e:api
 ```
-
-By default, the smoke test uses:
-
-- Image: `artsamsonov/yt-captions-downloader:latest` (or overridden via `TAG` / `DOCKER_API_IMAGE`)
-- Video: `https://www.youtube.com/watch?v=dQw4w9WgXcQ`
-
-You can override the video (and other settings) via environment variables:
-
-```bash
-SMOKE_VIDEO_URL="https://www.youtube.com/watch?v=<YOUR_VIDEO_ID>" make docker-smoke-api-local
-```
-
-#### Smoke tests in `make publish`
-
-The `publish-docker-api` target now ensures the following sequence:
-
-1. `check` (format, lint, typecheck, unit tests, build)
-2. Local Docker build for the REST API image
-3. Docker-based e2e smoke test (`docker-smoke-api-local`)
-4. Multi-arch build & push via `docker-buildx-api`
 
 #### View logs
 

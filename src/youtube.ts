@@ -1,4 +1,4 @@
-import { execFile } from 'node:child_process';
+import { execFile, type ExecFileException } from 'node:child_process';
 import { promisify } from 'util';
 import { readFile, unlink } from 'fs/promises';
 import { join } from 'path';
@@ -6,6 +6,10 @@ import { tmpdir } from 'os';
 import type { FastifyBaseLogger } from 'fastify';
 
 const execFileAsync = promisify(execFile);
+
+function isExecFileException(error: unknown): error is ExecFileException {
+  return error instanceof Error && typeof (error as ExecFileException).code !== 'undefined';
+}
 
 type YtDlpChapter = {
   start_time?: number;
@@ -165,9 +169,17 @@ export async function downloadSubtitles(
           return content;
         }
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
+      const err = error instanceof Error ? error : new Error(String(error));
+      const execErr = isExecFileException(error) ? error : null;
       logger?.error(
-        { error: error.message, videoId, type, lang, stdout: error.stdout, stderr: error.stderr },
+        {
+          error: err.message,
+          videoId,
+          type,
+          lang,
+          ...(execErr && { stdout: execErr.stdout, stderr: execErr.stderr }),
+        },
         `Error downloading ${type} subtitles for ${videoId}`
       );
 
@@ -320,49 +332,28 @@ export async function findSubtitleFile(
     const subtitleFile = files.find((file) => {
       const startsWithBase = file.startsWith(baseName);
       const hasSubtitleExt = file.endsWith('.srt') || file.endsWith('.vtt');
-      const matchesPattern = startsWithBase && hasSubtitleExt;
-
-      if (matchesPattern) {
-        logger?.debug({ file, baseName }, 'Found matching subtitle file');
-      }
-
-      return matchesPattern;
+      return startsWithBase && hasSubtitleExt;
     });
 
     // If exact match not found, try to find files that contain baseName
     // (in case the name format is slightly different)
-    if (!subtitleFile) {
+    let resultPath: string | null = null;
+    if (subtitleFile) {
+      resultPath = join(dir, subtitleFile);
+    } else {
       const alternativeFile = files.find((file) => {
         const hasSubtitleExt = file.endsWith('.srt') || file.endsWith('.vtt');
         const containsBaseName = file.includes(baseName);
         return hasSubtitleExt && containsBaseName;
       });
-
       if (alternativeFile) {
-        logger?.debug({ file: alternativeFile }, 'Found alternative matching subtitle file');
-        return join(dir, alternativeFile);
+        resultPath = join(dir, alternativeFile);
       }
     }
 
-    if (subtitleFile) {
-      return join(dir, subtitleFile);
-    }
+    logger?.debug({ baseName, dir, found: resultPath }, 'Subtitle file search result');
 
-    // If not found by exact match, search for any .srt/.vtt files that might be ours
-    // (in case yt-dlp uses a different name format)
-    const anySubtitleFile = files.find((file) => {
-      const hasSubtitleExt = file.endsWith('.srt') || file.endsWith('.vtt');
-      // Проверяем, что файл содержит videoId или timestamp
-      const containsVideoId = file.includes(basePath.split('_')[1]) || file.includes(basePath);
-      return hasSubtitleExt && containsVideoId;
-    });
-
-    if (anySubtitleFile) {
-      logger?.debug({ file: anySubtitleFile }, 'Found alternative subtitle file');
-      return join(dir, anySubtitleFile);
-    }
-
-    return null;
+    return resultPath;
   } catch (error) {
     logger?.error({ error, basePath }, 'Error finding subtitle file');
     return null;
@@ -424,10 +415,28 @@ export async function fetchYtDlpJson(
       return null;
     }
 
-    return JSON.parse(trimmed) as YtDlpVideoInfo;
-  } catch (error: any) {
+    try {
+      return JSON.parse(trimmed) as YtDlpVideoInfo;
+    } catch (parseError) {
+      logger?.error(
+        {
+          error: parseError instanceof Error ? parseError.message : String(parseError),
+          videoId,
+          stdoutPreview: trimmed.slice(0, 200),
+        },
+        'Error parsing yt-dlp JSON output'
+      );
+      return null;
+    }
+  } catch (error: unknown) {
+    const err = error instanceof Error ? error : new Error(String(error));
+    const execErr = isExecFileException(error) ? error : null;
     logger?.error(
-      { error: error.message, videoId, stdout: error.stdout, stderr: error.stderr },
+      {
+        error: err.message,
+        videoId,
+        ...(execErr && { stdout: execErr.stdout, stderr: execErr.stderr }),
+      },
       'Error fetching video info via yt-dlp'
     );
     return null;

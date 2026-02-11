@@ -140,6 +140,46 @@ export function sanitizeLang(lang: string): string | null {
 }
 
 /**
+ * Validates YouTube URL and returns sanitized video ID.
+ * Sends error response and returns null on validation failure.
+ * @param url - YouTube video URL from request
+ * @param reply - Fastify reply to send error responses
+ * @returns object with videoId or null
+ */
+export function validateYouTubeRequest(
+  url: string,
+  reply: FastifyReply
+): { videoId: string } | null {
+  if (!isValidYouTubeUrl(url)) {
+    reply.code(400).send({
+      error: 'Invalid YouTube URL',
+      message: 'Please provide a valid YouTube video URL',
+    });
+    return null;
+  }
+
+  const extractedVideoId = extractVideoId(url);
+  if (!extractedVideoId) {
+    reply.code(400).send({
+      error: 'Invalid YouTube URL',
+      message: 'Could not extract video ID from the provided URL',
+    });
+    return null;
+  }
+
+  const videoId = sanitizeVideoId(extractedVideoId);
+  if (!videoId) {
+    reply.code(400).send({
+      error: 'Invalid video ID',
+      message: 'Video ID contains invalid characters',
+    });
+    return null;
+  }
+
+  return { videoId };
+}
+
+/**
  * Validates request and downloads subtitles
  * @param logger - Fastify logger instance for structured logging
  * @returns object with subtitle data or null in case of error
@@ -154,37 +194,13 @@ export async function validateAndDownloadSubtitles(
   lang: string;
   subtitlesContent: string;
 } | null> {
-  const { url, type = 'auto', lang = 'en' } = request;
-
-  // Validate URL for valid YouTube URL
-  // (basic validation already done by TypeBox, but check YouTube-specific requirements)
-  if (!isValidYouTubeUrl(url)) {
-    reply.code(400).send({
-      error: 'Invalid YouTube URL',
-      message: 'Please provide a valid YouTube video URL',
-    });
+  const validated = validateYouTubeRequest(request.url, reply);
+  if (!validated) {
     return null;
   }
 
-  // Extract video ID
-  const extractedVideoId = extractVideoId(url);
-  if (!extractedVideoId) {
-    reply.code(400).send({
-      error: 'Invalid YouTube URL',
-      message: 'Could not extract video ID from the provided URL',
-    });
-    return null;
-  }
-
-  // Sanitize video ID to prevent injection attacks
-  const videoId = sanitizeVideoId(extractedVideoId);
-  if (!videoId) {
-    reply.code(400).send({
-      error: 'Invalid video ID',
-      message: 'Video ID contains invalid characters',
-    });
-    return null;
-  }
+  const { videoId } = validated;
+  const { type = 'auto', lang = 'en' } = request;
 
   // Sanitize language code to prevent injection attacks
   const sanitizedLang = sanitizeLang(lang);
@@ -224,38 +240,12 @@ export async function validateAndFetchAvailableSubtitles(
   official: string[];
   auto: string[];
 } | null> {
-  const { url } = request;
-
-  // Validate URL for valid YouTube URL
-  if (!isValidYouTubeUrl(url)) {
-    reply.code(400).send({
-      error: 'Invalid YouTube URL',
-      message: 'Please provide a valid YouTube video URL',
-    });
+  const validated = validateYouTubeRequest(request.url, reply);
+  if (!validated) {
     return null;
   }
 
-  // Extract video ID
-  const extractedVideoId = extractVideoId(url);
-  if (!extractedVideoId) {
-    reply.code(400).send({
-      error: 'Invalid YouTube URL',
-      message: 'Could not extract video ID from the provided URL',
-    });
-    return null;
-  }
-
-  // Sanitize video ID to prevent injection attacks
-  const videoId = sanitizeVideoId(extractedVideoId);
-  if (!videoId) {
-    reply.code(400).send({
-      error: 'Invalid video ID',
-      message: 'Video ID contains invalid characters',
-    });
-    return null;
-  }
-
-  // Fetch available subtitles
+  const { videoId } = validated;
   const availableSubtitles = await fetchAvailableSubtitles(videoId, logger);
 
   if (!availableSubtitles) {
@@ -277,34 +267,12 @@ export async function validateAndFetchVideoInfo(
   reply: FastifyReply,
   logger?: FastifyBaseLogger
 ): Promise<{ videoId: string; info: Awaited<ReturnType<typeof fetchVideoInfo>> } | null> {
-  const { url } = request;
-
-  if (!isValidYouTubeUrl(url)) {
-    reply.code(400).send({
-      error: 'Invalid YouTube URL',
-      message: 'Please provide a valid YouTube video URL',
-    });
+  const validated = validateYouTubeRequest(request.url, reply);
+  if (!validated) {
     return null;
   }
 
-  const extractedVideoId = extractVideoId(url);
-  if (!extractedVideoId) {
-    reply.code(400).send({
-      error: 'Invalid YouTube URL',
-      message: 'Could not extract video ID from the provided URL',
-    });
-    return null;
-  }
-
-  const videoId = sanitizeVideoId(extractedVideoId);
-  if (!videoId) {
-    reply.code(400).send({
-      error: 'Invalid video ID',
-      message: 'Video ID contains invalid characters',
-    });
-    return null;
-  }
-
+  const { videoId } = validated;
   const info = await fetchVideoInfo(videoId, logger);
   if (!info) {
     reply.code(404).send({
@@ -325,34 +293,12 @@ export async function validateAndFetchVideoChapters(
   reply: FastifyReply,
   logger?: FastifyBaseLogger
 ): Promise<{ videoId: string; chapters: Awaited<ReturnType<typeof fetchVideoChapters>> } | null> {
-  const { url } = request;
-
-  if (!isValidYouTubeUrl(url)) {
-    reply.code(400).send({
-      error: 'Invalid YouTube URL',
-      message: 'Please provide a valid YouTube video URL',
-    });
+  const validated = validateYouTubeRequest(request.url, reply);
+  if (!validated) {
     return null;
   }
 
-  const extractedVideoId = extractVideoId(url);
-  if (!extractedVideoId) {
-    reply.code(400).send({
-      error: 'Invalid YouTube URL',
-      message: 'Could not extract video ID from the provided URL',
-    });
-    return null;
-  }
-
-  const videoId = sanitizeVideoId(extractedVideoId);
-  if (!videoId) {
-    reply.code(400).send({
-      error: 'Invalid video ID',
-      message: 'Video ID contains invalid characters',
-    });
-    return null;
-  }
-
+  const { videoId } = validated;
   const chapters = await fetchVideoChapters(videoId, logger);
   if (chapters === null) {
     reply.code(404).send({

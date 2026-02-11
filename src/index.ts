@@ -18,6 +18,7 @@ import {
   validateAndFetchVideoInfo,
   validateAndFetchVideoChapters,
 } from './validation.js';
+import { version as API_VERSION } from './version.js';
 
 // Response schemas for OpenAPI/Swagger
 const ErrorResponseSchema = Type.Object({
@@ -70,21 +71,37 @@ const VideoChaptersResponseSchema = Type.Object({
   chapters: Type.Array(ChapterSchema),
 });
 
-const API_VERSION = '0.3.5';
-
 const fastify = Fastify({
   logger: true,
 }).withTypeProvider<TypeBoxTypeProvider>();
 
-// Register CORS
+fastify.setErrorHandler((error, _request, reply) => {
+  fastify.log.error(error);
+  const message = error instanceof Error ? error.message : 'Unknown error occurred';
+  return reply.code(500).send({
+    error: 'Internal server error',
+    message,
+  });
+});
+
+// Register CORS (optional allowlist via CORS_ALLOWED_ORIGINS comma-separated)
+const corsAllowedOrigins = process.env.CORS_ALLOWED_ORIGINS?.trim()
+  ? process.env.CORS_ALLOWED_ORIGINS.split(',')
+      .map((o) => o.trim())
+      .filter(Boolean)
+  : undefined;
 fastify.register(cors, {
-  origin: true,
+  origin: corsAllowedOrigins && corsAllowedOrigins.length > 0 ? corsAllowedOrigins : true,
 });
 
 // Register rate limiting
 fastify.register(rateLimit, {
   max: process.env.RATE_LIMIT_MAX ? Number.parseInt(process.env.RATE_LIMIT_MAX, 10) : 100, // maximum number of requests
   timeWindow: process.env.RATE_LIMIT_TIME_WINDOW || '1 minute', // time window
+});
+
+fastify.get('/health', async (_request, reply) => {
+  return reply.code(200).send({ status: 'ok' });
 });
 
 // Register Swagger and API routes in the same context so OpenAPI discovers the routes
@@ -126,42 +143,29 @@ fastify.register(async (instance) => {
       },
     },
     async (request, reply) => {
-      try {
-        const body = request.body as GetSubtitlesRequest;
+      const body = request.body as GetSubtitlesRequest;
 
-        const result = await validateAndDownloadSubtitles(body, reply, instance.log);
-        if (!result) {
-          return; // Response already sent from validateAndDownloadSubtitles
-        }
-
-        const { videoId, type, lang, subtitlesContent } = result;
-
-        // Parse and clean subtitles
-        let plainText: string;
-        try {
-          plainText = parseSubtitles(subtitlesContent, instance.log);
-        } catch (error) {
-          instance.log.error(error);
-          return reply.code(500).send({
-            error: 'Parsing error',
-            message: error instanceof Error ? error.message : 'Failed to parse subtitles',
-          });
-        }
-
-        return reply.send({
-          videoId,
-          type,
-          lang,
-          text: plainText,
-          length: plainText.length,
-        });
-      } catch (error) {
-        instance.log.error(error);
-        return reply.code(500).send({
-          error: 'Internal server error',
-          message: error instanceof Error ? error.message : 'Unknown error occurred',
-        });
+      const result = await validateAndDownloadSubtitles(body, reply, instance.log);
+      if (!result) {
+        return; // Response already sent from validateAndDownloadSubtitles
       }
+
+      const { videoId, type, lang, subtitlesContent } = result;
+
+      let plainText: string;
+      try {
+        plainText = parseSubtitles(subtitlesContent, instance.log);
+      } catch (error) {
+        throw new Error(error instanceof Error ? error.message : 'Failed to parse subtitles');
+      }
+
+      return reply.send({
+        videoId,
+        type,
+        lang,
+        text: plainText,
+        length: plainText.length,
+      });
     }
   );
 
@@ -181,34 +185,25 @@ fastify.register(async (instance) => {
       },
     },
     async (request, reply) => {
-      try {
-        const body = request.body as GetSubtitlesRequest;
+      const body = request.body as GetSubtitlesRequest;
 
-        const result = await validateAndDownloadSubtitles(body, reply, instance.log);
-        if (!result) {
-          return; // Response already sent from validateAndDownloadSubtitles
-        }
-
-        const { videoId, type, lang, subtitlesContent } = result;
-
-        // Detect subtitle format
-        const format = detectSubtitleFormat(subtitlesContent);
-
-        return reply.send({
-          videoId,
-          type,
-          lang,
-          format,
-          content: subtitlesContent,
-          length: subtitlesContent.length,
-        });
-      } catch (error) {
-        instance.log.error(error);
-        return reply.code(500).send({
-          error: 'Internal server error',
-          message: error instanceof Error ? error.message : 'Unknown error occurred',
-        });
+      const result = await validateAndDownloadSubtitles(body, reply, instance.log);
+      if (!result) {
+        return; // Response already sent from validateAndDownloadSubtitles
       }
+
+      const { videoId, type, lang, subtitlesContent } = result;
+
+      const format = detectSubtitleFormat(subtitlesContent);
+
+      return reply.send({
+        videoId,
+        type,
+        lang,
+        format,
+        content: subtitlesContent,
+        length: subtitlesContent.length,
+      });
     }
   );
 
@@ -228,28 +223,20 @@ fastify.register(async (instance) => {
       },
     },
     async (request, reply) => {
-      try {
-        const body = request.body as GetAvailableSubtitlesRequest;
+      const body = request.body as GetAvailableSubtitlesRequest;
 
-        const result = await validateAndFetchAvailableSubtitles(body, reply, instance.log);
-        if (!result) {
-          return; // Response already sent from validateAndFetchAvailableSubtitles
-        }
-
-        const { videoId, official, auto } = result;
-
-        return reply.send({
-          videoId,
-          official,
-          auto,
-        });
-      } catch (error) {
-        instance.log.error(error);
-        return reply.code(500).send({
-          error: 'Internal server error',
-          message: error instanceof Error ? error.message : 'Unknown error occurred',
-        });
+      const result = await validateAndFetchAvailableSubtitles(body, reply, instance.log);
+      if (!result) {
+        return; // Response already sent from validateAndFetchAvailableSubtitles
       }
+
+      const { videoId, official, auto } = result;
+
+      return reply.send({
+        videoId,
+        official,
+        auto,
+      });
     }
   );
 
@@ -269,27 +256,19 @@ fastify.register(async (instance) => {
       },
     },
     async (request, reply) => {
-      try {
-        const body = request.body as GetVideoInfoRequest;
+      const body = request.body as GetVideoInfoRequest;
 
-        const result = await validateAndFetchVideoInfo(body, reply, instance.log);
-        if (!result) {
-          return;
-        }
-
-        const { videoId, info } = result;
-
-        return reply.send({
-          videoId,
-          ...info,
-        });
-      } catch (error) {
-        instance.log.error(error);
-        return reply.code(500).send({
-          error: 'Internal server error',
-          message: error instanceof Error ? error.message : 'Unknown error occurred',
-        });
+      const result = await validateAndFetchVideoInfo(body, reply, instance.log);
+      if (!result) {
+        return;
       }
+
+      const { videoId, info } = result;
+
+      return reply.send({
+        videoId,
+        ...info,
+      });
     }
   );
 
@@ -309,27 +288,19 @@ fastify.register(async (instance) => {
       },
     },
     async (request, reply) => {
-      try {
-        const body = request.body as GetVideoInfoRequest;
+      const body = request.body as GetVideoInfoRequest;
 
-        const result = await validateAndFetchVideoChapters(body, reply, instance.log);
-        if (!result) {
-          return;
-        }
-
-        const { videoId, chapters } = result;
-
-        return reply.send({
-          videoId,
-          chapters,
-        });
-      } catch (error) {
-        instance.log.error(error);
-        return reply.code(500).send({
-          error: 'Internal server error',
-          message: error instanceof Error ? error.message : 'Unknown error occurred',
-        });
+      const result = await validateAndFetchVideoChapters(body, reply, instance.log);
+      if (!result) {
+        return;
       }
+
+      const { videoId, chapters } = result;
+
+      return reply.send({
+        videoId,
+        chapters,
+      });
     }
   );
 });

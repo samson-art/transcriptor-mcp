@@ -15,6 +15,7 @@ import {
   type VideoChapter,
 } from './youtube.js';
 import { isValidYouTubeUrl, sanitizeLang, sanitizeVideoId } from './validation.js';
+import { version } from './version.js';
 
 const DEFAULT_RESPONSE_LIMIT = 50000;
 const MAX_RESPONSE_LIMIT = 200000;
@@ -116,7 +117,7 @@ function textContent(text: string): TextContent {
 export function createMcpServer() {
   const server = new McpServer({
     name: 'yt-captions-downloader',
-    version: '0.2.0',
+    version,
   });
 
   /**

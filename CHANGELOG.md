@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.7] - 2026-02-11
+
+### Added
+
+- **REST API:** `GET /health` endpoint returning `{ "status": "ok" }` for liveness/readiness and Docker `HEALTHCHECK`.
+- **REST API:** Optional CORS allowlist via `CORS_ALLOWED_ORIGINS` (comma-separated origins); when unset, all origins remain allowed.
+- **MCP HTTP server:** Rate limiting configurable via `MCP_RATE_LIMIT_MAX` and `MCP_RATE_LIMIT_TIME_WINDOW`.
+- **MCP HTTP server:** Session TTL and periodic cleanup via `MCP_SESSION_TTL_MS` and `MCP_SESSION_CLEANUP_INTERVAL_MS`.
+- **Version:** `src/version.ts` reads version from `package.json`; REST API and MCP server use it for responses and server info.
+- **E2E smoke test:** MCP coverage — starts MCP container and verifies stdio (initialize over stdin/stdout), streamable HTTP (`POST /mcp`), and SSE (`GET /sse`). New env vars: `SMOKE_SKIP_MCP`, `SMOKE_MCP_IMAGE`, `SMOKE_MCP_URL` / `SMOKE_MCP_PORT`, `SMOKE_MCP_AUTH_TOKEN`, plus API-related overrides.
+- **Docs:** `docs/configuration.md` — CORS, MCP rate limit/session/cleanup, health endpoint, and E2E smoke test env vars. `.env.example` updated with `CORS_ALLOWED_ORIGINS` and MCP HTTP options.
+
+### Changed
+
+- REST API and MCP server now derive version from `package.json` instead of hardcoded values.
+- REST API: global Fastify error handler returns 500 with `error` and `message`; route handlers no longer wrap in try/catch so validation/parsing errors are handled consistently.
+- E2E smoke test flow: single entry `npm run test:e2e:api` with optional MCP checks; README updated with env var table and simplified run instructions.
+- `docker-compose.example.yml`: reordered keys (ports after environment), added `restart: unless-stopped` for MCP service; API service no longer includes `build` (image-only).
+- Jest: exclude `src/e2e/api-smoke.ts` from coverage (top-level await).
+
 ## [0.3.6] - 2026-02-05
 
 ### Changed
