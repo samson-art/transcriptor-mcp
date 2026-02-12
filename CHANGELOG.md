@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Docker: single Dockerfile with shared base.** One Dockerfile now builds both REST API and MCP images via multi-stage build. Stages: `builder` (Node, npm ci, build) → `base` (node, python3, pip, curl, unzip, ffmpeg, Deno, yt-dlp -U, YT_DLP_JS_RUNTIMES) → `api` (REST, port 3000) and `mcp` (MCP, port 4200). Build with `docker build -f Dockerfile --target api .` or `--target mcp .`. `Dockerfile.mcp` removed; Makefile targets `docker-build-api` and `docker-build-mcp` (and buildx variants) use the same Dockerfile with the appropriate target. README and `docs/quick-start.mcp.md` updated to use `--target api` / `--target mcp`.
+
 ## [0.4.4] - 2026-02-13
 
 ### Changed

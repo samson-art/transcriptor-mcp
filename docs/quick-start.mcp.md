@@ -47,7 +47,7 @@ MCP_PORT=4200 MCP_HOST=0.0.0.0 npm run start:mcp:http
 Run via Docker:
 
 ```bash
-docker build -f Dockerfile.mcp -t transcriptor-mcp .
+docker build -f Dockerfile --target mcp -t transcriptor-mcp .
 docker run -p 4200:4200 -e MCP_PORT=4200 -e MCP_HOST=0.0.0.0 transcriptor-mcp npm run start:mcp:http
 ```
 

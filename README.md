@@ -289,8 +289,8 @@ Run the smoke test (requires built images):
 
 ```bash
 npm run build
-docker build -t artsamsonov/transcriptor-mcp-api:latest -f Dockerfile .
-docker build -t artsamsonov/transcriptor-mcp:latest -f Dockerfile.mcp .
+docker build -t artsamsonov/transcriptor-mcp-api:latest -f Dockerfile --target api .
+docker build -t artsamsonov/transcriptor-mcp:latest -f Dockerfile --target mcp .
 npm run test:e2e:api
 ```
 
@@ -386,14 +386,14 @@ Create `.cursor/mcp.json` (or add to your global Cursor MCP settings):
 Build and run the MCP server in a container (stdio mode):
 
 ```bash
-docker build -f Dockerfile.mcp -t transcriptor-mcp .
+docker build -f Dockerfile --target mcp -t transcriptor-mcp .
 docker run --rm -i transcriptor-mcp
 ```
 
 Build and run the MCP server in a container (HTTP mode):
 
 ```bash
-docker build -f Dockerfile.mcp -t transcriptor-mcp .
+docker build -f Dockerfile --target mcp -t transcriptor-mcp .
 docker run -p 4200:4200 -e MCP_PORT=4200 -e MCP_HOST=0.0.0.0 transcriptor-mcp npm run start:mcp:http
 ```
 
@@ -459,7 +459,7 @@ Cursor MCP config for Docker:
 │   ├── validation.ts     # Request validation logic
 │   └── youtube.ts        # YouTube subtitle downloading and parsing
 ├── dist/                 # Compiled JavaScript (generated)
-├── Dockerfile            # Docker image configuration
+├── Dockerfile            # Docker image (API and MCP via --target api/mcp)
 ├── logo.webp             # Project logo used in README
 ├── example-usage.webp    # Example usage screenshot used in README
 ├── package.json
