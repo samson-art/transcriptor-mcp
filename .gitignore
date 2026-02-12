@@ -11,3 +11,4 @@ docker-hub-description.md
 cookies.txt
 Makefile
 .cursor/
+docker-compose.yml

@@ -35,6 +35,8 @@ This file is used when yt-dlp needs authenticated cookies to access:
 - sign-in required content
 - region-locked videos
 
+Some of the other supported platforms (e.g. Twitter/X, Instagram, VK) may also require cookies for certain content; the same `COOKIES_FILE_PATH` is passed to yt-dlp for all URLs.
+
 The application passes this path to yt-dlp via the `--cookies` flag.  
 See `docs/cookies.md` for a detailed guide on:
 
@@ -109,6 +111,8 @@ When subtitles cannot be obtained from YouTube (via yt-dlp), the app can optiona
 
 - **`WHISPER_BASE_URL`** – base URL of the Whisper service (e.g. `http://whisper:9000`)
 - **`WHISPER_TIMEOUT`** – request timeout in milliseconds (default: `120000`)
+
+Local mode is compatible with [whisper-asr-webservice](https://github.com/ahmetoner/whisper-asr-webservice): the app sends `POST /asr` with the audio file in the `audio_file` form field and query parameters `output` (srt, vtt, or txt) and optional `language`.
 
 **For Whisper API** (OpenAI or compatible):
 

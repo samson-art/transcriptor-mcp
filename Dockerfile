@@ -23,12 +23,13 @@ RUN npm run build
 # ============================================
 FROM node:20-slim AS production
 
-# Устанавливаем системные зависимости для yt-dlp и JS runtime
+# Устанавливаем системные зависимости для yt-dlp и JS runtime (ffmpeg для постобработки аудио)
 RUN apt-get update && apt-get install -y \
     python3 \
     python3-pip \
     curl \
     unzip \
+    ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
 # Устанавливаем Deno (js runtime для yt-dlp)

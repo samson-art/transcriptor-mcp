@@ -20,6 +20,7 @@ const {
   findSubtitleFile,
   getYtDlpEnv,
   appendYtDlpEnvArgs,
+  urlToSafeBase,
 } = youtube;
 
 describe('youtube', () => {
@@ -186,13 +187,13 @@ Hello world`;
     });
 
     it('should return subtitles content and remove file on successful download', async () => {
-      const videoId = 'video123';
+      const url = 'https://www.youtube.com/watch?v=video123';
       const content = 'subtitle content';
 
       const timestamp = 1234567890;
       const dateSpy = jest.spyOn(Date, 'now').mockReturnValue(timestamp);
       const tempDir = tmpdir();
-      const baseName = `subtitles_${videoId}_${timestamp}`;
+      const baseName = urlToSafeBase(url, 'subtitles');
       const subtitleFileName = `${baseName}.en.srt`;
       const subtitleFilePath = join(tempDir, subtitleFileName);
 
@@ -209,7 +210,7 @@ Hello world`;
         }
       );
 
-      const result = await downloadSubtitles(videoId, 'auto', 'en');
+      const result = await downloadSubtitles(url, 'auto', 'en');
 
       expect(execFileMock).toHaveBeenCalled();
       expect(result).toBe(content);
@@ -219,15 +220,14 @@ Hello world`;
     });
 
     it('should return null when no subtitle file is found', async () => {
-      const videoId = 'video-no-file';
+      const url = 'https://www.youtube.com/watch?v=video-no-file';
       const timestamp = 1234567891;
       const dateSpy = jest.spyOn(Date, 'now').mockReturnValue(timestamp);
       const tempDir = tmpdir();
-      const baseName = `subtitles_${videoId}_${timestamp}`;
+      const baseName = urlToSafeBase(url, 'subtitles');
       const subtitleFileName = `${baseName}.en.srt`;
       const subtitleFilePath = join(tempDir, subtitleFileName);
 
-      // Ensure file does not exist
       await unlink(subtitleFilePath).catch(() => {});
 
       execFileMock.mockImplementation(
@@ -241,7 +241,7 @@ Hello world`;
         }
       );
 
-      const result = await downloadSubtitles(videoId, 'auto', 'en');
+      const result = await downloadSubtitles(url, 'auto', 'en');
 
       expect(result).toBeNull();
 
@@ -249,12 +249,12 @@ Hello world`;
     });
 
     it('should return null when subtitle file is empty', async () => {
-      const videoId = 'video-empty';
+      const url = 'https://www.youtube.com/watch?v=video-empty';
       const content = '   ';
       const timestamp = 1234567892;
       const dateSpy = jest.spyOn(Date, 'now').mockReturnValue(timestamp);
       const tempDir = tmpdir();
-      const baseName = `subtitles_${videoId}_${timestamp}`;
+      const baseName = urlToSafeBase(url, 'subtitles');
       const subtitleFileName = `${baseName}.en.srt`;
       const subtitleFilePath = join(tempDir, subtitleFileName);
 
@@ -271,7 +271,7 @@ Hello world`;
         }
       );
 
-      const result = await downloadSubtitles(videoId, 'auto', 'en');
+      const result = await downloadSubtitles(url, 'auto', 'en');
 
       expect(result).toBeNull();
       await expect(access(subtitleFilePath, constants.F_OK)).resolves.toBeUndefined();
@@ -280,13 +280,13 @@ Hello world`;
     });
 
     it('should still return content when yt-dlp fails but file exists', async () => {
-      const videoId = 'video123';
+      const url = 'https://www.youtube.com/watch?v=video123';
       const content = 'subtitle content after error';
 
       const timestamp = 1234567893;
       const dateSpy = jest.spyOn(Date, 'now').mockReturnValue(timestamp);
       const tempDir = tmpdir();
-      const baseName = `subtitles_${videoId}_${timestamp}`;
+      const baseName = urlToSafeBase(url, 'subtitles');
       const subtitleFileName = `${baseName}.en.srt`;
       const subtitleFilePath = join(tempDir, subtitleFileName);
 
@@ -306,7 +306,7 @@ Hello world`;
         }
       );
 
-      const result = await downloadSubtitles(videoId, 'auto', 'en');
+      const result = await downloadSubtitles(url, 'auto', 'en');
 
       expect(result).toBe(content);
       await expect(access(subtitleFilePath, constants.F_OK)).rejects.toThrow();
@@ -404,7 +404,7 @@ Hello world`;
     });
 
     it('should return parsed JSON from yt-dlp', async () => {
-      const videoId = 'video123';
+      const url = 'https://www.youtube.com/watch?v=video123';
       const ytDlpJson = {
         id: 'video123',
         title: 'Test title',
@@ -423,7 +423,7 @@ Hello world`;
         }
       );
 
-      const result = await fetchYtDlpJson(videoId);
+      const result = await fetchYtDlpJson(url);
 
       expect(result).toEqual(ytDlpJson);
     });
@@ -440,7 +440,7 @@ Hello world`;
         }
       );
 
-      const result = await fetchYtDlpJson('video123');
+      const result = await fetchYtDlpJson('https://www.youtube.com/watch?v=video123');
 
       expect(result).toBeNull();
     });
@@ -460,13 +460,13 @@ Hello world`;
         }
       );
 
-      const result = await fetchYtDlpJson('video123');
+      const result = await fetchYtDlpJson('https://www.youtube.com/watch?v=video123');
 
       expect(result).toBeNull();
     });
 
     it('should map YtDlpVideoInfo to VideoInfo', async () => {
-      const videoId = 'video123';
+      const url = 'https://www.youtube.com/watch?v=video123';
       const ytDlpJson = {
         id: 'video123',
         title: 'Test title',
@@ -494,7 +494,7 @@ Hello world`;
         }
       );
 
-      const info = await fetchVideoInfo(videoId);
+      const info = await fetchVideoInfo(url);
 
       expect(info).toEqual({
         id: 'video123',
@@ -534,7 +534,7 @@ Hello world`;
         }
       );
 
-      const info = await fetchVideoInfo('video123');
+      const info = await fetchVideoInfo('https://www.youtube.com/watch?v=video123');
 
       expect(info).toBeNull();
     });

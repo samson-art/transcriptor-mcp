@@ -3,17 +3,50 @@ import { Type, Static } from '@sinclair/typebox';
 import {
   extractVideoId,
   downloadSubtitles,
-  fetchAvailableSubtitles,
   fetchVideoInfo,
   fetchVideoChapters,
+  fetchYtDlpJson,
 } from './youtube.js';
 import { getWhisperConfig, transcribeWithWhisper } from './whisper.js';
+
+/** Allowed video hostnames for top-10 platforms (exact or suffix match). */
+export const ALLOWED_VIDEO_DOMAINS = [
+  'youtube.com',
+  'www.youtube.com',
+  'youtu.be',
+  'm.youtube.com',
+  'x.com',
+  'twitter.com',
+  'www.twitter.com',
+  'instagram.com',
+  'www.instagram.com',
+  'tiktok.com',
+  'www.tiktok.com',
+  'vm.tiktok.com',
+  'twitch.tv',
+  'www.twitch.tv',
+  'vimeo.com',
+  'www.vimeo.com',
+  'facebook.com',
+  'www.facebook.com',
+  'fb.watch',
+  'fb.com',
+  'm.facebook.com',
+  'bilibili.com',
+  'www.bilibili.com',
+  'vk.com',
+  'vk.ru',
+  'www.vk.com',
+  'dailymotion.com',
+  'www.dailymotion.com',
+] as const;
 
 // TypeBox schema for subtitle request
 export const GetSubtitlesRequestSchema = Type.Object({
   url: Type.String({
     minLength: 1,
-    description: 'YouTube video URL',
+    description:
+      'Video URL from a supported platform (YouTube, Twitter/X, Instagram, TikTok, Twitch, Vimeo, Facebook, Bilibili, VK, Dailymotion) or YouTube video ID',
   }),
   type: Type.Optional(
     Type.Union([Type.Literal('official'), Type.Literal('auto')], {
@@ -38,7 +71,7 @@ export type GetSubtitlesRequest = Static<typeof GetSubtitlesRequestSchema>;
 export const GetAvailableSubtitlesRequestSchema = Type.Object({
   url: Type.String({
     minLength: 1,
-    description: 'YouTube video URL',
+    description: 'Video URL from a supported platform or YouTube video ID',
   }),
 });
 
@@ -48,7 +81,7 @@ export type GetAvailableSubtitlesRequest = Static<typeof GetAvailableSubtitlesRe
 export const GetVideoInfoRequestSchema = Type.Object({
   url: Type.String({
     minLength: 1,
-    description: 'YouTube video URL',
+    description: 'Video URL from a supported platform or YouTube video ID',
   }),
 });
 
@@ -89,6 +122,81 @@ export function isValidYouTubeUrl(url: string): boolean {
   } catch {
     return false;
   }
+}
+
+/**
+ * Checks if the input is a supported video URL or a bare YouTube-like ID.
+ * For strings without a scheme, treats as YouTube ID only if it looks like one (safe chars, length).
+ */
+export function isValidSupportedUrl(url: string): boolean {
+  if (!url || typeof url !== 'string') {
+    return false;
+  }
+  const trimmed = url.trim();
+  if (!trimmed) {
+    return false;
+  }
+  if (/^https?:\/\//i.test(trimmed)) {
+    try {
+      const urlObj = new URL(trimmed);
+      const hostname = urlObj.hostname.toLowerCase();
+      return ALLOWED_VIDEO_DOMAINS.some(
+        (domain) => hostname === domain || hostname.endsWith(`.${domain}`)
+      );
+    } catch {
+      return false;
+    }
+  }
+  // Bare YouTube ID: alphanumeric, hyphen, underscore; length 1–50
+  return /^[a-zA-Z0-9_-]{1,50}$/.test(trimmed);
+}
+
+/**
+ * Normalizes input to a single video URL.
+ * If input has no scheme and looks like a YouTube ID, returns YouTube watch URL.
+ * Otherwise parses as URL and returns it if domain is in allowlist, else null.
+ */
+export function normalizeVideoInput(urlOrId: string): string | null {
+  if (!urlOrId || typeof urlOrId !== 'string') {
+    return null;
+  }
+  const trimmed = urlOrId.trim();
+  if (!trimmed) {
+    return null;
+  }
+  if (/^https?:\/\//i.test(trimmed)) {
+    if (!isValidSupportedUrl(trimmed)) {
+      return null;
+    }
+    try {
+      const u = new URL(trimmed);
+      return u.href;
+    } catch {
+      return null;
+    }
+  }
+  const asId = sanitizeVideoId(trimmed);
+  if (!asId) {
+    return null;
+  }
+  return `https://www.youtube.com/watch?v=${asId}`;
+}
+
+/**
+ * Validates video URL or YouTube ID and returns normalized URL.
+ * Sends 400 on validation failure.
+ */
+export function validateVideoRequest(url: string, reply: FastifyReply): { url: string } | null {
+  const normalized = normalizeVideoInput(url);
+  if (!normalized) {
+    reply.code(400).send({
+      error: 'Invalid video URL',
+      message:
+        'Please provide a valid video URL (YouTube, Twitter/X, Instagram, TikTok, Twitch, Vimeo, Facebook, Bilibili, VK, Dailymotion) or YouTube video ID',
+    });
+    return null;
+  }
+  return { url: normalized };
 }
 
 /**
@@ -181,7 +289,7 @@ export function validateYouTubeRequest(
 }
 
 /**
- * Validates request and downloads subtitles (YouTube or Whisper fallback).
+ * Validates request and downloads subtitles (supported platforms or Whisper fallback).
  * @param logger - Fastify logger instance for structured logging
  * @returns object with subtitle data or null in case of error
  */
@@ -196,15 +304,14 @@ export async function validateAndDownloadSubtitles(
   subtitlesContent: string;
   source?: 'youtube' | 'whisper';
 } | null> {
-  const validated = validateYouTubeRequest(request.url, reply);
+  const validated = validateVideoRequest(request.url, reply);
   if (!validated) {
     return null;
   }
 
-  const { videoId } = validated;
+  const { url } = validated;
   const { type = 'auto', lang = 'en' } = request;
 
-  // Sanitize language code to prevent injection attacks
   const sanitizedLang = sanitizeLang(lang);
   if (!sanitizedLang) {
     reply.code(400).send({
@@ -214,15 +321,14 @@ export async function validateAndDownloadSubtitles(
     return null;
   }
 
-  // Download subtitles with specified parameters
-  let subtitlesContent = await downloadSubtitles(videoId, type, sanitizedLang, logger);
+  let subtitlesContent = await downloadSubtitles(url, type, sanitizedLang, logger);
   let source: 'youtube' | 'whisper' = 'youtube';
 
   if (!subtitlesContent) {
     const whisperConfig = getWhisperConfig();
     if (whisperConfig.mode !== 'off') {
-      logger?.info({ videoId, lang: sanitizedLang }, 'Trying Whisper fallback');
-      subtitlesContent = await transcribeWithWhisper(videoId, sanitizedLang, 'srt', logger);
+      logger?.info({ lang: sanitizedLang }, 'Trying Whisper fallback');
+      subtitlesContent = await transcribeWithWhisper(url, sanitizedLang, 'srt', logger);
       source = 'whisper';
     }
   }
@@ -234,6 +340,9 @@ export async function validateAndDownloadSubtitles(
     });
     return null;
   }
+
+  const data = await fetchYtDlpJson(url, logger);
+  const videoId = data?.id ?? extractVideoId(url) ?? 'unknown';
 
   return { videoId, type, lang: sanitizedLang, subtitlesContent, source };
 }
@@ -252,23 +361,30 @@ export async function validateAndFetchAvailableSubtitles(
   official: string[];
   auto: string[];
 } | null> {
-  const validated = validateYouTubeRequest(request.url, reply);
+  const validated = validateVideoRequest(request.url, reply);
   if (!validated) {
     return null;
   }
 
-  const { videoId } = validated;
-  const availableSubtitles = await fetchAvailableSubtitles(videoId, logger);
-
-  if (!availableSubtitles) {
+  const { url } = validated;
+  const data = await fetchYtDlpJson(url, logger);
+  if (!data) {
     reply.code(404).send({
-      error: 'Subtitles not found',
-      message: 'No available subtitles found for the provided video',
+      error: 'Video not found',
+      message: 'Could not fetch video data for the provided URL',
     });
     return null;
   }
 
-  return { videoId, official: availableSubtitles.official, auto: availableSubtitles.auto };
+  const videoId = data.id ?? extractVideoId(url) ?? 'unknown';
+  const official = data.subtitles
+    ? Object.keys(data.subtitles).sort((a, b) => a.localeCompare(b))
+    : [];
+  const auto = data.automatic_captions
+    ? Object.keys(data.automatic_captions).sort((a, b) => a.localeCompare(b))
+    : [];
+
+  return { videoId, official, auto };
 }
 
 /**
@@ -279,13 +395,13 @@ export async function validateAndFetchVideoInfo(
   reply: FastifyReply,
   logger?: FastifyBaseLogger
 ): Promise<{ videoId: string; info: Awaited<ReturnType<typeof fetchVideoInfo>> } | null> {
-  const validated = validateYouTubeRequest(request.url, reply);
+  const validated = validateVideoRequest(request.url, reply);
   if (!validated) {
     return null;
   }
 
-  const { videoId } = validated;
-  const info = await fetchVideoInfo(videoId, logger);
+  const { url } = validated;
+  const info = await fetchVideoInfo(url, logger);
   if (!info) {
     reply.code(404).send({
       error: 'Video not found',
@@ -294,6 +410,7 @@ export async function validateAndFetchVideoInfo(
     return null;
   }
 
+  const videoId = info.id ?? extractVideoId(url) ?? 'unknown';
   return { videoId, info };
 }
 
@@ -305,13 +422,15 @@ export async function validateAndFetchVideoChapters(
   reply: FastifyReply,
   logger?: FastifyBaseLogger
 ): Promise<{ videoId: string; chapters: Awaited<ReturnType<typeof fetchVideoChapters>> } | null> {
-  const validated = validateYouTubeRequest(request.url, reply);
+  const validated = validateVideoRequest(request.url, reply);
   if (!validated) {
     return null;
   }
 
-  const { videoId } = validated;
-  const chapters = await fetchVideoChapters(videoId, logger);
+  const { url } = validated;
+  const data = await fetchYtDlpJson(url, logger);
+  const videoId = data?.id ?? extractVideoId(url) ?? 'unknown';
+  const chapters = await fetchVideoChapters(url, logger);
   if (chapters === null) {
     reply.code(404).send({
       error: 'Video not found',

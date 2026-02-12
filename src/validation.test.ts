@@ -1,5 +1,7 @@
 import {
   isValidYouTubeUrl,
+  isValidSupportedUrl,
+  normalizeVideoInput,
   sanitizeVideoId,
   sanitizeLang,
   validateAndDownloadSubtitles,
@@ -82,6 +84,105 @@ describe('validation', () => {
     expect(isValidYouTubeUrl('https://sub.youtube.com/watch?v=dQw4w9WgXcQ')).toBe(true);
   });
 
+  describe('isValidSupportedUrl', () => {
+    it('should return true for YouTube URL and ID-like string', () => {
+      expect(isValidSupportedUrl('https://www.youtube.com/watch?v=dQw4w9WgXcQ')).toBe(true);
+      expect(isValidSupportedUrl('dQw4w9WgXcQ')).toBe(true);
+    });
+
+    it('should return true for all supported platform domains', () => {
+      const supportedPlatformUrls = [
+        // YouTube
+        'https://youtube.com/watch?v=id',
+        'https://www.youtube.com/watch?v=id',
+        'https://youtu.be/dQw4w9WgXcQ',
+        'https://m.youtube.com/watch?v=id',
+        // Twitter/X
+        'https://x.com/user/status/123',
+        'https://twitter.com/user/status/123',
+        'https://www.twitter.com/user/status/123',
+        // Instagram
+        'https://instagram.com/p/abc',
+        'https://www.instagram.com/p/abc',
+        // TikTok
+        'https://tiktok.com/@u/video/1',
+        'https://www.tiktok.com/@user/video/1',
+        'https://vm.tiktok.com/xxx',
+        // Twitch
+        'https://twitch.tv/videos/1',
+        'https://www.twitch.tv/videos/1',
+        // Vimeo
+        'https://vimeo.com/123',
+        'https://www.vimeo.com/123',
+        // Facebook
+        'https://facebook.com/watch?v=1',
+        'https://www.facebook.com/watch?v=1',
+        'https://fb.watch/abc',
+        'https://fb.com/watch?v=1',
+        'https://m.facebook.com/watch?v=1',
+        // Bilibili
+        'https://bilibili.com/video/av1',
+        'https://www.bilibili.com/video/av1',
+        // VK
+        'https://vk.com/video123',
+        'https://vk.ru/video123',
+        'https://www.vk.com/video123',
+        // Dailymotion
+        'https://dailymotion.com/video/abc',
+        'https://www.dailymotion.com/video/abc',
+      ];
+      supportedPlatformUrls.forEach((url) => {
+        expect(isValidSupportedUrl(url)).toBe(true);
+      });
+    });
+
+    it('should return true for subdomain of allowed domain', () => {
+      expect(isValidSupportedUrl('https://sub.youtube.com/watch?v=id')).toBe(true);
+      expect(isValidSupportedUrl('https://api.vimeo.com/videos/123')).toBe(true);
+    });
+
+    it('should return false for unsupported domains and invalid input', () => {
+      expect(isValidSupportedUrl('https://unsupported.example.com/video')).toBe(false);
+      expect(isValidSupportedUrl('')).toBe(false);
+      expect(isValidSupportedUrl('invalid id')).toBe(false);
+    });
+  });
+
+  describe('normalizeVideoInput', () => {
+    it('should return YouTube URL for bare ID', () => {
+      expect(normalizeVideoInput('dQw4w9WgXcQ')).toBe(
+        'https://www.youtube.com/watch?v=dQw4w9WgXcQ'
+      );
+    });
+
+    it('should return normalized URL for each supported platform', () => {
+      const platformUrls: Array<[string, string]> = [
+        ['https://www.youtube.com/watch?v=id', 'https://www.youtube.com/watch?v=id'],
+        ['https://youtu.be/dQw4w9WgXcQ', 'https://youtu.be/dQw4w9WgXcQ'],
+        ['https://x.com/user/status/123', 'https://x.com/user/status/123'],
+        ['https://twitter.com/user/status/123', 'https://twitter.com/user/status/123'],
+        ['https://instagram.com/p/abc', 'https://instagram.com/p/abc'],
+        ['https://www.tiktok.com/@user/video/1', 'https://www.tiktok.com/@user/video/1'],
+        ['https://twitch.tv/videos/1', 'https://twitch.tv/videos/1'],
+        ['https://vimeo.com/123', 'https://vimeo.com/123'],
+        ['https://www.facebook.com/watch?v=1', 'https://www.facebook.com/watch?v=1'],
+        ['https://fb.watch/abc', 'https://fb.watch/abc'],
+        ['https://bilibili.com/video/av1', 'https://bilibili.com/video/av1'],
+        ['https://vk.com/video123', 'https://vk.com/video123'],
+        ['https://www.dailymotion.com/video/abc', 'https://www.dailymotion.com/video/abc'],
+      ];
+      platformUrls.forEach(([input, expected]) => {
+        expect(normalizeVideoInput(input)).toBe(expected);
+      });
+    });
+
+    it('should return null for unsupported URL or invalid ID', () => {
+      expect(normalizeVideoInput('https://evil.com/v')).toBeNull();
+      expect(normalizeVideoInput('')).toBeNull();
+      expect(normalizeVideoInput('bad id')).toBeNull();
+    });
+  });
+
   describe('sanitizeVideoId', () => {
     it('should return sanitized video ID for valid inputs', () => {
       expect(sanitizeVideoId('dQw4w9WgXcQ')).toBe('dQw4w9WgXcQ');
@@ -145,33 +246,31 @@ describe('validation', () => {
       const downloadSpy = jest.spyOn(youtube, 'downloadSubtitles').mockResolvedValue(null);
 
       const result = await validateAndDownloadSubtitles(
-        { url: 'not-a-url', type: 'auto', lang: 'en' } as any,
+        { url: 'https://unsupported.example.com/video', type: 'auto', lang: 'en' } as any,
         reply
       );
 
       expect(result).toBeNull();
       expect(reply.statusCode).toBe(400);
       expect(reply.payload).toMatchObject({
-        error: 'Invalid YouTube URL',
+        error: 'Invalid video URL',
       });
       expect(downloadSpy).not.toHaveBeenCalled();
     });
 
     it('should return 400 when sanitized video ID is invalid', async () => {
       const reply = createReplyMock();
-
-      jest.spyOn(youtube, 'extractVideoId').mockReturnValue('invalid id');
       const downloadSpy = jest.spyOn(youtube, 'downloadSubtitles').mockResolvedValue(null);
 
       const result = await validateAndDownloadSubtitles(
-        { url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ', type: 'auto', lang: 'en' } as any,
+        { url: 'https://evil.com/not-allowed', type: 'auto', lang: 'en' } as any,
         reply
       );
 
       expect(result).toBeNull();
       expect(reply.statusCode).toBe(400);
       expect(reply.payload).toMatchObject({
-        error: 'Invalid video ID',
+        error: 'Invalid video URL',
       });
       expect(downloadSpy).not.toHaveBeenCalled();
     });
@@ -218,6 +317,7 @@ describe('validation', () => {
       const reply = createReplyMock();
 
       jest.spyOn(youtube, 'downloadSubtitles').mockResolvedValue('subtitle content');
+      jest.spyOn(youtube, 'fetchYtDlpJson').mockResolvedValue({ id: 'dQw4w9WgXcQ' });
 
       const result = await validateAndDownloadSubtitles(
         {
@@ -261,7 +361,7 @@ describe('validation', () => {
       });
       expect(reply.statusCode).toBe(200);
       expect(whisper.transcribeWithWhisper).toHaveBeenCalledWith(
-        'dQw4w9WgXcQ',
+        'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
         'en',
         'srt',
         undefined
@@ -283,42 +383,62 @@ describe('validation', () => {
       expect(reply.statusCode).toBe(404);
       expect(reply.payload).toMatchObject({ error: 'Subtitles not found' });
     });
+
+    it('should return subtitles data on success for non-YouTube URL (e.g. Vimeo)', async () => {
+      const reply = createReplyMock();
+      const vimeoUrl = 'https://vimeo.com/123';
+
+      jest.spyOn(youtube, 'downloadSubtitles').mockResolvedValue('vimeo subtitle content');
+      jest.spyOn(youtube, 'fetchYtDlpJson').mockResolvedValue({ id: '123' });
+
+      const result = await validateAndDownloadSubtitles(
+        { url: vimeoUrl, type: 'auto', lang: 'en' } as any,
+        reply
+      );
+
+      expect(result).toEqual({
+        videoId: '123',
+        type: 'auto',
+        lang: 'en',
+        subtitlesContent: 'vimeo subtitle content',
+        source: 'youtube',
+      });
+      expect(reply.statusCode).toBe(200);
+      expect(youtube.downloadSubtitles).toHaveBeenCalledWith(vimeoUrl, 'auto', 'en', undefined);
+    });
   });
 
   describe('validateAndFetchAvailableSubtitles', () => {
     it('should return 400 for invalid YouTube URL', async () => {
       const reply = createReplyMock();
-      const fetchSpy = jest
-        .spyOn(youtube, 'fetchAvailableSubtitles')
-        .mockResolvedValue(null as any);
-
-      const result = await validateAndFetchAvailableSubtitles({ url: 'not-a-url' } as any, reply);
-
-      expect(result).toBeNull();
-      expect(reply.statusCode).toBe(400);
-      expect(reply.payload).toMatchObject({
-        error: 'Invalid YouTube URL',
-      });
-      expect(fetchSpy).not.toHaveBeenCalled();
-    });
-
-    it('should return 400 when sanitized video ID is invalid', async () => {
-      const reply = createReplyMock();
-
-      jest.spyOn(youtube, 'extractVideoId').mockReturnValue('invalid id');
-      const fetchSpy = jest
-        .spyOn(youtube, 'fetchAvailableSubtitles')
-        .mockResolvedValue(null as any);
+      const fetchSpy = jest.spyOn(youtube, 'fetchYtDlpJson').mockResolvedValue(null as any);
 
       const result = await validateAndFetchAvailableSubtitles(
-        { url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ' } as any,
+        { url: 'https://unsupported.example.com/video' } as any,
         reply
       );
 
       expect(result).toBeNull();
       expect(reply.statusCode).toBe(400);
       expect(reply.payload).toMatchObject({
-        error: 'Invalid video ID',
+        error: 'Invalid video URL',
+      });
+      expect(fetchSpy).not.toHaveBeenCalled();
+    });
+
+    it('should return 400 when sanitized video ID is invalid', async () => {
+      const reply = createReplyMock();
+      const fetchSpy = jest.spyOn(youtube, 'fetchYtDlpJson').mockResolvedValue(null as any);
+
+      const result = await validateAndFetchAvailableSubtitles(
+        { url: 'https://evil.com/not-allowed' } as any,
+        reply
+      );
+
+      expect(result).toBeNull();
+      expect(reply.statusCode).toBe(400);
+      expect(reply.payload).toMatchObject({
+        error: 'Invalid video URL',
       });
       expect(fetchSpy).not.toHaveBeenCalled();
     });
@@ -326,7 +446,7 @@ describe('validation', () => {
     it('should return 404 when available subtitles are not found', async () => {
       const reply = createReplyMock();
 
-      jest.spyOn(youtube, 'fetchAvailableSubtitles').mockResolvedValue(null);
+      jest.spyOn(youtube, 'fetchYtDlpJson').mockResolvedValue(null);
 
       const result = await validateAndFetchAvailableSubtitles(
         { url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ' } as any,
@@ -336,16 +456,17 @@ describe('validation', () => {
       expect(result).toBeNull();
       expect(reply.statusCode).toBe(404);
       expect(reply.payload).toMatchObject({
-        error: 'Subtitles not found',
+        error: 'Video not found',
       });
     });
 
     it('should return available subtitles data on success', async () => {
       const reply = createReplyMock();
 
-      jest.spyOn(youtube, 'fetchAvailableSubtitles').mockResolvedValue({
-        official: ['en', 'ru'],
-        auto: ['en'],
+      jest.spyOn(youtube, 'fetchYtDlpJson').mockResolvedValue({
+        id: 'dQw4w9WgXcQ',
+        subtitles: { en: [], ru: [] },
+        automatic_captions: { en: [] },
       });
 
       const result = await validateAndFetchAvailableSubtitles(
@@ -361,6 +482,27 @@ describe('validation', () => {
       expect(reply.statusCode).toBe(200);
       expect(reply.payload).toBeUndefined();
     });
+
+    it('should return available subtitles data on success for non-YouTube URL (e.g. Vimeo)', async () => {
+      const reply = createReplyMock();
+      const vimeoUrl = 'https://vimeo.com/123';
+
+      jest.spyOn(youtube, 'fetchYtDlpJson').mockResolvedValue({
+        id: '123',
+        subtitles: { en: [] },
+        automatic_captions: {},
+      });
+
+      const result = await validateAndFetchAvailableSubtitles({ url: vimeoUrl } as any, reply);
+
+      expect(result).toEqual({
+        videoId: '123',
+        official: ['en'],
+        auto: [],
+      });
+      expect(reply.statusCode).toBe(200);
+      expect(youtube.fetchYtDlpJson).toHaveBeenCalledWith(vimeoUrl, undefined);
+    });
   });
 
   describe('validateAndFetchVideoInfo', () => {
@@ -368,11 +510,14 @@ describe('validation', () => {
       const reply = createReplyMock();
       const fetchSpy = jest.spyOn(youtube, 'fetchVideoInfo').mockResolvedValue(null as any);
 
-      const result = await validateAndFetchVideoInfo({ url: 'not-a-url' } as any, reply);
+      const result = await validateAndFetchVideoInfo(
+        { url: 'https://unsupported.example.com/video' } as any,
+        reply
+      );
 
       expect(result).toBeNull();
       expect(reply.statusCode).toBe(400);
-      expect(reply.payload).toMatchObject({ error: 'Invalid YouTube URL' });
+      expect(reply.payload).toMatchObject({ error: 'Invalid video URL' });
       expect(fetchSpy).not.toHaveBeenCalled();
     });
 
@@ -408,6 +553,24 @@ describe('validation', () => {
       expect(result).toEqual({ videoId: 'dQw4w9WgXcQ', info: mockInfo });
       expect(reply.statusCode).toBe(200);
     });
+
+    it('should return video info on success for non-YouTube URL (e.g. Vimeo)', async () => {
+      const reply = createReplyMock();
+      const vimeoUrl = 'https://vimeo.com/123';
+      const mockInfo = {
+        id: '123',
+        title: 'Vimeo Video',
+        channel: 'Vimeo Channel',
+        duration: 60,
+      } as any;
+      jest.spyOn(youtube, 'fetchVideoInfo').mockResolvedValue(mockInfo);
+
+      const result = await validateAndFetchVideoInfo({ url: vimeoUrl } as any, reply);
+
+      expect(result).toEqual({ videoId: '123', info: mockInfo });
+      expect(reply.statusCode).toBe(200);
+      expect(youtube.fetchVideoInfo).toHaveBeenCalledWith(vimeoUrl, undefined);
+    });
   });
 
   describe('validateAndFetchVideoChapters', () => {
@@ -415,11 +578,14 @@ describe('validation', () => {
       const reply = createReplyMock();
       const fetchSpy = jest.spyOn(youtube, 'fetchVideoChapters').mockResolvedValue([]);
 
-      const result = await validateAndFetchVideoChapters({ url: 'not-a-url' } as any, reply);
+      const result = await validateAndFetchVideoChapters(
+        { url: 'https://unsupported.example.com/video' } as any,
+        reply
+      );
 
       expect(result).toBeNull();
       expect(reply.statusCode).toBe(400);
-      expect(reply.payload).toMatchObject({ error: 'Invalid YouTube URL' });
+      expect(reply.payload).toMatchObject({ error: 'Invalid video URL' });
       expect(fetchSpy).not.toHaveBeenCalled();
     });
 
@@ -452,6 +618,20 @@ describe('validation', () => {
 
       expect(result).toEqual({ videoId: 'dQw4w9WgXcQ', chapters: mockChapters });
       expect(reply.statusCode).toBe(200);
+    });
+
+    it('should return chapters on success for non-YouTube URL (e.g. Vimeo)', async () => {
+      const reply = createReplyMock();
+      const vimeoUrl = 'https://vimeo.com/123';
+      const mockChapters: Array<{ startTime: number; endTime: number; title: string }> = [];
+      jest.spyOn(youtube, 'fetchYtDlpJson').mockResolvedValue({ id: '123' });
+      jest.spyOn(youtube, 'fetchVideoChapters').mockResolvedValue(mockChapters);
+
+      const result = await validateAndFetchVideoChapters({ url: vimeoUrl } as any, reply);
+
+      expect(result).toEqual({ videoId: '123', chapters: mockChapters });
+      expect(reply.statusCode).toBe(200);
+      expect(youtube.fetchVideoChapters).toHaveBeenCalledWith(vimeoUrl, undefined);
     });
   });
 });

@@ -4,6 +4,8 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 // on Zod v4 JSON schema output ($ref-heavy / missing "type" in some branches).
 // The MCP SDK already supports Zod v3 via `zod/v3` + `zod-to-json-schema`.
 import { z } from 'zod/v3';
+import type { FastifyBaseLogger } from 'fastify';
+import pino from 'pino';
 import {
   detectSubtitleFormat,
   downloadSubtitles,
@@ -11,19 +13,29 @@ import {
   fetchAvailableSubtitles,
   fetchVideoChapters,
   fetchVideoInfo,
+  fetchYtDlpJson,
   parseSubtitles,
   type VideoChapter,
 } from './youtube.js';
-import { isValidYouTubeUrl, sanitizeLang, sanitizeVideoId } from './validation.js';
+import { normalizeVideoInput, sanitizeLang } from './validation.js';
 import { version } from './version.js';
 import { getWhisperConfig, transcribeWithWhisper } from './whisper.js';
+
+function createDefaultLogger(): FastifyBaseLogger {
+  return pino({ level: process.env.LOG_LEVEL || 'info' }) as unknown as FastifyBaseLogger;
+}
 
 const DEFAULT_RESPONSE_LIMIT = 50000;
 const MAX_RESPONSE_LIMIT = 200000;
 const MIN_RESPONSE_LIMIT = 1000;
 
 const baseInputSchema = z.object({
-  url: z.string().min(1).describe('YouTube URL or video ID'),
+  url: z
+    .string()
+    .min(1)
+    .describe(
+      'Video URL (supported: YouTube, Twitter/X, Instagram, TikTok, Twitch, Vimeo, Facebook, Bilibili, VK, Dailymotion) or YouTube video ID'
+    ),
 });
 
 const subtitleInputSchema = baseInputSchema.extend({
@@ -117,38 +129,52 @@ function textContent(text: string): TextContent {
   return { type: 'text', text };
 }
 
-export function createMcpServer() {
+export type CreateMcpServerOptions = {
+  logger?: FastifyBaseLogger;
+};
+
+export function createMcpServer(opts?: CreateMcpServerOptions) {
+  const log = opts?.logger ?? createDefaultLogger();
   const server = new McpServer({
     name: 'yt-captions-downloader',
     version,
   });
 
   /**
-   * Get YouTube transcript
+   * Get video transcript
    * @param args - Arguments for the tool
    * @returns Transcript
    */
   server.registerTool(
     'get_transcript',
     {
-      title: 'Get YouTube transcript',
-      description: 'Fetch cleaned subtitles as plain text for a YouTube video.',
+      title: 'Get video transcript',
+      description:
+        'Fetch cleaned subtitles as plain text for a video (YouTube, Twitter/X, Instagram, TikTok, Twitch, Vimeo, Facebook, Bilibili, VK, Dailymotion).',
       inputSchema: subtitleInputSchema,
       outputSchema: transcriptOutputSchema,
     },
     async (args, _extra) => {
-      const { videoId, lang, type, responseLimit, nextCursor } = resolveSubtitleArgs(args);
-      let subtitlesContent = await downloadSubtitles(videoId, type, lang);
+      const { url, lang, type, responseLimit, nextCursor } = resolveSubtitleArgs(args);
+      let subtitlesContent = await downloadSubtitles(url, type, lang, log);
       let source: 'youtube' | 'whisper' = 'youtube';
       if (!subtitlesContent) {
         const whisperConfig = getWhisperConfig();
         if (whisperConfig.mode !== 'off') {
-          subtitlesContent = await transcribeWithWhisper(videoId, lang, 'srt');
+          log.info({ url, lang }, 'Trying Whisper fallback');
+          subtitlesContent = await transcribeWithWhisper(url, lang, 'srt', log);
           source = 'whisper';
+          if (!subtitlesContent) {
+            log.warn({ url, lang }, 'Whisper fallback returned no transcript');
+          } else {
+            log.info({ url, lang }, 'Whisper fallback succeeded');
+          }
+        } else {
+          log.debug({ url }, 'Whisper fallback skipped (mode=off)');
         }
       }
       if (!subtitlesContent) {
-        return toolError(`Subtitles not found for "${videoId}" (${type}, ${lang}).`);
+        return toolError(`Subtitles not found (${type}, ${lang}).`);
       }
 
       let plainText: string;
@@ -159,6 +185,9 @@ export function createMcpServer() {
           error instanceof Error ? error.message : 'Failed to parse subtitles content.'
         );
       }
+
+      const data = await fetchYtDlpJson(url);
+      const videoId = data?.id ?? extractVideoId(url) ?? 'unknown';
 
       const page = paginateText(plainText, responseLimit, nextCursor);
       return {
@@ -180,32 +209,43 @@ export function createMcpServer() {
   );
 
   /**
-   * Get raw YouTube subtitles
+   * Get raw video subtitles
    * @param args - Arguments for the tool
    * @returns Raw subtitles
    */
   server.registerTool(
     'get_raw_subtitles',
     {
-      title: 'Get raw YouTube subtitles',
-      description: 'Fetch raw SRT/VTT subtitles for a YouTube video.',
+      title: 'Get raw video subtitles',
+      description: 'Fetch raw SRT/VTT subtitles for a video (supported platforms).',
       inputSchema: subtitleInputSchema,
       outputSchema: rawSubtitlesOutputSchema,
     },
     async (args, _extra) => {
-      const { videoId, lang, type, responseLimit, nextCursor } = resolveSubtitleArgs(args);
-      let subtitlesContent = await downloadSubtitles(videoId, type, lang);
+      const { url, lang, type, responseLimit, nextCursor } = resolveSubtitleArgs(args);
+      let subtitlesContent = await downloadSubtitles(url, type, lang, log);
       let source: 'youtube' | 'whisper' = 'youtube';
       if (!subtitlesContent) {
         const whisperConfig = getWhisperConfig();
         if (whisperConfig.mode !== 'off') {
-          subtitlesContent = await transcribeWithWhisper(videoId, lang, 'srt');
+          log.info({ url, lang }, 'Trying Whisper fallback');
+          subtitlesContent = await transcribeWithWhisper(url, lang, 'srt', log);
           source = 'whisper';
+          if (!subtitlesContent) {
+            log.warn({ url, lang }, 'Whisper fallback returned no transcript');
+          } else {
+            log.info({ url, lang }, 'Whisper fallback succeeded');
+          }
+        } else {
+          log.debug({ url }, 'Whisper fallback skipped (mode=off)');
         }
       }
       if (!subtitlesContent) {
-        return toolError(`Subtitles not found for "${videoId}" (${type}, ${lang}).`);
+        return toolError(`Subtitles not found (${type}, ${lang}).`);
       }
+
+      const data = await fetchYtDlpJson(url);
+      const videoId = data?.id ?? extractVideoId(url) ?? 'unknown';
 
       const format = detectSubtitleFormat(subtitlesContent);
       const page = paginateText(subtitlesContent, responseLimit, nextCursor);
@@ -242,15 +282,20 @@ export function createMcpServer() {
       outputSchema: availableSubtitlesOutputSchema,
     },
     async (args, _extra) => {
-      const videoId = resolveVideoId(args.url);
-      if (!videoId) {
-        return toolError('Invalid YouTube URL or video ID.');
+      const url = resolveVideoUrl(args.url);
+      if (!url) {
+        return toolError(
+          'Invalid video URL. Use a URL from a supported platform or YouTube video ID.'
+        );
       }
 
-      const available = await fetchAvailableSubtitles(videoId);
+      const available = await fetchAvailableSubtitles(url);
       if (!available) {
-        return toolError(`Failed to fetch subtitle availability for "${videoId}".`);
+        return toolError('Failed to fetch subtitle availability for this video.');
       }
+
+      const data = await fetchYtDlpJson(url);
+      const videoId = data?.id ?? extractVideoId(url) ?? 'unknown';
 
       const text = [
         `Official: ${available.official.length ? available.official.join(', ') : 'none'}`,
@@ -269,29 +314,33 @@ export function createMcpServer() {
   );
 
   /**
-   * Get YouTube video info
+   * Get video info
    * @param args - Arguments for the tool
    * @returns Video info
    */
   server.registerTool(
     'get_video_info',
     {
-      title: 'Get YouTube video info',
+      title: 'Get video info',
       description:
-        'Fetch extended metadata for a YouTube video (title, channel, duration, tags, thumbnails, etc.).',
+        'Fetch extended metadata for a video (title, channel, duration, tags, thumbnails, etc.).',
       inputSchema: baseInputSchema,
       outputSchema: videoInfoOutputSchema,
     },
     async (args, _extra) => {
-      const videoId = resolveVideoId(args.url);
-      if (!videoId) {
-        return toolError('Invalid YouTube URL or video ID.');
+      const url = resolveVideoUrl(args.url);
+      if (!url) {
+        return toolError(
+          'Invalid video URL. Use a URL from a supported platform or YouTube video ID.'
+        );
       }
 
-      const info = await fetchVideoInfo(videoId);
+      const info = await fetchVideoInfo(url);
       if (!info) {
-        return toolError(`Failed to fetch video info for "${videoId}".`);
+        return toolError('Failed to fetch video info.');
       }
+
+      const videoId = info.id ?? extractVideoId(url) ?? 'unknown';
 
       const textLines = [
         info.title ? `Title: ${info.title}` : null,
@@ -332,32 +381,37 @@ export function createMcpServer() {
   );
 
   /**
-   * Get YouTube video chapters
+   * Get video chapters
    * @param args - Arguments for the tool
    * @returns Video chapters
    */
   server.registerTool(
     'get_video_chapters',
     {
-      title: 'Get YouTube video chapters',
-      description: 'Fetch chapter markers (start/end time, title) for a YouTube video.',
+      title: 'Get video chapters',
+      description: 'Fetch chapter markers (start/end time, title) for a video.',
       inputSchema: baseInputSchema,
       outputSchema: videoChaptersOutputSchema,
     },
     async (args, _extra) => {
-      const videoId = resolveVideoId(args.url);
-      if (!videoId) {
-        return toolError('Invalid YouTube URL or video ID.');
+      const url = resolveVideoUrl(args.url);
+      if (!url) {
+        return toolError(
+          'Invalid video URL. Use a URL from a supported platform or YouTube video ID.'
+        );
       }
 
-      const chapters = await fetchVideoChapters(videoId);
+      const chapters = await fetchVideoChapters(url);
       if (chapters === null) {
-        return toolError(`Failed to fetch chapters for "${videoId}".`);
+        return toolError('Failed to fetch chapters for this video.');
       }
+
+      const data = await fetchYtDlpJson(url);
+      const videoId = data?.id ?? extractVideoId(url) ?? 'unknown';
 
       const text =
         chapters.length === 0
-          ? `No chapters found for "${videoId}".`
+          ? 'No chapters found.'
           : chapters
               .map((ch: VideoChapter) => `${ch.startTime}s - ${ch.endTime}s: ${ch.title}`)
               .join('\n');
@@ -376,9 +430,9 @@ export function createMcpServer() {
 }
 
 function resolveSubtitleArgs(args: z.infer<typeof subtitleInputSchema>) {
-  const videoId = resolveVideoId(args.url);
-  if (!videoId) {
-    throw new Error('Invalid YouTube URL or video ID.');
+  const url = resolveVideoUrl(args.url);
+  if (!url) {
+    throw new Error('Invalid video URL. Use a URL from a supported platform or YouTube video ID.');
   }
 
   const lang = sanitizeLang(args.lang ?? 'en');
@@ -390,19 +444,11 @@ function resolveSubtitleArgs(args: z.infer<typeof subtitleInputSchema>) {
   const nextCursor = args.next_cursor;
   const type = args.type ?? 'auto';
 
-  return { videoId, lang, responseLimit, nextCursor, type };
+  return { url, lang, responseLimit, nextCursor, type };
 }
 
-function resolveVideoId(input: string): string | null {
-  if (isValidYouTubeUrl(input)) {
-    const extracted = extractVideoId(input);
-    if (!extracted) {
-      return null;
-    }
-    return sanitizeVideoId(extracted);
-  }
-
-  return sanitizeVideoId(input);
+function resolveVideoUrl(input: string): string | null {
+  return normalizeVideoInput(input);
 }
 
 function paginateText(text: string, limit: number, nextCursor?: string) {

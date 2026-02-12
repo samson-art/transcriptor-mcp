@@ -61,7 +61,7 @@ async function handleStreamablePost(
   }
 
   if (isInitializeRequest(body)) {
-    const server = createMcpServer();
+    const server = createMcpServer({ logger: app.log });
     const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: () => randomUUID(),
       onsessioninitialized: (id) => {
@@ -132,7 +132,7 @@ app.get('/sse', async (request, reply) => {
   }
 
   reply.hijack();
-  const server = createMcpServer();
+  const server = createMcpServer({ logger: app.log });
   const sseOptions = getSseOptions();
   const transport = new SSEServerTransport('/message', reply.raw, sseOptions);
 

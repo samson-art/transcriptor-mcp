@@ -10,8 +10,8 @@
   </p>
 
   <p>
-    An MCP server (stdio + HTTP/SSE) that fetches YouTube transcripts/subtitles via <code>yt-dlp</code>,
-    with pagination for large responses. Works with Cursor and other MCP hosts.
+    An MCP server (stdio + HTTP/SSE) that fetches video transcripts/subtitles via <code>yt-dlp</code>,
+    with pagination for large responses. Supports YouTube, Twitter/X, Instagram, TikTok, Twitch, Vimeo, Facebook, Bilibili, VK, Dailymotion. Works with Cursor and other MCP hosts.
   </p>
 
   <p>
@@ -118,7 +118,7 @@ For more MCP configuration examples, see [`docs/quick-start.mcp.md`](docs/quick-
 
 All tools share the same base input:
 
-- `url` (string, required) – YouTube URL or plain video ID.
+- `url` (string, required) – Video URL from a supported platform or YouTube video ID. Supported: YouTube, Twitter/X, Instagram, TikTok, Twitch, Vimeo, Facebook, Bilibili, VK, Dailymotion.
 
 Tools that return large text (`get_transcript`, `get_raw_subtitles`) also support pagination:
 

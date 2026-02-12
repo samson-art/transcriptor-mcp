@@ -3,6 +3,8 @@
 The project includes an optional HTTP API built with Fastify.  
 Use this if you want to call endpoints directly from scripts, backends, or API clients.
 
+**Supported platforms:** All endpoints accept a `url` body field with a video URL from YouTube, Twitter/X, Instagram, TikTok, Twitch, Vimeo, Facebook, Bilibili, VK, or Dailymotion. A bare YouTube video ID is also accepted (e.g. `dQw4w9WgXcQ`).
+
 For a full list of configuration options, see `docs/configuration.md`.
 
 ## Running the REST API

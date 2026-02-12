@@ -1,4 +1,5 @@
 import { execFile, type ExecFileException } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { promisify } from 'util';
 import { readFile, unlink } from 'fs/promises';
 import { join } from 'path';
@@ -6,6 +7,12 @@ import { tmpdir } from 'os';
 import type { FastifyBaseLogger } from 'fastify';
 
 const execFileAsync = promisify(execFile);
+
+/** Builds a safe base name for temp files from URL (hash + timestamp). Exported for tests. */
+export function urlToSafeBase(url: string, prefix: string): string {
+  const hash = createHash('sha256').update(url).digest('hex').slice(0, 16);
+  return `${prefix}_${hash}_${Date.now()}`;
+}
 
 function isExecFileException(error: unknown): error is ExecFileException {
   return error instanceof Error && typeof (error as ExecFileException).code !== 'undefined';
@@ -102,52 +109,46 @@ export function extractVideoId(url: string): string | null {
 
 /**
  * Downloads subtitles using yt-dlp
- * @param videoId - YouTube video ID
+ * @param url - Video URL (any supported platform)
  * @param type - subtitle type: 'official' or 'auto'
  * @param lang - subtitle language (e.g., 'en', 'ru')
  * @param logger - Fastify logger instance for structured logging
  */
 export async function downloadSubtitles(
-  videoId: string,
+  url: string,
   type: 'official' | 'auto' = 'auto',
   lang: string = 'en',
   logger?: FastifyBaseLogger
 ): Promise<string | null> {
-  const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
   const tempDir = tmpdir();
-  const timestamp = Date.now();
-  const outputPath = join(tempDir, `subtitles_${videoId}_${timestamp}`);
+  const outputPath = join(tempDir, urlToSafeBase(url, 'subtitles'));
   const { jsRuntimes, remoteComponents, cookiesFilePathFromEnv } = getYtDlpEnv();
 
   try {
-    // Build command arguments depending on subtitle type
-    // Use array of arguments instead of string to prevent command injection
     const subFlag = type === 'official' ? '--write-subs' : '--write-auto-subs';
     const args = [
       subFlag,
       '--skip-download',
       '--sub-lang',
-      lang, // lang is already sanitized in validation.ts
+      lang,
       '--sub-format',
       'srt/vtt',
       '--output',
       `${outputPath}.%(ext)s`,
-      videoUrl, // videoUrl is built from sanitized videoId
+      url,
     ];
 
     appendYtDlpEnvArgs(args, { jsRuntimes, remoteComponents, cookiesFilePathFromEnv });
 
     logger?.info(
-      { videoId, type, lang, hasCookies: Boolean(cookiesFilePathFromEnv) },
-      `Downloading ${type} subtitles for ${videoId} in language ${lang}`
+      { type, lang, hasCookies: Boolean(cookiesFilePathFromEnv) },
+      `Downloading ${type} subtitles in language ${lang}`
     );
 
     try {
-      // Use execFile instead of exec for safe argument passing
-      // This prevents command injection as arguments are passed separately
       const timeout = process.env.YT_DLP_TIMEOUT
         ? Number.parseInt(process.env.YT_DLP_TIMEOUT, 10)
-        : 60000; // 60 seconds default
+        : 60000;
       const { stdout, stderr } = await execFileAsync('yt-dlp', args, {
         maxBuffer: 10 * 1024 * 1024,
         timeout,
@@ -155,15 +156,12 @@ export async function downloadSubtitles(
       logger?.debug({ stdout }, 'yt-dlp stdout');
       if (stderr) logger?.debug({ stderr }, 'yt-dlp stderr');
 
-      // Small delay in case file is still being written
       await new Promise((resolve) => setTimeout(resolve, 100));
 
-      // Search for downloaded subtitle file
       const subtitleFile = await findSubtitleFile(outputPath, tempDir, logger);
 
       if (subtitleFile) {
         const content = await readFile(subtitleFile, 'utf-8');
-        // Check that file is not empty
         if (content.trim().length > 0) {
           await unlink(subtitleFile).catch(() => {});
           return content;
@@ -175,21 +173,18 @@ export async function downloadSubtitles(
       logger?.error(
         {
           error: err.message,
-          videoId,
           type,
           lang,
           ...(execErr && { stdout: execErr.stdout, stderr: execErr.stderr }),
         },
-        `Error downloading ${type} subtitles for ${videoId}`
+        `Error downloading ${type} subtitles`
       );
 
-      // Even if command returned an error, file might have been created
-      // (e.g., with 429 error file might already be written)
-      logger?.debug({ videoId }, 'Checking for subtitle file despite error...');
+      logger?.debug('Checking for subtitle file despite error...');
       await new Promise((resolve) => setTimeout(resolve, 100));
 
       const subtitleFile = await findSubtitleFile(outputPath, tempDir, logger);
-      logger?.debug({ videoId, subtitleFile }, 'subtitleFile found after error');
+      logger?.debug({ subtitleFile }, 'subtitleFile found after error');
 
       if (subtitleFile) {
         try {
@@ -199,23 +194,23 @@ export async function downloadSubtitles(
             return content;
           }
         } catch (readError) {
-          logger?.error({ error: readError, videoId, subtitleFile }, 'Error reading subtitle file');
+          logger?.error({ error: readError, subtitleFile }, 'Error reading subtitle file');
         }
       }
     }
 
     return null;
   } catch (error) {
-    logger?.error({ error, videoId }, `Error downloading subtitles for ${videoId}`);
+    logger?.error({ error }, 'Error downloading subtitles');
     return null;
   }
 }
 
 export async function fetchVideoInfo(
-  videoId: string,
+  url: string,
   logger?: FastifyBaseLogger
 ): Promise<VideoInfo | null> {
-  const data = await fetchYtDlpJson(videoId, logger);
+  const data = await fetchYtDlpJson(url, logger);
   if (!data) {
     return null;
   }
@@ -253,13 +248,13 @@ export async function fetchVideoInfo(
 }
 
 /**
- * Fetches chapter markers (start/end time, title) for a YouTube video via yt-dlp.
+ * Fetches chapter markers (start/end time, title) for a video via yt-dlp.
  */
 export async function fetchVideoChapters(
-  videoId: string,
+  url: string,
   logger?: FastifyBaseLogger
 ): Promise<VideoChapter[] | null> {
-  const data = await fetchYtDlpJson(videoId, logger);
+  const data = await fetchYtDlpJson(url, logger);
   if (!data || !Array.isArray(data.chapters) || data.chapters.length === 0) {
     return data && Array.isArray(data.chapters) ? [] : null;
   }
@@ -277,10 +272,10 @@ export async function fetchVideoChapters(
 }
 
 export async function fetchAvailableSubtitles(
-  videoId: string,
+  url: string,
   logger?: FastifyBaseLogger
 ): Promise<AvailableSubtitles | null> {
-  const data = await fetchYtDlpJson(videoId, logger);
+  const data = await fetchYtDlpJson(url, logger);
   if (!data) {
     return null;
   }
@@ -298,31 +293,29 @@ export async function fetchAvailableSubtitles(
 }
 
 /**
- * Downloads audio only for a YouTube video (for Whisper transcription).
+ * Downloads audio only for a video (for Whisper transcription).
  * Caller must unlink the returned file path when done.
- * @param videoId - YouTube video ID
+ * @param url - Video URL (any supported platform)
  * @param logger - Fastify logger instance for structured logging
  * @returns path to the temporary audio file (e.g. .m4a), or null on failure
  */
 export async function downloadAudio(
-  videoId: string,
+  url: string,
   logger?: FastifyBaseLogger
 ): Promise<string | null> {
-  const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
   const tempDir = tmpdir();
-  const timestamp = Date.now();
-  const outputBase = join(tempDir, `audio_${videoId}_${timestamp}`);
+  const outputBase = join(tempDir, urlToSafeBase(url, 'audio'));
   const outputTemplate = `${outputBase}.%(ext)s`;
   const { jsRuntimes, remoteComponents, cookiesFilePathFromEnv } = getYtDlpEnv();
 
-  const args = ['--extract-audio', '--audio-format', 'm4a', '--output', outputTemplate, videoUrl];
+  const args = ['--extract-audio', '--audio-format', 'm4a', '--output', outputTemplate, url];
   appendYtDlpEnvArgs(args, { jsRuntimes, remoteComponents, cookiesFilePathFromEnv });
 
   try {
     const timeout = process.env.YT_DLP_TIMEOUT
       ? Number.parseInt(process.env.YT_DLP_TIMEOUT, 10)
       : 60000;
-    logger?.info({ videoId }, 'Downloading audio for Whisper');
+    logger?.info('Downloading audio for Whisper');
     await execFileAsync('yt-dlp', args, {
       maxBuffer: 10 * 1024 * 1024,
       timeout,
@@ -339,7 +332,7 @@ export async function downloadAudio(
     if (audioFile) {
       return join(tempDir, audioFile);
     }
-    logger?.error({ videoId, tempDir }, 'Audio file not found after yt-dlp');
+    logger?.error({ tempDir }, 'Audio file not found after yt-dlp');
     return null;
   } catch (error: unknown) {
     const err = error instanceof Error ? error : new Error(String(error));
@@ -347,7 +340,6 @@ export async function downloadAudio(
     logger?.error(
       {
         error: err.message,
-        videoId,
         ...(execErr && { stdout: execErr.stdout, stderr: execErr.stderr }),
       },
       'Error downloading audio via yt-dlp'
@@ -448,13 +440,12 @@ export function appendYtDlpEnvArgs(
 
 // Exported for testing.
 export async function fetchYtDlpJson(
-  videoId: string,
+  url: string,
   logger?: FastifyBaseLogger
 ): Promise<YtDlpVideoInfo | null> {
-  const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
   const { jsRuntimes, remoteComponents, cookiesFilePathFromEnv } = getYtDlpEnv();
 
-  const args = ['--dump-single-json', '--skip-download', videoUrl];
+  const args = ['--dump-single-json', '--skip-download', url];
   appendYtDlpEnvArgs(args, { jsRuntimes, remoteComponents, cookiesFilePathFromEnv });
 
   try {
@@ -480,7 +471,6 @@ export async function fetchYtDlpJson(
       logger?.error(
         {
           error: parseError instanceof Error ? parseError.message : String(parseError),
-          videoId,
           stdoutPreview: trimmed.slice(0, 200),
         },
         'Error parsing yt-dlp JSON output'
@@ -493,7 +483,6 @@ export async function fetchYtDlpJson(
     logger?.error(
       {
         error: err.message,
-        videoId,
         ...(execErr && { stdout: execErr.stdout, stderr: execErr.stderr }),
       },
       'Error fetching video info via yt-dlp'

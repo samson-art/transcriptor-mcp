@@ -1,6 +1,7 @@
 ## MCP quick start
 
-This project ships an MCP server that exposes tools for fetching YouTube subtitles, metadata, and chapters.
+This project ships an MCP server that exposes tools for fetching video subtitles, metadata, and chapters.
+Supported platforms: YouTube, Twitter/X, Instagram, TikTok, Twitch, Vimeo, Facebook, Bilibili, VK, Dailymotion (or YouTube video ID).
 You can run it either via Docker or directly with Node.js.
 
 ### Docker (recommended)

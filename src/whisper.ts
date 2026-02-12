@@ -40,9 +40,14 @@ export function getWhisperConfig(): WhisperConfig {
 
 export type WhisperResponseFormat = 'srt' | 'vtt' | 'text';
 
+/** Maps internal response format to whisper-asr-webservice /asr output query param. */
+function localOutputFormat(responseFormat: WhisperResponseFormat): string {
+  return responseFormat === 'text' ? 'txt' : responseFormat;
+}
+
 /**
  * Transcribes audio using a local Whisper HTTP service (e.g. whisper-asr-webservice).
- * POST to /asr with multipart: file, response_format, optional language.
+ * POST /asr with multipart field audio_file and query params: output, optional language.
  */
 export async function transcribeWithWhisperLocal(
   audioPath: string,
@@ -56,16 +61,19 @@ export async function transcribeWithWhisperLocal(
     return null;
   }
 
-  const url = `${config.baseUrl.replace(/\/$/, '')}/asr`;
+  const base = config.baseUrl.replace(/\/$/, '');
+  const output = localOutputFormat(responseFormat);
+  const searchParams = new URLSearchParams({ output });
+  if (lang) {
+    searchParams.set('language', lang);
+  }
+  const url = `${base}/asr?${searchParams.toString()}`;
+
   let body: FormData;
   try {
     const buffer = await readFile(audioPath);
     body = new FormData();
-    body.append('file', new Blob([buffer]), 'audio.m4a');
-    body.append('response_format', responseFormat);
-    if (lang) {
-      body.append('language', lang);
-    }
+    body.append('audio_file', new Blob([buffer]), 'audio.m4a');
   } catch (err) {
     logger?.error({ err, audioPath }, 'Failed to read audio file for Whisper local');
     return null;
@@ -84,8 +92,9 @@ export async function transcribeWithWhisperLocal(
     clearTimeout(timeoutId);
 
     if (!res.ok) {
+      const errText = await res.text();
       logger?.error(
-        { status: res.status, statusText: res.statusText, url },
+        { status: res.status, statusText: res.statusText, url, body: errText.slice(0, 200) },
         'Whisper local request failed'
       );
       return null;
@@ -169,7 +178,7 @@ export async function transcribeWithWhisperApi(
  * Returns SRT/VTT/text content or null. Caller does not need to unlink; this function cleans up the temp file.
  */
 export async function transcribeWithWhisper(
-  videoId: string,
+  url: string,
   lang: string,
   responseFormat: WhisperResponseFormat,
   logger?: FastifyBaseLogger
@@ -179,7 +188,7 @@ export async function transcribeWithWhisper(
     return null;
   }
 
-  const audioPath = await downloadAudio(videoId, logger);
+  const audioPath = await downloadAudio(url, logger);
   if (!audioPath) {
     return null;
   }

@@ -6,7 +6,7 @@ jest.mock('node:child_process');
 
 describe('fetchAvailableSubtitles', () => {
   it('should return sorted lists of official and auto subtitles from yt-dlp JSON', async () => {
-    const videoId = 'dQw4w9WgXcQ';
+    const url = 'https://www.youtube.com/watch?v=dQw4w9WgXcQ';
 
     const ytDlpJson = {
       subtitles: {
@@ -35,7 +35,7 @@ describe('fetchAvailableSubtitles', () => {
       }
     );
 
-    const result = await fetchAvailableSubtitles(videoId);
+    const result = await fetchAvailableSubtitles(url);
 
     expect(result).toEqual({
       official: ['en', 'ru'],
