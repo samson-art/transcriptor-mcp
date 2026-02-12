@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="./logo.webp" alt="yt-captions logo" width="160" />
+  <img src="./logo.webp" alt="transcriptor-mcp logo" width="160" />
 
   <h1>YouTube Captions MCP Server</h1>
 
@@ -15,11 +15,11 @@
   </p>
 
   <p>
-    <a href="https://github.com/samson-art/yt-captions-mcp">GitHub</a>
+    <a href="https://github.com/samson-art/transcriptor-mcp">GitHub</a>
     ·
-    <a href="https://github.com/samson-art/yt-captions-mcp/issues">Issues</a>
+    <a href="https://github.com/samson-art/transcriptor-mcp/issues">Issues</a>
     ·
-    <a href="https://hub.docker.com/r/artsamsonov/yt-captions-mcp">Docker Hub</a>
+    <a href="https://hub.docker.com/r/artsamsonov/transcriptor-mcp">Docker Hub</a>
   </p>
 </div>
 
@@ -54,12 +54,12 @@ Below is a real-world example of the same “summarize YouTube video” task wit
 
 ### Docker Hub (stdio)
 
-- Image: `artsamsonov/yt-captions-mcp:latest`
+- Image: `artsamsonov/transcriptor-mcp:latest`
 
 Run locally (stdio mode):
 
 ```bash
-docker run --rm -i artsamsonov/yt-captions-mcp:latest
+docker run --rm -i artsamsonov/transcriptor-mcp:latest
 ```
 
 ### Cursor MCP configuration (Docker)
@@ -69,9 +69,9 @@ Add to Cursor MCP settings (or create `.cursor/mcp.json`):
 ```json
 {
   "mcpServers": {
-    "yt-captions": {
+    "transcriptor": {
       "command": "docker",
-      "args": ["run", "--rm", "-i", "artsamsonov/yt-captions-mcp:latest"]
+      "args": ["run", "--rm", "-i", "artsamsonov/transcriptor-mcp:latest"]
     }
   }
 }
@@ -83,13 +83,13 @@ Run the HTTP/SSE MCP server on your VPS (default port `4200`) using docker-compo
 
 ```bash
 cp docker-compose.example.yml docker-compose.yml
-docker compose up -d yt-captions-mcp
+docker compose up -d transcriptor-mcp
 ```
 
 **Claude Code (HTTP / streamable HTTP):**
 
 ```bash
-claude mcp add --transport http yt-captions http://<tailscale-host>:4200/mcp
+claude mcp add --transport http transcriptor http://<tailscale-host>:4200/mcp
 ```
 
 **Cursor (SSE):**
@@ -235,13 +235,13 @@ The repository also ships an HTTP API (Fastify).
 - Build the image:
 
   ```bash
-  docker build -t yt-captions-downloader .
+  docker build -t transcriptor-mcp-api .
   ```
 
 - Run on the default port:
 
   ```bash
-  docker run -p 3000:3000 yt-captions-downloader
+  docker run -p 3000:3000 transcriptor-mcp-api
   ```
 
 For a more complete REST quick start (including docker-compose and local Node.js),
@@ -274,7 +274,7 @@ see [`docs/cookies.md`](docs/cookies.md).
 #### Run in background
 
 ```bash
-docker run -d -p 3000:3000 --name yt-captions yt-captions-downloader
+docker run -d -p 3000:3000 --name transcriptor transcriptor-mcp-api
 ```
 
 ### E2E smoke tests (REST API + MCP, Docker)
@@ -288,8 +288,8 @@ Run the smoke test (requires built images):
 
 ```bash
 npm run build
-docker build -t artsamsonov/yt-captions-downloader:latest -f Dockerfile .
-docker build -t artsamsonov/yt-captions-mcp:latest -f Dockerfile.mcp .
+docker build -t artsamsonov/transcriptor-mcp-api:latest -f Dockerfile .
+docker build -t artsamsonov/transcriptor-mcp:latest -f Dockerfile.mcp .
 npm run test:e2e:api
 ```
 
@@ -298,12 +298,12 @@ npm run test:e2e:api
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `SMOKE_IMAGE_API` | — | Full API image reference (overrides name/tag). |
-| `DOCKER_API_IMAGE` / `TAG` | `artsamsonov/yt-captions-downloader`, `latest` | API image name and tag. |
+| `DOCKER_API_IMAGE` / `TAG` | `artsamsonov/transcriptor-mcp-api`, `latest` | API image name and tag. |
 | `SMOKE_API_URL` / `SMOKE_API_PORT` | `http://127.0.0.1:33000`, `33000` | API base URL and port. |
 | `SMOKE_VIDEO_URL` | `https://www.youtube.com/watch?v=dQw4w9WgXcQ` | Video used for `/subtitles` check. |
 | `SMOKE_SKIP_MCP` | — | Set to `1` (or `true`/`yes`) to skip MCP checks. |
 | `SMOKE_MCP_IMAGE` | — | Full MCP image reference (overrides name/tag). |
-| `DOCKER_MCP_IMAGE` / `TAG` | `artsamsonov/yt-captions-mcp`, `latest` | MCP image name and tag. |
+| `DOCKER_MCP_IMAGE` / `TAG` | `artsamsonov/transcriptor-mcp`, `latest` | MCP image name and tag. |
 | `SMOKE_MCP_URL` / `SMOKE_MCP_PORT` | `http://127.0.0.1:4200`, `4200` | MCP base URL and port. |
 | `SMOKE_MCP_AUTH_TOKEN` | — | If set, passed to MCP container as `MCP_AUTH_TOKEN` and sent as Bearer in MCP requests. |
 
@@ -316,14 +316,14 @@ SMOKE_SKIP_MCP=1 SMOKE_VIDEO_URL="https://www.youtube.com/watch?v=YOUR_ID" npm r
 #### View logs
 
 ```bash
-docker logs -f yt-captions
+docker logs -f transcriptor
 ```
 
 #### Stop the container
 
 ```bash
-docker stop yt-captions
-docker rm yt-captions
+docker stop transcriptor
+docker rm transcriptor
 ```
 
 ## API Documentation
@@ -372,7 +372,7 @@ Create `.cursor/mcp.json` (or add to your global Cursor MCP settings):
 ```json
 {
   "mcpServers": {
-    "yt-captions": {
+    "transcriptor": {
       "command": "node",
       "args": ["dist/mcp.js"]
     }
@@ -385,15 +385,15 @@ Create `.cursor/mcp.json` (or add to your global Cursor MCP settings):
 Build and run the MCP server in a container (stdio mode):
 
 ```bash
-docker build -f Dockerfile.mcp -t yt-captions-mcp .
-docker run --rm -i yt-captions-mcp
+docker build -f Dockerfile.mcp -t transcriptor-mcp .
+docker run --rm -i transcriptor-mcp
 ```
 
 Build and run the MCP server in a container (HTTP mode):
 
 ```bash
-docker build -f Dockerfile.mcp -t yt-captions-mcp .
-docker run -p 4200:4200 -e MCP_PORT=4200 -e MCP_HOST=0.0.0.0 yt-captions-mcp npm run start:mcp:http
+docker build -f Dockerfile.mcp -t transcriptor-mcp .
+docker run -p 4200:4200 -e MCP_PORT=4200 -e MCP_HOST=0.0.0.0 transcriptor-mcp npm run start:mcp:http
 ```
 
 Cursor MCP config for Docker:
@@ -401,9 +401,9 @@ Cursor MCP config for Docker:
 ```json
 {
   "mcpServers": {
-    "yt-captions": {
+    "transcriptor": {
       "command": "docker",
-      "args": ["run", "--rm", "-i", "artsamsonov/yt-captions-mcp:latest"]
+      "args": ["run", "--rm", "-i", "artsamsonov/transcriptor-mcp:latest"]
     }
   }
 }
@@ -499,6 +499,6 @@ See [LICENSE](LICENSE) file for details.
 
 ## Support
 
-- **Bug reports**: [GitHub Issues](https://github.com/samson-art/yt-captions-downloader/issues)
-- **Feature requests**: [GitHub Issues](https://github.com/samson-art/yt-captions-downloader/issues)
+- **Bug reports**: [GitHub Issues](https://github.com/samson-art/transcriptor-mcp/issues)
+- **Feature requests**: [GitHub Issues](https://github.com/samson-art/transcriptor-mcp/issues)
 - **Contact**: [GitHub Profile](https://github.com/samson-art)

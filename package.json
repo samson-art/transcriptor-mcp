@@ -1,6 +1,6 @@
 {
-  "name": "yt-captions-downloader-mcp",
-  "version": "0.3.8",
+  "name": "transcriptor-mcp",
+  "version": "0.4.0",
   "description": "API for downloading subtitles from YouTube videos",
   "type": "module",
   "main": "dist/index.js",
@@ -31,11 +31,11 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/samson-art/yt-captions-downloader.git"
+    "url": "git+https://github.com/samson-art/transcriptor-mcp.git"
   },
-  "homepage": "https://github.com/samson-art/yt-captions-downloader#readme",
+  "homepage": "https://github.com/samson-art/transcriptor-mcp#readme",
   "bugs": {
-    "url": "https://github.com/samson-art/yt-captions-downloader/issues"
+    "url": "https://github.com/samson-art/transcriptor-mcp/issues"
   },
   "engines": {
     "node": ">=20.0.0"

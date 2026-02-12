@@ -6,12 +6,12 @@ You can run it either via Docker or directly with Node.js.
 
 ### Docker (recommended)
 
-- **Image**: `artsamsonov/yt-captions-mcp:latest`
+- **Image**: `artsamsonov/transcriptor-mcp:latest`
 
 Run the MCP server locally over stdio:
 
 ```bash
-docker run --rm -i artsamsonov/yt-captions-mcp:latest
+docker run --rm -i artsamsonov/transcriptor-mcp:latest
 ```
 
 Then configure your MCP host (e.g. Cursor) to use this Docker command as the MCP server.
@@ -47,8 +47,8 @@ MCP_PORT=4200 MCP_HOST=0.0.0.0 npm run start:mcp:http
 Run via Docker:
 
 ```bash
-docker build -f Dockerfile.mcp -t yt-captions-mcp .
-docker run -p 4200:4200 -e MCP_PORT=4200 -e MCP_HOST=0.0.0.0 yt-captions-mcp npm run start:mcp:http
+docker build -f Dockerfile.mcp -t transcriptor-mcp .
+docker run -p 4200:4200 -e MCP_PORT=4200 -e MCP_HOST=0.0.0.0 transcriptor-mcp npm run start:mcp:http
 ```
 
 For ready-made docker-compose setup, see `docker-compose.example.yml` in the repository root.
@@ -60,9 +60,9 @@ For ready-made docker-compose setup, see `docker-compose.example.yml` in the rep
 ```json
 {
   "mcpServers": {
-    "yt-captions": {
+    "transcriptor": {
       "command": "docker",
-      "args": ["run", "--rm", "-i", "artsamsonov/yt-captions-mcp:latest"]
+      "args": ["run", "--rm", "-i", "artsamsonov/transcriptor-mcp:latest"]
     }
   }
 }
@@ -73,7 +73,7 @@ For ready-made docker-compose setup, see `docker-compose.example.yml` in the rep
 ```json
 {
   "mcpServers": {
-    "yt-captions": {
+    "transcriptor": {
       "command": "node",
       "args": ["dist/mcp.js"]
     }
@@ -86,7 +86,7 @@ For ready-made docker-compose setup, see `docker-compose.example.yml` in the rep
 - **Claude Code (HTTP / streamable HTTP)**:
 
   ```bash
-  claude mcp add --transport http yt-captions http://<host>:4200/mcp
+  claude mcp add --transport http transcriptor http://<host>:4200/mcp
   ```
 
 - **Cursor (SSE)**:

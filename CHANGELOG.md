@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-02-12
+
+### Changed
+
+- **Project rename:** `yt-captions-downloader` → `transcriptor-mcp`. Package name, GitHub repo, Docker images, and docker-compose service names have been updated.
+- **Package:** `transcriptor-mcp` (was `yt-captions-downloader-mcp`).
+- **GitHub:** `samson-art/transcriptor-mcp`.
+- **Docker images:** `artsamsonov/transcriptor-mcp` (MCP), `artsamsonov/transcriptor-mcp-api` (REST API).
+- **docker-compose services:** `transcriptor-mcp` (MCP), `transcriptor-mcp-api` (REST API).
+- **MCP server name:** `transcriptor-mcp` (reported in MCP initialize).
+- **User-Agent:** `transcriptor-mcp` (for yt-dlp requests).
+- **MCP config key:** Use `transcriptor` in `claude_desktop_config.json` / Cursor MCP settings (shorter UX).
+
 ## [0.3.8] - 2026-02-12
 
 ### Added
@@ -14,7 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Multi-platform support:** Subtitles, available subtitles, video info, and chapters work with URLs from YouTube, Twitter/X, Instagram, TikTok, Twitch, Vimeo, Facebook, Bilibili, VK, and Dailymotion (via yt-dlp). Bare video IDs are supported for YouTube only.
 - **Whisper fallback:** When YouTube subtitles cannot be obtained (yt-dlp returns none), the app can transcribe video audio via Whisper. Configurable with `WHISPER_MODE` (`off`, `local`, `api`). Local mode uses a self-hosted HTTP service (e.g. [whisper-asr-webservice](https://github.com/ahmetoner/whisper-asr-webservice) in Docker); API mode uses an OpenAI-compatible transcription endpoint. New env vars: `WHISPER_BASE_URL`, `WHISPER_TIMEOUT`, `WHISPER_API_KEY`, `WHISPER_API_BASE_URL`. REST responses for `/subtitles` and `/subtitles/raw` include optional `source: "youtube" | "whisper"`; MCP tools `get_transcript` and `get_raw_subtitles` use the same fallback and expose `source` in structured content.
 - **Audio download:** `downloadAudio(videoId, logger)` in `youtube.ts` downloads audio-only via yt-dlp for Whisper input; uses same cookies and timeout as subtitle download.
-- **Docker:** `docker-compose.example.yml` adds a `whisper` service (image `onerahmet/openai-whisper-asr-webservice:latest`) and example `WHISPER_*` env for `yt-captions-downloader` and `yt-captions-mcp`. `.env.example` and `docs/configuration.md` document all Whisper options.
+- **Docker:** `docker-compose.example.yml` adds a `whisper` service (image `onerahmet/openai-whisper-asr-webservice:latest`) and example `WHISPER_*` env for `transcriptor-mcp-api` and `transcriptor-mcp`. `.env.example` and `docs/configuration.md` document all Whisper options.
 - **Unit tests:** `src/whisper.test.ts` for `getWhisperConfig` and `transcribeWithWhisper`; `validation.test.ts` extended with Whisper fallback success and 404 when Whisper returns null.
 - **yt-dlp startup check:** REST API, MCP HTTP, and MCP stdio servers run a yt-dlp availability check at startup. If yt-dlp is missing or fails to run, the app logs an ERROR and exits (unless `YT_DLP_REQUIRED=0`). If the installed version is older than the latest on GitHub, a WARNING is logged.
 - **Environment variables:** `YT_DLP_SKIP_VERSION_CHECK` — when set to `1`, skips the GitHub version check and WARNING; `YT_DLP_REQUIRED` — when set to `0`, logs ERROR but does not exit when yt-dlp is missing or fails.

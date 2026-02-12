@@ -104,7 +104,7 @@ you can mount it into the container and set `COOKIES_FILE_PATH`:
 docker run -p 3000:3000 \
   -e COOKIES_FILE_PATH=/cookies/cookies.txt \
   -v /path/to/cookies.txt:/cookies/cookies.txt:ro \
-  yt-captions-downloader
+  transcriptor-mcp-api
 ```
 
 Key points:
@@ -134,7 +134,7 @@ Usage:
 ```bash
 cp docker-compose.example.yml docker-compose.yml
 # copy or create cookies.txt next to docker-compose.yml
-docker compose up -d yt-captions-downloader
+docker compose up -d transcriptor-mcp-api
 ```
 
 ---

@@ -136,7 +136,7 @@ export type CreateMcpServerOptions = {
 export function createMcpServer(opts?: CreateMcpServerOptions) {
   const log = opts?.logger ?? createDefaultLogger();
   const server = new McpServer({
-    name: 'yt-captions-downloader',
+    name: 'transcriptor-mcp',
     version,
   });
 

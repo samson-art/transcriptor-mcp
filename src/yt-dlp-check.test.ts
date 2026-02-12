@@ -66,7 +66,7 @@ describe('yt-dlp-check', () => {
         'https://api.github.com/repos/yt-dlp/yt-dlp/releases/latest',
         expect.objectContaining({
           headers: expect.objectContaining({
-            'User-Agent': expect.stringContaining('yt-captions-downloader'),
+            'User-Agent': expect.stringContaining('transcriptor-mcp'),
           }),
         })
       );

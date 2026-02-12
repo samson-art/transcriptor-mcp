@@ -59,7 +59,7 @@ export async function fetchLatestYtDlpVersion(): Promise<string | null> {
       signal: controller.signal,
       headers: {
         Accept: 'application/vnd.github+json',
-        'User-Agent': `yt-captions-downloader/${appVersion}`,
+        'User-Agent': `transcriptor-mcp/${appVersion}`,
       },
     });
     if (!res.ok) return null;

@@ -19,9 +19,9 @@ services:
     #   - "./whisper-cache:/root/.cache"
     restart: unless-stopped
 
-  yt-captions-downloader:
-    image: samson-art/yt-captions-downloader:latest
-    container_name: yt-captions-downloader
+  transcriptor-mcp-api:
+    image: artsamsonov/transcriptor-mcp-api:latest
+    container_name: transcriptor-mcp-api
     environment:
       PORT: "3000"
       HOST: "0.0.0.0"
@@ -40,9 +40,9 @@ services:
       - "./cookies.txt:/cookies.txt"
     restart: unless-stopped
 
-  yt-captions-mcp:
-    image: artsamsonov/yt-captions-mcp:latest
-    container_name: yt-captions-mcp
+  transcriptor-mcp:
+    image: artsamsonov/transcriptor-mcp:latest
+    container_name: transcriptor-mcp
     command: ["npm", "run", "start:mcp:http"]
     stdin_open: true
     tty: true

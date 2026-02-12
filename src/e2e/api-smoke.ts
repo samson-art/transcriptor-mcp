@@ -2,12 +2,12 @@ import { spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import { setTimeout as sleep } from 'node:timers/promises';
 
-const DEFAULT_IMAGE_NAME = 'artsamsonov/yt-captions-downloader';
+const DEFAULT_IMAGE_NAME = 'artsamsonov/transcriptor-mcp-api';
 const DEFAULT_IMAGE_TAG = 'latest';
 const DEFAULT_PORT = 33000;
 const DEFAULT_VIDEO_URL = 'https://www.youtube.com/watch?v=dQw4w9WgXcQ';
 
-const DEFAULT_MCP_IMAGE_NAME = 'artsamsonov/yt-captions-mcp';
+const DEFAULT_MCP_IMAGE_NAME = 'artsamsonov/transcriptor-mcp';
 const DEFAULT_MCP_PORT = 4200;
 
 const MCP_INITIALIZE_BODY = {
@@ -479,7 +479,7 @@ async function main(): Promise<void> {
   }
 
   const containerName =
-    getEnvVar('SMOKE_API_CONTAINER_NAME', 'yt-captions-api-smoke') + `-${Date.now()}`;
+    getEnvVar('SMOKE_API_CONTAINER_NAME', 'transcriptor-mcp-api-smoke') + `-${Date.now()}`;
 
   const baseUrl = getEnvVar('SMOKE_API_URL', `http://127.0.0.1:${port}`);
 
@@ -523,7 +523,7 @@ async function main(): Promise<void> {
 
     if (!skipMcp) {
       mcpContainerName =
-        getEnvVar('SMOKE_MCP_CONTAINER_NAME', 'yt-captions-mcp-smoke') + `-${Date.now()}`;
+        getEnvVar('SMOKE_MCP_CONTAINER_NAME', 'transcriptor-mcp-smoke') + `-${Date.now()}`;
 
       // eslint-disable-next-line no-console
       console.log(

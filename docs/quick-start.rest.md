@@ -14,19 +14,19 @@ For a full list of configuration options, see `docs/configuration.md`.
 Build the image:
 
 ```bash
-docker build -t yt-captions-downloader .
+docker build -t transcriptor-mcp-api .
 ```
 
 Run the container on the default port:
 
 ```bash
-docker run -p 3000:3000 yt-captions-downloader
+docker run -p 3000:3000 transcriptor-mcp-api
 ```
 
 Run with a custom port:
 
 ```bash
-docker run -p 8080:8080 -e PORT=8080 yt-captions-downloader
+docker run -p 8080:8080 -e PORT=8080 transcriptor-mcp-api
 ```
 
 ### Docker Compose
@@ -35,7 +35,7 @@ An example compose file is provided as `docker-compose.example.yml` in the repos
 
 ```bash
 cp docker-compose.example.yml docker-compose.yml
-docker compose up -d yt-captions-downloader
+docker compose up -d transcriptor-mcp-api
 ```
 
 By default this exposes the REST API on `http://localhost:3000`.
