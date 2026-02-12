@@ -40,7 +40,7 @@ const baseInputSchema = z.object({
 
 const subtitleInputSchema = baseInputSchema.extend({
   type: z.enum(['official', 'auto']).optional().default('auto'),
-  lang: z.string().optional().default('en'),
+  lang: z.string().optional(),
   response_limit: z.number().int().min(MIN_RESPONSE_LIMIT).max(MAX_RESPONSE_LIMIT).optional(),
   next_cursor: z.string().optional(),
 });
@@ -150,24 +150,27 @@ export function createMcpServer(opts?: CreateMcpServerOptions) {
     {
       title: 'Get video transcript',
       description:
-        'Fetch cleaned subtitles as plain text for a video (YouTube, Twitter/X, Instagram, TikTok, Twitch, Vimeo, Facebook, Bilibili, VK, Dailymotion).',
+        'Fetch cleaned subtitles as plain text for a video (YouTube, Twitter/X, Instagram, TikTok, Twitch, Vimeo, Facebook, Bilibili, VK, Dailymotion). Optional lang: when omitted and Whisper fallback is used, language is auto-detected.',
       inputSchema: subtitleInputSchema,
       outputSchema: transcriptOutputSchema,
     },
     async (args, _extra) => {
-      const { url, lang, type, responseLimit, nextCursor } = resolveSubtitleArgs(args);
+      const { url, lang, whisperLang, type, responseLimit, nextCursor } = resolveSubtitleArgs(args);
       let subtitlesContent = await downloadSubtitles(url, type, lang, log);
       let source: 'youtube' | 'whisper' = 'youtube';
       if (!subtitlesContent) {
         const whisperConfig = getWhisperConfig();
         if (whisperConfig.mode !== 'off') {
-          log.info({ url, lang }, 'Trying Whisper fallback');
-          subtitlesContent = await transcribeWithWhisper(url, lang, 'srt', log);
+          log.info({ url, lang: whisperLang || 'auto' }, 'Trying Whisper fallback');
+          subtitlesContent = await transcribeWithWhisper(url, whisperLang, 'srt', log);
           source = 'whisper';
           if (!subtitlesContent) {
-            log.warn({ url, lang }, 'Whisper fallback returned no transcript');
+            log.warn(
+              { url, lang: whisperLang || 'auto' },
+              'Whisper fallback returned no transcript'
+            );
           } else {
-            log.info({ url, lang }, 'Whisper fallback succeeded');
+            log.info({ url, lang: whisperLang || 'auto' }, 'Whisper fallback succeeded');
           }
         } else {
           log.debug({ url }, 'Whisper fallback skipped (mode=off)');
@@ -217,24 +220,28 @@ export function createMcpServer(opts?: CreateMcpServerOptions) {
     'get_raw_subtitles',
     {
       title: 'Get raw video subtitles',
-      description: 'Fetch raw SRT/VTT subtitles for a video (supported platforms).',
+      description:
+        'Fetch raw SRT/VTT subtitles for a video (supported platforms). Optional lang: when omitted and Whisper fallback is used, language is auto-detected.',
       inputSchema: subtitleInputSchema,
       outputSchema: rawSubtitlesOutputSchema,
     },
     async (args, _extra) => {
-      const { url, lang, type, responseLimit, nextCursor } = resolveSubtitleArgs(args);
+      const { url, lang, whisperLang, type, responseLimit, nextCursor } = resolveSubtitleArgs(args);
       let subtitlesContent = await downloadSubtitles(url, type, lang, log);
       let source: 'youtube' | 'whisper' = 'youtube';
       if (!subtitlesContent) {
         const whisperConfig = getWhisperConfig();
         if (whisperConfig.mode !== 'off') {
-          log.info({ url, lang }, 'Trying Whisper fallback');
-          subtitlesContent = await transcribeWithWhisper(url, lang, 'srt', log);
+          log.info({ url, lang: whisperLang || 'auto' }, 'Trying Whisper fallback');
+          subtitlesContent = await transcribeWithWhisper(url, whisperLang, 'srt', log);
           source = 'whisper';
           if (!subtitlesContent) {
-            log.warn({ url, lang }, 'Whisper fallback returned no transcript');
+            log.warn(
+              { url, lang: whisperLang || 'auto' },
+              'Whisper fallback returned no transcript'
+            );
           } else {
-            log.info({ url, lang }, 'Whisper fallback succeeded');
+            log.info({ url, lang: whisperLang || 'auto' }, 'Whisper fallback succeeded');
           }
         } else {
           log.debug({ url }, 'Whisper fallback skipped (mode=off)');
@@ -435,16 +442,25 @@ function resolveSubtitleArgs(args: z.infer<typeof subtitleInputSchema>) {
     throw new Error('Invalid video URL. Use a URL from a supported platform or YouTube video ID.');
   }
 
-  const lang = sanitizeLang(args.lang ?? 'en');
-  if (!lang) {
-    throw new Error('Invalid language code.');
+  let lang: string;
+  let whisperLang: string;
+  if (args.lang === undefined || args.lang === null) {
+    lang = 'en';
+    whisperLang = '';
+  } else {
+    const sanitized = sanitizeLang(args.lang);
+    if (!sanitized) {
+      throw new Error('Invalid language code.');
+    }
+    lang = sanitized;
+    whisperLang = sanitized;
   }
 
   const responseLimit = args.response_limit ?? DEFAULT_RESPONSE_LIMIT;
   const nextCursor = args.next_cursor;
   const type = args.type ?? 'auto';
 
-  return { url, lang, responseLimit, nextCursor, type };
+  return { url, lang, whisperLang, responseLimit, nextCursor, type };
 }
 
 function resolveVideoUrl(input: string): string | null {

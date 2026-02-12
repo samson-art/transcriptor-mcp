@@ -135,4 +135,25 @@ describe('transcribeWithWhisper', () => {
     expect(url).toContain('output=txt');
     expect(url).toContain('language=ru');
   });
+
+  it('should not add language param when lang is empty (auto-detect)', async () => {
+    process.env.WHISPER_MODE = 'local';
+    process.env.WHISPER_BASE_URL = 'http://whisper:9000';
+    jest.spyOn(youtube, 'downloadAudio').mockResolvedValue('/tmp/audio.m4a');
+    (fsPromises.readFile as jest.Mock).mockResolvedValue(Buffer.from('fake'));
+    (fsPromises.unlink as jest.Mock).mockResolvedValue(undefined);
+
+    const fetchMock = jest.fn().mockResolvedValue({
+      ok: true,
+      text: () => Promise.resolve('1\n00:00:00,000 --> 00:00:01,000\nDetected'),
+    });
+    globalThis.fetch = fetchMock;
+
+    await transcribeWithWhisper('https://example.com/v', '', 'srt');
+
+    const [url] = fetchMock.mock.calls[0];
+    expect(url).toContain('http://whisper:9000/asr?');
+    expect(url).toContain('output=srt');
+    expect(url).not.toContain('language=');
+  });
 });

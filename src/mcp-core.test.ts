@@ -1,6 +1,7 @@
 import { createMcpServer } from './mcp-core.js';
 import * as youtube from './youtube.js';
 import * as validation from './validation.js';
+import * as whisper from './whisper.js';
 
 jest.mock('@modelcontextprotocol/sdk/server/mcp.js', () => {
   class FakeMcpServer {
@@ -30,6 +31,11 @@ jest.mock('./validation.js', () => ({
   sanitizeLang: jest.fn(),
 }));
 
+jest.mock('./whisper.js', () => ({
+  getWhisperConfig: jest.fn(),
+  transcribeWithWhisper: jest.fn(),
+}));
+
 const downloadSubtitlesMock = youtube.downloadSubtitles as jest.Mock;
 const detectSubtitleFormatMock = youtube.detectSubtitleFormat as jest.Mock;
 const fetchAvailableSubtitlesMock = youtube.fetchAvailableSubtitles as jest.Mock;
@@ -41,6 +47,8 @@ const extractVideoIdMock = youtube.extractVideoId as jest.Mock;
 
 const normalizeVideoInputMock = validation.normalizeVideoInput as jest.Mock;
 const sanitizeLangMock = validation.sanitizeLang as jest.Mock;
+const getWhisperConfigMock = whisper.getWhisperConfig as jest.Mock;
+const transcribeWithWhisperMock = whisper.transcribeWithWhisper as jest.Mock;
 
 function getTool(server: any, name: string) {
   const handler = server.tools.get(name);
@@ -54,6 +62,7 @@ function getTool(server: any, name: string) {
 describe('mcp-core tools', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    getWhisperConfigMock.mockReturnValue({ mode: 'off' });
   });
 
   describe('get_transcript', () => {
@@ -149,6 +158,31 @@ describe('mcp-core tools', () => {
           {}
         )
       ).rejects.toThrow('Invalid next_cursor value.');
+    });
+
+    it('should call Whisper fallback with empty lang (auto-detect) when lang is omitted', async () => {
+      const server = createMcpServer() as any;
+      const handler = getTool(server, 'get_transcript');
+
+      normalizeVideoInputMock.mockReturnValue(testUrl);
+      downloadSubtitlesMock.mockResolvedValue(null);
+      getWhisperConfigMock.mockReturnValue({ mode: 'local' });
+      transcribeWithWhisperMock.mockResolvedValue(
+        '1\n00:00:00,000 --> 00:00:01,000\nAuto-detected transcript'
+      );
+      parseSubtitlesMock.mockReturnValue('Auto-detected transcript');
+      fetchYtDlpJsonMock.mockResolvedValue({ id: 'video123' });
+      extractVideoIdMock.mockReturnValue('video123');
+
+      const result = await handler({ url: testUrl, type: 'auto' }, {});
+
+      expect(downloadSubtitlesMock).toHaveBeenCalledWith(testUrl, 'auto', 'en', expect.anything());
+      expect(transcribeWithWhisperMock).toHaveBeenCalledWith(testUrl, '', 'srt', expect.anything());
+      expect(result.structuredContent).toMatchObject({
+        videoId: 'video123',
+        lang: 'en',
+        source: 'whisper',
+      });
     });
   });
 

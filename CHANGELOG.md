@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.2] - 2026-02-13
+
+### Changed
+
+- **MCP tools `get_transcript` and `get_raw_subtitles`:** Parameter `lang` is now optional. When omitted, subtitle download still uses `en` for yt-dlp; when Whisper fallback is used, language is auto-detected (no `language` query param sent to Whisper). Tool descriptions updated to mention optional `lang` and auto-detect behavior.
+
+### Added
+
+- **Unit tests:** `mcp-core.test.ts` — Whisper fallback with omitted `lang` (auto-detect). `whisper.test.ts` — no `language` param when `lang` is empty.
+
 ## [0.4.1] - 2026-02-12
 
 ### Added
