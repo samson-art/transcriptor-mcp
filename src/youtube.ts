@@ -1,7 +1,7 @@
 import { execFile, type ExecFileException } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { promisify } from 'util';
-import { readFile, unlink } from 'fs/promises';
+import { readFile, stat, unlink } from 'fs/promises';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import type { FastifyBaseLogger } from 'fastify';
@@ -125,6 +125,7 @@ export async function downloadSubtitles(
   const { jsRuntimes, remoteComponents, cookiesFilePathFromEnv } = getYtDlpEnv();
 
   try {
+    await logCookiesFileStatus(logger, cookiesFilePathFromEnv);
     const subFlag = type === 'official' ? '--write-subs' : '--write-auto-subs';
     const args = [
       subFlag,
@@ -312,6 +313,7 @@ export async function downloadAudio(
   appendYtDlpEnvArgs(args, { jsRuntimes, remoteComponents, cookiesFilePathFromEnv });
 
   try {
+    await logCookiesFileStatus(logger, cookiesFilePathFromEnv);
     const timeout = process.env.YT_DLP_TIMEOUT
       ? Number.parseInt(process.env.YT_DLP_TIMEOUT, 10)
       : 60000;
@@ -420,6 +422,33 @@ export function getYtDlpEnv() {
   };
 }
 
+async function logCookiesFileStatus(
+  logger: FastifyBaseLogger | undefined,
+  cookiesFilePathFromEnv: string | undefined
+) {
+  if (!logger || !cookiesFilePathFromEnv) return;
+
+  try {
+    const stats = await stat(cookiesFilePathFromEnv);
+    logger.info(
+      {
+        cookiesFilePath: cookiesFilePathFromEnv,
+        cookiesFileExists: true,
+        cookiesFileSize: stats.size,
+      },
+      'yt-dlp cookies file status'
+    );
+  } catch (error) {
+    logger.warn(
+      {
+        cookiesFilePath: cookiesFilePathFromEnv,
+        error: error instanceof Error ? error.message : String(error),
+      },
+      'yt-dlp cookies file not accessible'
+    );
+  }
+}
+
 // Exported for testing.
 export function appendYtDlpEnvArgs(
   args: string[],
@@ -449,6 +478,7 @@ export async function fetchYtDlpJson(
   appendYtDlpEnvArgs(args, { jsRuntimes, remoteComponents, cookiesFilePathFromEnv });
 
   try {
+    await logCookiesFileStatus(logger, cookiesFilePathFromEnv);
     const timeout = process.env.YT_DLP_TIMEOUT
       ? Number.parseInt(process.env.YT_DLP_TIMEOUT, 10)
       : 60000;

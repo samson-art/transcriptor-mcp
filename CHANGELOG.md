@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-02-12
+
+### Added
+
+- **yt-dlp cookies file logging:** When `COOKIES_FILE_PATH` is set, the app now logs cookies file status before each yt-dlp call (subtitle download, audio download, video info/chapters). Logs include path, existence, file size, or access error message (no cookie contents). Helps diagnose "Sign in to confirm you're not a bot" and other YouTube auth issues when running in Docker or with mounted cookies.
+
 ## [0.4.0] - 2026-02-12
 
 ### Changed
