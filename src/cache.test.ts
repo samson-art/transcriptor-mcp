@@ -1,4 +1,4 @@
-import { getCacheConfig, get, set, close } from './cache.js';
+import { getCacheConfig, get, set, close, ping } from './cache.js';
 
 const originalEnv = process.env;
 
@@ -56,6 +56,19 @@ describe('get/set when CACHE_MODE=off', () => {
   it('set should resolve without error', async () => {
     process.env.CACHE_MODE = 'off';
     await expect(set('any-key', 'value', 3600)).resolves.toBeUndefined();
+  });
+});
+
+describe('ping', () => {
+  it('should return true when CACHE_MODE is off', async () => {
+    process.env.CACHE_MODE = 'off';
+    await expect(ping()).resolves.toBe(true);
+  });
+
+  it('should return true when CACHE_MODE=redis but CACHE_REDIS_URL is unset', async () => {
+    process.env.CACHE_MODE = 'redis';
+    delete process.env.CACHE_REDIS_URL;
+    await expect(ping()).resolves.toBe(true);
   });
 });
 

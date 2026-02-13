@@ -16,6 +16,7 @@ interface RedisLike {
   get(key: string): Promise<string | null>;
   set(key: string, value: string, ...args: string[]): Promise<string>;
   quit(): Promise<string>;
+  ping(): Promise<string>;
 }
 
 let redisClient: RedisLike | null = null;
@@ -98,6 +99,26 @@ export async function set(key: string, value: string, ttlSeconds: number): Promi
     await client.set(key, value, 'EX', String(Math.max(1, Math.floor(ttlSeconds))));
   } catch (err) {
     console.warn({ err, key }, 'Cache set error');
+  }
+}
+
+/**
+ * Pings Redis. Returns true if cache is off or Redis is reachable, false if Redis is configured but unreachable.
+ */
+export async function ping(): Promise<boolean> {
+  const config = getCacheConfig();
+  if (config.mode !== 'redis') {
+    return true;
+  }
+  const client = getRedisClient();
+  if (!client) {
+    return true;
+  }
+  try {
+    await client.ping();
+    return true;
+  } catch {
+    return false;
   }
 }
 

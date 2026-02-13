@@ -145,9 +145,22 @@ If `CACHE_MODE=redis` is set but `CACHE_REDIS_URL` is missing, the app logs a wa
 
 See [`docs/caching.md`](caching.md) for a short overview of what is cached and example env.
 
-## Health endpoint (REST API)
+## Recommended values for production
 
-The REST API exposes **`GET /health`**, which returns `200` with `{ "status": "ok" }`. Use it for Kubernetes liveness/readiness or Docker `HEALTHCHECK`.
+| Variable | Suggested | Notes |
+|----------|-----------|--------|
+| `RATE_LIMIT_MAX` | `200`–`1000` | Depends on traffic; raise if load tests or real usage hit the limit. |
+| `YT_DLP_TIMEOUT` | `60000`–`90000` | 60–90 s; long videos may need more. |
+| `SHUTDOWN_TIMEOUT` | `10000` | 10 s usually enough for in-flight requests. |
+| `CACHE_TTL_SUBTITLES_SECONDS` | `604800` | 7 days; subtitles rarely change. |
+| `CACHE_TTL_METADATA_SECONDS` | `3600` | 1 hour for info/available/chapters. |
+| `CACHE_MODE` | `redis` | Use Redis when you want to reduce yt-dlp load. |
+
+## Health and metrics (REST API)
+
+- **`GET /health`** – returns `200` with `{ "status": "ok" }`. Use it for Kubernetes liveness or Docker `HEALTHCHECK` (no dependency checks).
+- **`GET /health/ready`** – readiness check. Returns `200` when the app is ready to serve traffic. When `CACHE_MODE=redis`, it pings Redis; if Redis is unreachable, returns `503` with `{ "status": "not ready", "redis": "unreachable" }`. Use for Kubernetes readiness so the pod is not sent traffic until Redis is available.
+- **`GET /metrics`** – Prometheus text exposition format. Counters: `http_requests_total`, `http_request_errors_total`, `cache_hits_total`, `cache_misses_total`. Useful for monitoring on a VPS or in Kubernetes.
 
 ## Using .env files
 

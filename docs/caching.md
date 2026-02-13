@@ -48,3 +48,7 @@ services:
 ## Disabling cache
 
 Leave `CACHE_MODE` unset or set it to `off`. No Redis connection is made when cache is off.
+
+## When Redis is unavailable
+
+If Redis is configured (`CACHE_MODE=redis`) but the connection fails or Redis returns errors on `get`/`set`, the app does **not** fail the request. It logs a warning and continues without cache: the request is served by calling yt-dlp (or Whisper) as if cache were off. This graceful degradation ensures that a Redis outage or network issue does not break subtitle or metadata delivery.

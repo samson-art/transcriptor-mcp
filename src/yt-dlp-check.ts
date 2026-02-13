@@ -83,7 +83,7 @@ export async function checkYtDlpAtStartup(log?: YtDlpCheckLogger): Promise<void>
   const out = log ?? {
     error: (msg: string) => console.error(msg),
     warn: (msg: string) => console.warn(msg),
-    info: (msg: string) => console.info(msg),
+    info: (msg: string) => console.warn(msg),
   };
 
   const required = process.env.YT_DLP_REQUIRED !== '0';

@@ -25,6 +25,8 @@
 
 ## Overview
 
+The repository may be cloned or named locally (e.g. `yt-captions-downloader`); the **npm package** and **Docker images** are published under the name **transcriptor-mcp**.
+
 This repository primarily ships an **MCP server**:
 
 - **stdio**: for local usage (e.g., Cursor running a local command).
@@ -432,6 +434,10 @@ Cursor MCP config for Docker:
 - npm or yarn
 - yt-dlp installed and available in PATH
 
+### Versioning
+
+The app version is read from `package.json` at runtime ([`src/version.ts`](src/version.ts)). When cutting a release, update the `version` field in `package.json`, then create a git tag (e.g. `v0.4.7`). Changelog entries under `[Unreleased]` should be moved to the new version before tagging.
+
 ### Scripts
 
 - `npm run build` - Build the TypeScript project
@@ -478,6 +484,17 @@ Cursor MCP config for Docker:
 - **Jest** - Testing framework
 - **ESLint** - Code linting
 - **Prettier** - Code formatting
+
+## Security
+
+Do not commit or log sensitive values. Use environment variables or a secret manager (e.g. vault, cloud secrets) for:
+
+- **`WHISPER_API_KEY`** – required when using Whisper API; never log or expose in client responses.
+- **`CACHE_REDIS_URL`** – Redis connection string when `CACHE_MODE=redis`; may contain credentials.
+- **`MCP_AUTH_TOKEN`** – Bearer token for MCP HTTP; keep it secret.
+- **`COOKIES_FILE_PATH`** – path to cookies; ensure the file is not committed and has restricted permissions.
+
+See [docs/cookies.md](docs/cookies.md) for safe handling of cookies.
 
 ## Contributing
 

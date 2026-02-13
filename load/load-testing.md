@@ -87,6 +87,17 @@ Scenarios use **`getVideoRequest(iter, vu)`**, which returns `{ url, type, lang 
 
 **Verifying the pool:** run `make verify-pool` or `npm run verify-pool` (with the API at `LOAD_BASE_URL` / `BASE_URL`). This calls POST /subtitles/available for each video and reports which have at least one subtitle; it also prints actual `official`/`auto` when they differ from the pool so you can update `config.js`.
 
+## Recommended thresholds for regression
+
+Use these thresholds when running load tests to catch performance regressions (e.g. in CI or before release):
+
+| Script | Threshold | Value | Meaning |
+|--------|-----------|--------|---------|
+| `subtitles.js` | `http_req_failed` | `rate<0.05` | Error rate must stay below 5%. |
+| `subtitles.js` | `http_req_duration` | `p(95)<120000` | 95th percentile latency must be under 120 s. |
+
+Example: `k6 run --throw load/subtitles.js` fails the run if thresholds are not met. The scripts in this directory already define these thresholds; `--throw` is useful in CI.
+
 ## Metrics
 
 k6 reports:

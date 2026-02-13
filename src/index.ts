@@ -21,6 +21,8 @@ import {
 } from './validation.js';
 import { version as API_VERSION } from './version.js';
 import { checkYtDlpAtStartup } from './yt-dlp-check.js';
+import { close as closeCache, ping as cachePing } from './cache.js';
+import { recordError, recordRequest, renderPrometheus } from './metrics.js';
 
 // Response schemas for OpenAPI/Swagger
 const ErrorResponseSchema = Type.Object({
@@ -80,6 +82,7 @@ const fastify = Fastify({
 }).withTypeProvider<TypeBoxTypeProvider>();
 
 fastify.setErrorHandler((error, _request, reply) => {
+  recordError();
   const statusCode = error instanceof HttpError ? error.statusCode : 500;
   const message = error instanceof Error ? error.message : 'Unknown error occurred';
   const errorLabel = error instanceof HttpError ? error.errorLabel : 'Internal server error';
@@ -112,6 +115,23 @@ fastify.register(rateLimit, {
 
 fastify.get('/health', async (_request, reply) => {
   return reply.code(200).send({ status: 'ok' });
+});
+
+fastify.get('/health/ready', async (_request, reply) => {
+  const redisOk = await cachePing();
+  if (!redisOk) {
+    return reply.code(503).send({ status: 'not ready', redis: 'unreachable' });
+  }
+  return reply.code(200).send({ status: 'ready' });
+});
+
+fastify.get('/metrics', async (_request, reply) => {
+  return reply.header('Content-Type', 'text/plain; charset=utf-8').send(renderPrometheus());
+});
+
+fastify.addHook('onResponse', (_request, _reply, done) => {
+  recordRequest();
+  done();
 });
 
 // Register Swagger and API routes in the same context so OpenAPI discovers the routes
@@ -330,8 +350,8 @@ const shutdown = async (signal: string) => {
 
   try {
     // Stop accepting new requests and wait for current ones to complete
-    // Fastify automatically waits for active requests to complete
     await fastify.close();
+    await closeCache();
     clearTimeout(forceShutdownTimer);
     fastify.log.info('Server closed successfully');
     process.exit(0);

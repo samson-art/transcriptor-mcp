@@ -10,6 +10,7 @@ import {
 } from './youtube.js';
 import { getWhisperConfig, transcribeWithWhisper } from './whisper.js';
 import { getCacheConfig, get, set } from './cache.js';
+import { recordCacheHit, recordCacheMiss } from './metrics.js';
 
 /** Allowed video hostnames for top-10 platforms (exact or suffix match). */
 export const ALLOWED_VIDEO_DOMAINS = [
@@ -304,6 +305,7 @@ export async function validateAndDownloadSubtitles(
   const cacheKey = `sub:${url}:${type}:${sanitizedLang}`;
   const cached = await get(cacheKey);
   if (cached !== undefined) {
+    recordCacheHit();
     return JSON.parse(cached) as {
       videoId: string;
       type: 'official' | 'auto';
@@ -312,6 +314,7 @@ export async function validateAndDownloadSubtitles(
       source?: 'youtube' | 'whisper';
     };
   }
+  recordCacheMiss();
 
   let subtitlesContent = await downloadSubtitles(url, type, sanitizedLang, logger);
   let source: 'youtube' | 'whisper' = 'youtube';
@@ -361,8 +364,10 @@ export async function validateAndFetchAvailableSubtitles(
   const cacheKey = `avail:${url}`;
   const cached = await get(cacheKey);
   if (cached !== undefined) {
+    recordCacheHit();
     return JSON.parse(cached) as { videoId: string; official: string[]; auto: string[] };
   }
+  recordCacheMiss();
 
   const data = await fetchYtDlpJson(url, logger);
   if (!data) {
@@ -397,11 +402,13 @@ export async function validateAndFetchVideoInfo(
   const cacheKey = `info:${url}`;
   const cached = await get(cacheKey);
   if (cached !== undefined) {
+    recordCacheHit();
     return JSON.parse(cached) as {
       videoId: string;
       info: Awaited<ReturnType<typeof fetchVideoInfo>>;
     };
   }
+  recordCacheMiss();
 
   const info = await fetchVideoInfo(url, logger);
   if (!info) {
@@ -429,11 +436,13 @@ export async function validateAndFetchVideoChapters(
   const cacheKey = `chapters:${url}`;
   const cached = await get(cacheKey);
   if (cached !== undefined) {
+    recordCacheHit();
     return JSON.parse(cached) as {
       videoId: string;
       chapters: Awaited<ReturnType<typeof fetchVideoChapters>>;
     };
   }
+  recordCacheMiss();
 
   const data = await fetchYtDlpJson(url, logger);
   const videoId = data?.id ?? extractYouTubeVideoId(url) ?? 'unknown';

@@ -6,6 +6,7 @@ import {
   type SSEServerTransportOptions,
 } from '@modelcontextprotocol/sdk/server/sse.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
+import { close as closeCache } from './cache.js';
 import { ensureAuth, getHeaderValue } from './mcp-auth.js';
 import { createMcpServer } from './mcp-core.js';
 import { checkYtDlpAtStartup } from './yt-dlp-check.js';
@@ -226,6 +227,7 @@ const shutdown = async (signal: string) => {
 
   try {
     await app.close();
+    await closeCache();
     clearTimeout(forceShutdownTimer);
     app.log.info('MCP HTTP server closed successfully');
     process.exit(0);

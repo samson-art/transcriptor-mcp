@@ -7,13 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.7] - 2026-02-13
+
 ### Added
 
+- **CI (GitHub Actions):** `.github/workflows/ci.yml` runs on push/PR to `main`: `npm ci`, `make check-no-smoke` (format-check, lint, typecheck, test, build). On push to `main`, optional smoke job runs REST API smoke with `SMOKE_SKIP_MCP=1`. `.github/workflows/publish-docker.yml` runs on tag push `v*`: build and push REST API and MCP images to Docker Hub (multi-arch linux/amd64, linux/arm64). Requires `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN` secrets.
+- **Readiness and metrics (REST API):** `GET /health/ready` — when `CACHE_MODE=redis`, pings Redis; returns 503 if Redis is unreachable (for Kubernetes readiness). `GET /metrics` — Prometheus text format with counters: `http_requests_total`, `http_request_errors_total`, `cache_hits_total`, `cache_misses_total`. New `src/metrics.ts`; validation layer records cache hit/miss; REST error handler and onResponse hook record errors and requests.
+- **Cache:** `cache.ping()` in `src/cache.ts` for Redis liveness. Unit tests for `ping()` when cache off and when Redis URL unset.
+- **Documentation:** README — repo/package name note (yt-captions-downloader vs transcriptor-mcp), Versioning subsection (version from package.json, tagging), Security section (do not commit or log `WHISPER_API_KEY`, `CACHE_REDIS_URL`, `MCP_AUTH_TOKEN`, cookies path; use env or secret manager). `docs/configuration.md` — Health and metrics (health, health/ready, metrics), Recommended values for production table. `docs/caching.md` — section “When Redis is unavailable” (graceful degradation: request still served via yt-dlp).
+- **E2E smoke:** MCP streamable HTTP smoke now includes `checkMcpStreamableGetTranscript`: after initialize, calls `tools/call` for `get_transcript` and asserts content or structuredContent. `load/load-testing.md` — “Recommended thresholds for regression” (e.g. `http_req_failed` rate<0.05, p95<120s; `k6 run --throw` for CI).
+- **Pre-commit (Husky):** `husky` devDependency and `prepare` script; `.husky/pre-commit` runs `npm run format-check && npm run lint`.
 - **verify-pool script:** `npm run verify-pool` (and Make target) runs `load/verify-pool.js` to validate the k6 load-test video ID pool.
 
 ### Changed
 
-- **Dependencies:** Bumped Fastify plugins (`@fastify/cors` ^11.2.0, `@fastify/multipart` ^9.4.0, `@fastify/rate-limit` ^10.3.0, `@fastify/swagger` ^9.7.0, `@fastify/swagger-ui` ^5.2.5, `@fastify/type-provider-typebox` ^6.1.0), `@sinclair/typebox` ^0.34.48, `ioredis` ^5.9.3. Dev: `@types/jest` ^30.0.0, `@types/node` ^25.2.3, `@typescript-eslint/*` and `typescript-eslint` ^8.55.0, `eslint` ^9.18.0, `jest` ^30.2.0, `prettier` ^3.8.1, `ts-jest` ^29.4.6, `typescript` ^5.9.3.
+- **Graceful shutdown:** REST API (`src/index.ts`) and MCP HTTP (`src/mcp-http.ts`) now call `closeCache()` after closing the server so the Redis connection is closed cleanly.
+- **yt-dlp-check:** Fallback logger uses `console.warn` instead of `console.info` for the info-level message to satisfy the no-console lint rule.
+- **Dependencies:** Bumped Fastify plugins (`@fastify/cors` ^11.2.0, `@fastify/multipart` ^9.4.0, `@fastify/rate-limit` ^10.3.0, `@fastify/swagger` ^9.7.0, `@fastify/swagger-ui` ^5.2.5, `@fastify/type-provider-typebox` ^6.1.0), `@sinclair/typebox` ^0.34.48, `ioredis` ^5.9.3. Dev: `@types/jest` ^30.0.0, `@types/node` ^25.2.3, `@typescript-eslint/*` and `typescript-eslint` ^8.55.0, `eslint` ^9.18.0, `jest` ^30.2.0, `prettier` ^3.8.1, `ts-jest` ^29.4.6, `typescript` ^5.9.3, `husky` ^9.1.7.
 
 ## [0.4.6] - 2026-02-13
 

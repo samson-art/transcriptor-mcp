@@ -1,6 +1,6 @@
 {
   "name": "transcriptor-mcp",
-  "version": "0.4.6",
+  "version": "0.4.7",
   "description": "API for downloading subtitles from YouTube videos",
   "type": "module",
   "main": "dist/index.js",
@@ -23,7 +23,8 @@
     "load-test": "docker run -i --rm -v \"${PWD}/load:/scripts\" -e BASE_URL=\"${BASE_URL:-http://127.0.0.1:3000}\" grafana/k6 run /scripts/health.js",
     "load-test:subtitles": "docker run -i --rm -v \"${PWD}/load:/scripts\" -e BASE_URL=\"${BASE_URL:-http://127.0.0.1:3000}\" grafana/k6 run /scripts/subtitles.js",
     "load-test:mixed": "docker run -i --rm -v \"${PWD}/load:/scripts\" -e BASE_URL=\"${BASE_URL:-http://127.0.0.1:3000}\" grafana/k6 run /scripts/mixed.js",
-    "verify-pool": "node load/verify-pool.js"
+    "verify-pool": "node load/verify-pool.js",
+    "prepare": "husky"
   },
   "keywords": [
     "youtube",
@@ -71,6 +72,7 @@
     "ts-jest": "^29.4.6",
     "ts-node-dev": "^2.0.0",
     "typescript": "^5.9.3",
-    "typescript-eslint": "^8.55.0"
+    "typescript-eslint": "^8.55.0",
+    "husky": "^9.1.7"
   }
 }

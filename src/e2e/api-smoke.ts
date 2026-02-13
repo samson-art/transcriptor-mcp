@@ -289,6 +289,108 @@ async function checkMcpStreamable(baseUrl: string): Promise<void> {
   console.log('[smoke] MCP streamable /mcp OK (initialize response valid)');
 }
 
+async function checkMcpStreamableGetTranscript(baseUrl: string): Promise<void> {
+  const fetchImpl: any = (globalThis as any).fetch;
+  if (!fetchImpl) {
+    throw new Error('Global fetch is not available in this Node.js runtime');
+  }
+
+  const videoUrl = getEnvVar('SMOKE_VIDEO_URL', DEFAULT_VIDEO_URL);
+  const requestTimeoutMs = 60000;
+
+  const initHeaders: Record<string, string> = {
+    'content-type': 'application/json',
+    Accept: 'application/json, text/event-stream',
+    ...getMcpAuthHeaders(),
+  };
+
+  const initResponse = await fetchImpl(`${baseUrl}/mcp`, {
+    method: 'POST',
+    headers: initHeaders,
+    body: JSON.stringify(MCP_INITIALIZE_BODY),
+  });
+
+  if (!initResponse.ok) {
+    const text = await initResponse.text();
+    throw new Error(`MCP streamable initialize failed with HTTP ${initResponse.status}: ${text}`);
+  }
+
+  const sessionId =
+    initResponse.headers.get('mcp-session-id') ?? initResponse.headers.get('Mcp-Session-Id');
+  if (!sessionId) {
+    throw new Error('MCP streamable response missing mcp-session-id header');
+  }
+
+  const toolsCallBody = {
+    jsonrpc: '2.0',
+    id: 2,
+    method: 'tools/call',
+    params: {
+      name: 'get_transcript',
+      arguments: { url: videoUrl, type: 'auto', lang: 'en' },
+    },
+  };
+
+  const hasAbortController = (globalThis as any).AbortController !== undefined;
+  const controller = hasAbortController ? new (globalThis as any).AbortController() : null;
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  if (controller) {
+    timer = setTimeout(() => {
+      controller.abort();
+    }, requestTimeoutMs);
+  }
+
+  const callResponse = await fetchImpl(`${baseUrl}/mcp`, {
+    method: 'POST',
+    headers: {
+      ...initHeaders,
+      'mcp-session-id': sessionId,
+    },
+    body: JSON.stringify(toolsCallBody),
+    signal: controller?.signal,
+  });
+
+  if (timer) clearTimeout(timer);
+
+  if (!callResponse.ok) {
+    const text = await callResponse.text();
+    throw new Error(
+      `MCP tools/call get_transcript failed with HTTP ${callResponse.status}: ${text}`
+    );
+  }
+
+  const callText = await callResponse.text();
+  let callData: unknown;
+  try {
+    callData = JSON.parse(callText) as unknown;
+  } catch {
+    throw new Error(`MCP tools/call response is not valid JSON: ${callText.slice(0, 300)}`);
+  }
+
+  const result = (callData as { result?: unknown }).result;
+  if (typeof result !== 'object' || result === null) {
+    const err = (callData as { error?: unknown }).error;
+    throw new Error(`MCP get_transcript failed: ${JSON.stringify(err ?? callData).slice(0, 400)}`);
+  }
+
+  const content = (result as { content?: unknown }).content;
+  const structured = (result as { structuredContent?: unknown }).structuredContent;
+  const hasContent =
+    (typeof content === 'string' && content.length > 0) ||
+    (typeof structured === 'object' &&
+      structured !== null &&
+      typeof (structured as { text?: unknown }).text === 'string');
+
+  if (!hasContent) {
+    throw new Error(
+      `MCP get_transcript result missing content or structuredContent.text: ${JSON.stringify(result).slice(0, 400)}`
+    );
+  }
+
+  // eslint-disable-next-line no-console
+  console.log('[smoke] MCP streamable get_transcript OK');
+}
+
 async function checkMcpSse(baseUrl: string): Promise<void> {
   const fetchImpl: any = (globalThis as any).fetch;
   if (!fetchImpl) {
@@ -560,6 +662,7 @@ async function main(): Promise<void> {
 
       await waitForMcpReady(mcpBaseUrl, 60000);
       await checkMcpStreamable(mcpBaseUrl);
+      await checkMcpStreamableGetTranscript(mcpBaseUrl);
       await checkMcpSse(mcpBaseUrl);
       await checkMcpStdio(mcpImage);
 
