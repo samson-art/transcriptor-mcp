@@ -124,6 +124,27 @@ Flow: the app downloads audio with yt-dlp, sends it to Whisper, and returns the 
 
 **Docker on Mac:** GPU is not available inside Docker (the Linux VM has no access to the host GPU). To speed up local Whisper on a MacBook, use a smaller model in the Whisper service (e.g. `ASR_MODEL=tiny` in the container env) or run Whisper natively with Metal support and point `WHISPER_BASE_URL` to that service.
 
+## Cache (Redis)
+
+Responses for subtitles, video info, available subtitles, and chapters can be cached in Redis so repeated requests for the same video are served without calling yt-dlp again. Both the REST API and the MCP server use this cache when it is enabled.
+
+- **`CACHE_MODE`** – cache mode  
+  - `off` (default) – no caching; every request hits yt-dlp  
+  - `redis` – use Redis as cache backend (requires `CACHE_REDIS_URL`)
+
+- **`CACHE_REDIS_URL`** – Redis connection URL (required when `CACHE_MODE=redis`)  
+  - Example: `redis://localhost:6379`
+
+- **`CACHE_TTL_SUBTITLES_SECONDS`** – TTL in seconds for successfully fetched subtitles (YouTube or Whisper)  
+  - Default: `604800` (7 days). Subtitles rarely change, so a long TTL is safe.
+
+- **`CACHE_TTL_METADATA_SECONDS`** – TTL in seconds for video metadata: video info, available subtitles list, and chapters  
+  - Default: `3600` (1 hour). Metadata (title, views, available languages) can change, so a shorter TTL is used.
+
+If `CACHE_MODE=redis` is set but `CACHE_REDIS_URL` is missing, the app logs a warning and runs with cache disabled.
+
+See [`docs/caching.md`](caching.md) for a short overview of what is cached and example env.
+
 ## Health endpoint (REST API)
 
 The REST API exposes **`GET /health`**, which returns `200` with `{ "status": "ok" }`. Use it for Kubernetes liveness/readiness or Docker `HEALTHCHECK`.

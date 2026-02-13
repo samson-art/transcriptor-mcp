@@ -18,6 +18,16 @@ jest.mock('./whisper.js', () => ({
   transcribeWithWhisper: jest.fn(),
 }));
 
+jest.mock('./cache.js', () => ({
+  getCacheConfig: jest.fn(() => ({
+    mode: 'off',
+    ttlSubtitlesSeconds: 604800,
+    ttlMetadataSeconds: 3600,
+  })),
+  get: jest.fn().mockResolvedValue(undefined),
+  set: jest.fn().mockResolvedValue(undefined),
+}));
+
 afterEach(() => {
   jest.restoreAllMocks();
 });

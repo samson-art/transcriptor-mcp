@@ -9,6 +9,7 @@ import {
   fetchYtDlpJson,
 } from './youtube.js';
 import { getWhisperConfig, transcribeWithWhisper } from './whisper.js';
+import { getCacheConfig, get, set } from './cache.js';
 
 /** Allowed video hostnames for top-10 platforms (exact or suffix match). */
 export const ALLOWED_VIDEO_DOMAINS = [
@@ -299,6 +300,19 @@ export async function validateAndDownloadSubtitles(
     throw new ValidationError('Language code contains invalid characters', 'Invalid language code');
   }
 
+  const cacheConfig = getCacheConfig();
+  const cacheKey = `sub:${url}:${type}:${sanitizedLang}`;
+  const cached = await get(cacheKey);
+  if (cached !== undefined) {
+    return JSON.parse(cached) as {
+      videoId: string;
+      type: 'official' | 'auto';
+      lang: string;
+      subtitlesContent: string;
+      source?: 'youtube' | 'whisper';
+    };
+  }
+
   let subtitlesContent = await downloadSubtitles(url, type, sanitizedLang, logger);
   let source: 'youtube' | 'whisper' = 'youtube';
 
@@ -321,7 +335,9 @@ export async function validateAndDownloadSubtitles(
   const data = await fetchYtDlpJson(url, logger);
   const videoId = data?.id ?? extractYouTubeVideoId(url) ?? 'unknown';
 
-  return { videoId, type, lang: sanitizedLang, subtitlesContent, source };
+  const result = { videoId, type, lang: sanitizedLang, subtitlesContent, source };
+  await set(cacheKey, JSON.stringify(result), cacheConfig.ttlSubtitlesSeconds);
+  return result;
 }
 
 /**
@@ -340,6 +356,14 @@ export async function validateAndFetchAvailableSubtitles(
 }> {
   const validated = validateVideoRequest(request.url);
   const { url } = validated;
+
+  const cacheConfig = getCacheConfig();
+  const cacheKey = `avail:${url}`;
+  const cached = await get(cacheKey);
+  if (cached !== undefined) {
+    return JSON.parse(cached) as { videoId: string; official: string[]; auto: string[] };
+  }
+
   const data = await fetchYtDlpJson(url, logger);
   if (!data) {
     throw new NotFoundError('Could not fetch video data for the provided URL', 'Video not found');
@@ -353,7 +377,9 @@ export async function validateAndFetchAvailableSubtitles(
     ? Object.keys(data.automatic_captions).sort((a, b) => a.localeCompare(b))
     : [];
 
-  return { videoId, official, auto };
+  const result = { videoId, official, auto };
+  await set(cacheKey, JSON.stringify(result), cacheConfig.ttlMetadataSeconds);
+  return result;
 }
 
 /**
@@ -366,13 +392,26 @@ export async function validateAndFetchVideoInfo(
 ): Promise<{ videoId: string; info: Awaited<ReturnType<typeof fetchVideoInfo>> }> {
   const validated = validateVideoRequest(request.url);
   const { url } = validated;
+
+  const cacheConfig = getCacheConfig();
+  const cacheKey = `info:${url}`;
+  const cached = await get(cacheKey);
+  if (cached !== undefined) {
+    return JSON.parse(cached) as {
+      videoId: string;
+      info: Awaited<ReturnType<typeof fetchVideoInfo>>;
+    };
+  }
+
   const info = await fetchVideoInfo(url, logger);
   if (!info) {
     throw new NotFoundError('Could not fetch video info for the provided URL', 'Video not found');
   }
 
   const videoId = info.id ?? extractYouTubeVideoId(url) ?? 'unknown';
-  return { videoId, info };
+  const result = { videoId, info };
+  await set(cacheKey, JSON.stringify(result), cacheConfig.ttlMetadataSeconds);
+  return result;
 }
 
 /**
@@ -385,6 +424,17 @@ export async function validateAndFetchVideoChapters(
 ): Promise<{ videoId: string; chapters: Awaited<ReturnType<typeof fetchVideoChapters>> }> {
   const validated = validateVideoRequest(request.url);
   const { url } = validated;
+
+  const cacheConfig = getCacheConfig();
+  const cacheKey = `chapters:${url}`;
+  const cached = await get(cacheKey);
+  if (cached !== undefined) {
+    return JSON.parse(cached) as {
+      videoId: string;
+      chapters: Awaited<ReturnType<typeof fetchVideoChapters>>;
+    };
+  }
+
   const data = await fetchYtDlpJson(url, logger);
   const videoId = data?.id ?? extractYouTubeVideoId(url) ?? 'unknown';
   const chapters = await fetchVideoChapters(url, logger, data);
@@ -392,5 +442,7 @@ export async function validateAndFetchVideoChapters(
     throw new NotFoundError('Could not fetch chapters for the provided URL', 'Video not found');
   }
 
-  return { videoId, chapters };
+  const result = { videoId, chapters };
+  await set(cacheKey, JSON.stringify(result), cacheConfig.ttlMetadataSeconds);
+  return result;
 }

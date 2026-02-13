@@ -41,6 +41,7 @@ It also includes an optional **REST API** (Fastify), but MCP is the primary focu
 - **Whisper fallback**: when subtitles are unavailable, transcribes video audio via Whisper (local self-hosted or OpenAI API).
 - **Docker-first**: ready for local + remote deployment.
 - **Production-friendly HTTP**: optional auth + allowlists (see `CHANGELOG.md`).
+- **Optional Redis cache**: cache subtitles and metadata to reduce yt-dlp calls (see [Caching](docs/caching.md)).
 
 ## Example usage (screenshot)
 

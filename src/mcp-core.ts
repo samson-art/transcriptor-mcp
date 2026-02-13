@@ -6,20 +6,17 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod/v3';
 import type { FastifyBaseLogger } from 'fastify';
 import pino from 'pino';
+import { detectSubtitleFormat, parseSubtitles, type VideoChapter } from './youtube.js';
+import { NotFoundError, ValidationError } from './errors.js';
 import {
-  detectSubtitleFormat,
-  downloadSubtitles,
-  extractYouTubeVideoId,
-  fetchAvailableSubtitles,
-  fetchVideoChapters,
-  fetchVideoInfo,
-  fetchYtDlpJson,
-  parseSubtitles,
-  type VideoChapter,
-} from './youtube.js';
-import { normalizeVideoInput, sanitizeLang } from './validation.js';
+  normalizeVideoInput,
+  sanitizeLang,
+  validateAndDownloadSubtitles,
+  validateAndFetchAvailableSubtitles,
+  validateAndFetchVideoInfo,
+  validateAndFetchVideoChapters,
+} from './validation.js';
 import { version } from './version.js';
-import { getWhisperConfig, transcribeWithWhisper } from './whisper.js';
 
 function createDefaultLogger(): FastifyBaseLogger {
   return pino({ level: process.env.LOG_LEVEL || 'info' }) as unknown as FastifyBaseLogger;
@@ -155,38 +152,52 @@ export function createMcpServer(opts?: CreateMcpServerOptions) {
       outputSchema: transcriptOutputSchema,
     },
     async (args, _extra) => {
-      const resolved = resolveSubtitleArgs(args);
-      const { content, source } = await fetchSubtitlesContent(resolved, log);
-      if (!content) {
-        return toolError(`Subtitles not found (${resolved.type}, ${resolved.lang}).`);
+      let resolved: ReturnType<typeof resolveSubtitleArgs>;
+      try {
+        resolved = resolveSubtitleArgs(args);
+      } catch (err) {
+        return toolError(err instanceof Error ? err.message : 'Invalid request.');
+      }
+
+      let result: Awaited<ReturnType<typeof validateAndDownloadSubtitles>>;
+      try {
+        result = await validateAndDownloadSubtitles(
+          { url: resolved.url, type: resolved.type, lang: resolved.lang },
+          log
+        );
+      } catch (err) {
+        if (err instanceof NotFoundError) {
+          return toolError(`Subtitles not found (${resolved.type}, ${resolved.lang}).`);
+        }
+        if (err instanceof ValidationError) {
+          return toolError(err.message);
+        }
+        throw err;
       }
 
       let plainText: string;
       try {
-        plainText = parseSubtitles(content);
+        plainText = parseSubtitles(result.subtitlesContent);
       } catch (error) {
         return toolError(
           error instanceof Error ? error.message : 'Failed to parse subtitles content.'
         );
       }
 
-      const data = await fetchYtDlpJson(resolved.url);
-      const videoId = data?.id ?? extractYouTubeVideoId(resolved.url) ?? 'unknown';
-
       const page = paginateText(plainText, resolved.responseLimit, resolved.nextCursor);
       return {
         content: [textContent(page.chunk)],
         structuredContent: {
-          videoId,
-          type: resolved.type,
-          lang: resolved.lang,
+          videoId: result.videoId,
+          type: result.type,
+          lang: result.lang,
           text: page.chunk,
           next_cursor: page.nextCursor,
           is_truncated: page.isTruncated,
           total_length: page.totalLength,
           start_offset: page.startOffset,
           end_offset: page.endOffset,
-          ...(source === 'whisper' && { source }),
+          ...(result.source === 'whisper' && { source: result.source }),
         },
       };
     }
@@ -207,23 +218,41 @@ export function createMcpServer(opts?: CreateMcpServerOptions) {
       outputSchema: rawSubtitlesOutputSchema,
     },
     async (args, _extra) => {
-      const resolved = resolveSubtitleArgs(args);
-      const { content, source } = await fetchSubtitlesContent(resolved, log);
-      if (!content) {
-        return toolError(`Subtitles not found (${resolved.type}, ${resolved.lang}).`);
+      let resolved: ReturnType<typeof resolveSubtitleArgs>;
+      try {
+        resolved = resolveSubtitleArgs(args);
+      } catch (err) {
+        return toolError(err instanceof Error ? err.message : 'Invalid request.');
       }
 
-      const data = await fetchYtDlpJson(resolved.url);
-      const videoId = data?.id ?? extractYouTubeVideoId(resolved.url) ?? 'unknown';
+      let result: Awaited<ReturnType<typeof validateAndDownloadSubtitles>>;
+      try {
+        result = await validateAndDownloadSubtitles(
+          { url: resolved.url, type: resolved.type, lang: resolved.lang },
+          log
+        );
+      } catch (err) {
+        if (err instanceof NotFoundError) {
+          return toolError(`Subtitles not found (${resolved.type}, ${resolved.lang}).`);
+        }
+        if (err instanceof ValidationError) {
+          return toolError(err.message);
+        }
+        throw err;
+      }
 
-      const format = detectSubtitleFormat(content);
-      const page = paginateText(content, resolved.responseLimit, resolved.nextCursor);
+      const format = detectSubtitleFormat(result.subtitlesContent);
+      const page = paginateText(
+        result.subtitlesContent,
+        resolved.responseLimit,
+        resolved.nextCursor
+      );
       return {
         content: [textContent(page.chunk)],
         structuredContent: {
-          videoId,
-          type: resolved.type,
-          lang: resolved.lang,
+          videoId: result.videoId,
+          type: result.type,
+          lang: result.lang,
           format,
           content: page.chunk,
           next_cursor: page.nextCursor,
@@ -231,7 +260,7 @@ export function createMcpServer(opts?: CreateMcpServerOptions) {
           total_length: page.totalLength,
           start_offset: page.startOffset,
           end_offset: page.endOffset,
-          ...(source === 'whisper' && { source }),
+          ...(result.source === 'whisper' && { source: result.source }),
         },
       };
     }
@@ -258,25 +287,30 @@ export function createMcpServer(opts?: CreateMcpServerOptions) {
         );
       }
 
-      const available = await fetchAvailableSubtitles(url);
-      if (!available) {
-        return toolError('Failed to fetch subtitle availability for this video.');
+      let result: Awaited<ReturnType<typeof validateAndFetchAvailableSubtitles>>;
+      try {
+        result = await validateAndFetchAvailableSubtitles({ url }, log);
+      } catch (err) {
+        if (err instanceof NotFoundError) {
+          return toolError('Failed to fetch subtitle availability for this video.');
+        }
+        if (err instanceof ValidationError) {
+          return toolError(err.message);
+        }
+        throw err;
       }
 
-      const data = await fetchYtDlpJson(url);
-      const videoId = data?.id ?? extractYouTubeVideoId(url) ?? 'unknown';
-
       const text = [
-        `Official: ${available.official.length ? available.official.join(', ') : 'none'}`,
-        `Auto: ${available.auto.length ? available.auto.join(', ') : 'none'}`,
+        `Official: ${result.official.length ? result.official.join(', ') : 'none'}`,
+        `Auto: ${result.auto.length ? result.auto.join(', ') : 'none'}`,
       ].join('\n');
 
       return {
         content: [textContent(text)],
         structuredContent: {
-          videoId,
-          official: available.official,
-          auto: available.auto,
+          videoId: result.videoId,
+          official: result.official,
+          auto: result.auto,
         },
       };
     }
@@ -304,13 +338,23 @@ export function createMcpServer(opts?: CreateMcpServerOptions) {
         );
       }
 
-      const info = await fetchVideoInfo(url);
+      let result: Awaited<ReturnType<typeof validateAndFetchVideoInfo>>;
+      try {
+        result = await validateAndFetchVideoInfo({ url }, log);
+      } catch (err) {
+        if (err instanceof NotFoundError) {
+          return toolError('Failed to fetch video info.');
+        }
+        if (err instanceof ValidationError) {
+          return toolError(err.message);
+        }
+        throw err;
+      }
+
+      const { videoId, info } = result;
       if (!info) {
         return toolError('Failed to fetch video info.');
       }
-
-      const videoId = info.id ?? extractYouTubeVideoId(url) ?? 'unknown';
-
       const textLines = [
         info.title ? `Title: ${info.title}` : null,
         info.channel ? `Channel: ${info.channel}` : null,
@@ -370,14 +414,20 @@ export function createMcpServer(opts?: CreateMcpServerOptions) {
         );
       }
 
-      const data = await fetchYtDlpJson(url, log);
-      const chapters = await fetchVideoChapters(url, log, data);
-      if (chapters === null) {
-        return toolError('Failed to fetch chapters for this video.');
+      let result: Awaited<ReturnType<typeof validateAndFetchVideoChapters>>;
+      try {
+        result = await validateAndFetchVideoChapters({ url }, log);
+      } catch (err) {
+        if (err instanceof NotFoundError) {
+          return toolError('Failed to fetch chapters for this video.');
+        }
+        if (err instanceof ValidationError) {
+          return toolError(err.message);
+        }
+        throw err;
       }
 
-      const videoId = data?.id ?? extractYouTubeVideoId(url) ?? 'unknown';
-
+      const chapters = result.chapters ?? [];
       const text =
         chapters.length === 0
           ? 'No chapters found.'
@@ -388,7 +438,7 @@ export function createMcpServer(opts?: CreateMcpServerOptions) {
       return {
         content: [textContent(text)],
         structuredContent: {
-          videoId,
+          videoId: result.videoId,
           chapters,
         },
       };
@@ -423,44 +473,6 @@ function resolveSubtitleArgs(args: z.infer<typeof subtitleInputSchema>) {
   const type = args.type ?? 'auto';
 
   return { url, lang, whisperLang, responseLimit, nextCursor, type };
-}
-
-async function fetchSubtitlesContent(
-  resolved: ReturnType<typeof resolveSubtitleArgs>,
-  log: FastifyBaseLogger
-): Promise<{ content: string | null; source: 'youtube' | 'whisper' }> {
-  let subtitlesContent = await downloadSubtitles(resolved.url, resolved.type, resolved.lang, log);
-  let source: 'youtube' | 'whisper' = 'youtube';
-  if (!subtitlesContent) {
-    const whisperConfig = getWhisperConfig();
-    if (whisperConfig.mode !== 'off') {
-      log.info(
-        { url: resolved.url, lang: resolved.whisperLang || 'auto' },
-        'Trying Whisper fallback'
-      );
-      subtitlesContent = await transcribeWithWhisper(
-        resolved.url,
-        resolved.whisperLang,
-        'srt',
-        log
-      );
-      source = 'whisper';
-      if (!subtitlesContent) {
-        log.warn(
-          { url: resolved.url, lang: resolved.whisperLang || 'auto' },
-          'Whisper fallback returned no transcript'
-        );
-      } else {
-        log.info(
-          { url: resolved.url, lang: resolved.whisperLang || 'auto' },
-          'Whisper fallback succeeded'
-        );
-      }
-    } else {
-      log.debug({ url: resolved.url }, 'Whisper fallback skipped (mode=off)');
-    }
-  }
-  return { content: subtitlesContent ?? null, source };
 }
 
 function resolveVideoUrl(input: string): string | null {

@@ -1,7 +1,7 @@
+import { NotFoundError } from './errors.js';
 import { createMcpServer } from './mcp-core.js';
 import * as youtube from './youtube.js';
 import * as validation from './validation.js';
-import * as whisper from './whisper.js';
 
 jest.mock('@modelcontextprotocol/sdk/server/mcp.js', () => {
   class FakeMcpServer {
@@ -17,38 +17,28 @@ jest.mock('@modelcontextprotocol/sdk/server/mcp.js', () => {
 
 jest.mock('./youtube.js', () => ({
   detectSubtitleFormat: jest.fn(),
-  downloadSubtitles: jest.fn(),
-  extractYouTubeVideoId: jest.fn(),
-  fetchAvailableSubtitles: jest.fn(),
-  fetchVideoChapters: jest.fn(),
-  fetchVideoInfo: jest.fn(),
-  fetchYtDlpJson: jest.fn(),
   parseSubtitles: jest.fn(),
 }));
 
 jest.mock('./validation.js', () => ({
   normalizeVideoInput: jest.fn(),
   sanitizeLang: jest.fn(),
+  validateAndDownloadSubtitles: jest.fn(),
+  validateAndFetchAvailableSubtitles: jest.fn(),
+  validateAndFetchVideoInfo: jest.fn(),
+  validateAndFetchVideoChapters: jest.fn(),
 }));
 
-jest.mock('./whisper.js', () => ({
-  getWhisperConfig: jest.fn(),
-  transcribeWithWhisper: jest.fn(),
-}));
-
-const downloadSubtitlesMock = youtube.downloadSubtitles as jest.Mock;
 const detectSubtitleFormatMock = youtube.detectSubtitleFormat as jest.Mock;
-const fetchAvailableSubtitlesMock = youtube.fetchAvailableSubtitles as jest.Mock;
-const fetchVideoInfoMock = youtube.fetchVideoInfo as jest.Mock;
-const fetchVideoChaptersMock = youtube.fetchVideoChapters as jest.Mock;
-const fetchYtDlpJsonMock = youtube.fetchYtDlpJson as jest.Mock;
 const parseSubtitlesMock = youtube.parseSubtitles as jest.Mock;
-const extractYouTubeVideoIdMock = youtube.extractYouTubeVideoId as jest.Mock;
 
 const normalizeVideoInputMock = validation.normalizeVideoInput as jest.Mock;
 const sanitizeLangMock = validation.sanitizeLang as jest.Mock;
-const getWhisperConfigMock = whisper.getWhisperConfig as jest.Mock;
-const transcribeWithWhisperMock = whisper.transcribeWithWhisper as jest.Mock;
+const validateAndDownloadSubtitlesMock = validation.validateAndDownloadSubtitles as jest.Mock;
+const validateAndFetchAvailableSubtitlesMock =
+  validation.validateAndFetchAvailableSubtitles as jest.Mock;
+const validateAndFetchVideoInfoMock = validation.validateAndFetchVideoInfo as jest.Mock;
+const validateAndFetchVideoChaptersMock = validation.validateAndFetchVideoChapters as jest.Mock;
 
 function getTool(server: any, name: string) {
   const handler = server.tools.get(name);
@@ -62,7 +52,6 @@ function getTool(server: any, name: string) {
 describe('mcp-core tools', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    getWhisperConfigMock.mockReturnValue({ mode: 'off' });
   });
 
   describe('get_transcript', () => {
@@ -74,10 +63,14 @@ describe('mcp-core tools', () => {
 
       normalizeVideoInputMock.mockReturnValue(testUrl);
       sanitizeLangMock.mockReturnValue('en');
-      downloadSubtitlesMock.mockResolvedValue('subtitle content');
+      validateAndDownloadSubtitlesMock.mockResolvedValue({
+        videoId: 'video123',
+        type: 'auto',
+        lang: 'en',
+        subtitlesContent: 'subtitle content',
+        source: 'youtube',
+      });
       parseSubtitlesMock.mockReturnValue('abcdefghij'); // 10 chars
-      fetchYtDlpJsonMock.mockResolvedValue({ id: 'video123' });
-      extractYouTubeVideoIdMock.mockReturnValue('video123');
 
       const result = await handler(
         {
@@ -89,7 +82,10 @@ describe('mcp-core tools', () => {
         {}
       );
 
-      expect(downloadSubtitlesMock).toHaveBeenCalledWith(testUrl, 'auto', 'en', expect.anything());
+      expect(validateAndDownloadSubtitlesMock).toHaveBeenCalledWith(
+        { url: testUrl, type: 'auto', lang: 'en' },
+        expect.anything()
+      );
       expect(parseSubtitlesMock).toHaveBeenCalledWith('subtitle content');
 
       expect(result.structuredContent).toMatchObject({
@@ -112,7 +108,9 @@ describe('mcp-core tools', () => {
 
       normalizeVideoInputMock.mockReturnValue(testUrl);
       sanitizeLangMock.mockReturnValue('en');
-      downloadSubtitlesMock.mockResolvedValue(null);
+      validateAndDownloadSubtitlesMock.mockRejectedValue(
+        new NotFoundError('Not found', 'Subtitles not found')
+      );
 
       const result = await handler({ url: testUrl, type: 'auto', lang: 'en' }, {});
 
@@ -126,7 +124,12 @@ describe('mcp-core tools', () => {
 
       normalizeVideoInputMock.mockReturnValue(testUrl);
       sanitizeLangMock.mockReturnValue('en');
-      downloadSubtitlesMock.mockResolvedValue('subtitle content');
+      validateAndDownloadSubtitlesMock.mockResolvedValue({
+        videoId: 'video123',
+        type: 'auto',
+        lang: 'en',
+        subtitlesContent: 'subtitle content',
+      });
       parseSubtitlesMock.mockImplementation(() => {
         throw new Error('parse error');
       });
@@ -143,7 +146,12 @@ describe('mcp-core tools', () => {
 
       normalizeVideoInputMock.mockReturnValue(testUrl);
       sanitizeLangMock.mockReturnValue('en');
-      downloadSubtitlesMock.mockResolvedValue('subtitle content');
+      validateAndDownloadSubtitlesMock.mockResolvedValue({
+        videoId: 'video123',
+        type: 'auto',
+        lang: 'en',
+        subtitlesContent: 'subtitle content',
+      });
       parseSubtitlesMock.mockReturnValue('short');
 
       await expect(
@@ -160,24 +168,27 @@ describe('mcp-core tools', () => {
       ).rejects.toThrow('Invalid next_cursor value.');
     });
 
-    it('should call Whisper fallback with empty lang (auto-detect) when lang is omitted', async () => {
+    it('should return transcript with source whisper when validation returns whisper', async () => {
       const server = createMcpServer() as any;
       const handler = getTool(server, 'get_transcript');
 
       normalizeVideoInputMock.mockReturnValue(testUrl);
-      downloadSubtitlesMock.mockResolvedValue(null);
-      getWhisperConfigMock.mockReturnValue({ mode: 'local' });
-      transcribeWithWhisperMock.mockResolvedValue(
-        '1\n00:00:00,000 --> 00:00:01,000\nAuto-detected transcript'
-      );
+      sanitizeLangMock.mockReturnValue('en');
+      validateAndDownloadSubtitlesMock.mockResolvedValue({
+        videoId: 'video123',
+        type: 'auto',
+        lang: 'en',
+        subtitlesContent: '1\n00:00:00,000 --> 00:00:01,000\nAuto-detected transcript',
+        source: 'whisper',
+      });
       parseSubtitlesMock.mockReturnValue('Auto-detected transcript');
-      fetchYtDlpJsonMock.mockResolvedValue({ id: 'video123' });
-      extractYouTubeVideoIdMock.mockReturnValue('video123');
 
       const result = await handler({ url: testUrl, type: 'auto' }, {});
 
-      expect(downloadSubtitlesMock).toHaveBeenCalledWith(testUrl, 'auto', 'en', expect.anything());
-      expect(transcribeWithWhisperMock).toHaveBeenCalledWith(testUrl, '', 'srt', expect.anything());
+      expect(validateAndDownloadSubtitlesMock).toHaveBeenCalledWith(
+        { url: testUrl, type: 'auto', lang: 'en' },
+        expect.anything()
+      );
       expect(result.structuredContent).toMatchObject({
         videoId: 'video123',
         lang: 'en',
@@ -195,20 +206,21 @@ describe('mcp-core tools', () => {
 
       normalizeVideoInputMock.mockReturnValue(testUrl);
       sanitizeLangMock.mockReturnValue('en');
-      downloadSubtitlesMock.mockResolvedValue('abcdefghij');
+      validateAndDownloadSubtitlesMock.mockResolvedValue({
+        videoId: 'video123',
+        type: 'official',
+        lang: 'en',
+        subtitlesContent: 'abcdefghij',
+      });
       detectSubtitleFormatMock.mockReturnValue('srt');
-      fetchYtDlpJsonMock.mockResolvedValue({ id: 'video123' });
-      extractYouTubeVideoIdMock.mockReturnValue('video123');
 
       const result = await handler(
         { url: testUrl, type: 'official', lang: 'en', response_limit: 6 },
         {}
       );
 
-      expect(downloadSubtitlesMock).toHaveBeenCalledWith(
-        testUrl,
-        'official',
-        'en',
+      expect(validateAndDownloadSubtitlesMock).toHaveBeenCalledWith(
+        { url: testUrl, type: 'official', lang: 'en' },
         expect.anything()
       );
       expect(detectSubtitleFormatMock).toHaveBeenCalledWith('abcdefghij');
@@ -241,7 +253,7 @@ describe('mcp-core tools', () => {
 
       expect(result).toMatchObject({ isError: true });
       expect(result.content[0].text).toContain('Invalid video URL');
-      expect(fetchAvailableSubtitlesMock).not.toHaveBeenCalled();
+      expect(validateAndFetchAvailableSubtitlesMock).not.toHaveBeenCalled();
     });
 
     it('should return structured list of subtitles', async () => {
@@ -249,16 +261,18 @@ describe('mcp-core tools', () => {
       const handler = getTool(server, 'get_available_subtitles');
 
       normalizeVideoInputMock.mockReturnValue(testUrl);
-      fetchAvailableSubtitlesMock.mockResolvedValue({
+      validateAndFetchAvailableSubtitlesMock.mockResolvedValue({
+        videoId: 'video123',
         official: ['en', 'ru'],
         auto: ['en'],
       });
-      fetchYtDlpJsonMock.mockResolvedValue({ id: 'video123' });
-      extractYouTubeVideoIdMock.mockReturnValue('video123');
 
       const result = await handler({ url: 'video123' }, {});
 
-      expect(fetchAvailableSubtitlesMock).toHaveBeenCalledWith(testUrl);
+      expect(validateAndFetchAvailableSubtitlesMock).toHaveBeenCalledWith(
+        { url: testUrl },
+        expect.anything()
+      );
       expect(result.structuredContent).toEqual({
         videoId: 'video123',
         official: ['en', 'ru'],
@@ -282,7 +296,7 @@ describe('mcp-core tools', () => {
 
       expect(result).toMatchObject({ isError: true });
       expect(result.content[0].text).toContain('Invalid video URL');
-      expect(fetchVideoInfoMock).not.toHaveBeenCalled();
+      expect(validateAndFetchVideoInfoMock).not.toHaveBeenCalled();
     });
 
     it('should return error when video info cannot be fetched', async () => {
@@ -290,7 +304,9 @@ describe('mcp-core tools', () => {
       const handler = getTool(server, 'get_video_info');
 
       normalizeVideoInputMock.mockReturnValue(testUrl);
-      fetchVideoInfoMock.mockResolvedValue(null);
+      validateAndFetchVideoInfoMock.mockRejectedValue(
+        new NotFoundError('Not found', 'Video not found')
+      );
 
       const result = await handler({ url: 'video123' }, {});
 
@@ -329,11 +345,14 @@ describe('mcp-core tools', () => {
         thumbnails: null,
       };
 
-      fetchVideoInfoMock.mockResolvedValue(info);
+      validateAndFetchVideoInfoMock.mockResolvedValue({ videoId: 'video123', info });
 
       const result = await handler({ url: testUrl }, {});
 
-      expect(fetchVideoInfoMock).toHaveBeenCalledWith(testUrl);
+      expect(validateAndFetchVideoInfoMock).toHaveBeenCalledWith(
+        { url: testUrl },
+        expect.anything()
+      );
       expect(result.structuredContent).toMatchObject({
         videoId: 'video123',
         title: info.title,
@@ -363,7 +382,7 @@ describe('mcp-core tools', () => {
 
       expect(result).toMatchObject({ isError: true });
       expect(result.content[0].text).toContain('Invalid video URL');
-      expect(fetchVideoChaptersMock).not.toHaveBeenCalled();
+      expect(validateAndFetchVideoChaptersMock).not.toHaveBeenCalled();
     });
 
     it('should return error when chapters cannot be fetched', async () => {
@@ -371,8 +390,9 @@ describe('mcp-core tools', () => {
       const handler = getTool(server, 'get_video_chapters');
 
       normalizeVideoInputMock.mockReturnValue(testUrl);
-      fetchYtDlpJsonMock.mockResolvedValue({ id: 'video123' });
-      fetchVideoChaptersMock.mockResolvedValue(null);
+      validateAndFetchVideoChaptersMock.mockRejectedValue(
+        new NotFoundError('Not found', 'Video not found')
+      );
 
       const result = await handler({ url: 'video123' }, {});
 
@@ -385,21 +405,22 @@ describe('mcp-core tools', () => {
       const handler = getTool(server, 'get_video_chapters');
 
       normalizeVideoInputMock.mockReturnValue(testUrl);
-      fetchYtDlpJsonMock.mockResolvedValue({ id: 'video123' });
-      extractYouTubeVideoIdMock.mockReturnValue('video123');
 
       const chapters = [
         { startTime: 0, endTime: 60, title: 'Intro' },
         { startTime: 60, endTime: 120, title: 'Main' },
       ];
-      fetchVideoChaptersMock.mockResolvedValue(chapters);
+      validateAndFetchVideoChaptersMock.mockResolvedValue({
+        videoId: 'video123',
+        chapters,
+      });
 
       const result = await handler({ url: testUrl }, {});
 
-      expect(fetchYtDlpJsonMock).toHaveBeenCalledWith(testUrl, expect.anything());
-      expect(fetchVideoChaptersMock).toHaveBeenCalledWith(testUrl, expect.anything(), {
-        id: 'video123',
-      });
+      expect(validateAndFetchVideoChaptersMock).toHaveBeenCalledWith(
+        { url: testUrl },
+        expect.anything()
+      );
       expect(result.structuredContent).toEqual({
         videoId: 'video123',
         chapters,
@@ -413,15 +434,17 @@ describe('mcp-core tools', () => {
       const handler = getTool(server, 'get_video_chapters');
 
       normalizeVideoInputMock.mockReturnValue(testUrl);
-      fetchYtDlpJsonMock.mockResolvedValue({ id: 'video123' });
-      extractYouTubeVideoIdMock.mockReturnValue('video123');
-      fetchVideoChaptersMock.mockResolvedValue([]);
+      validateAndFetchVideoChaptersMock.mockResolvedValue({
+        videoId: 'video123',
+        chapters: [],
+      });
 
       const result = await handler({ url: 'video123' }, {});
 
-      expect(fetchVideoChaptersMock).toHaveBeenCalledWith(testUrl, expect.anything(), {
-        id: 'video123',
-      });
+      expect(validateAndFetchVideoChaptersMock).toHaveBeenCalledWith(
+        { url: testUrl },
+        expect.anything()
+      );
       expect(result.structuredContent).toEqual({
         videoId: 'video123',
         chapters: [],

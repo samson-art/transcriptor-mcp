@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.6] - 2026-02-13
+
+### Added
+
+- **Optional Redis cache:** Responses for subtitles, video info, available subtitles, and chapters can be cached in Redis to reduce repeated yt-dlp calls. Configure via env: `CACHE_MODE` (`off` or `redis`), `CACHE_REDIS_URL` (required when `redis`), `CACHE_TTL_SUBTITLES_SECONDS` (default 7 days for subtitles), `CACHE_TTL_METADATA_SECONDS` (default 1 hour for video info, available subtitles, chapters). New `src/cache.ts` with `getCacheConfig()`, `get()`, `set()`, `close()`. Both REST API and MCP use the cache when enabled. Documented in `docs/caching.md`, `docs/configuration.md`, and `.env.example`.
+- **MCP uses validation layer:** MCP tools now call `validateAndDownloadSubtitles`, `validateAndFetchAvailableSubtitles`, `validateAndFetchVideoInfo`, and `validateAndFetchVideoChapters` instead of calling youtube/whisper directly, so MCP benefits from the same cache and validation as the REST API. Removed private `fetchSubtitlesContent` from `mcp-core.ts`; tools catch `ValidationError` and `NotFoundError` and return tool errors.
+- **Unit tests:** `cache.test.ts` for `getCacheConfig` (mode, TTLs from env), get/set when `CACHE_MODE=off`, and `close()`. `validation.test.ts` mocks `./cache.js` so existing tests run with cache disabled. `mcp-core.test.ts` updated to mock validation’s validateAnd* and expect corresponding calls.
+
+### Changed
+
+- **Dependency:** Added `ioredis` for Redis cache backend (used only when `CACHE_MODE=redis`).
+
 ## [0.4.5] - 2026-02-13
 
 ### Added
