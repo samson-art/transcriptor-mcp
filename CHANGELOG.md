@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **verify-pool script:** `npm run verify-pool` (and Make target) runs `load/verify-pool.js` to validate the k6 load-test video ID pool.
+
+### Changed
+
+- **Dependencies:** Bumped Fastify plugins (`@fastify/cors` ^11.2.0, `@fastify/multipart` ^9.4.0, `@fastify/rate-limit` ^10.3.0, `@fastify/swagger` ^9.7.0, `@fastify/swagger-ui` ^5.2.5, `@fastify/type-provider-typebox` ^6.1.0), `@sinclair/typebox` ^0.34.48, `ioredis` ^5.9.3. Dev: `@types/jest` ^30.0.0, `@types/node` ^25.2.3, `@typescript-eslint/*` and `typescript-eslint` ^8.55.0, `eslint` ^9.18.0, `jest` ^30.2.0, `prettier` ^3.8.1, `ts-jest` ^29.4.6, `typescript` ^5.9.3.
+
 ## [0.4.6] - 2026-02-13
 
 ### Added
