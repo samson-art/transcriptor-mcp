@@ -489,6 +489,91 @@ export function createMcpServer(opts?: CreateMcpServerOptions) {
     }
   );
 
+  const promptUrlArgsSchema = {
+    url: z.string().min(1).describe('Video URL or YouTube video ID'),
+  };
+
+  server.registerPrompt(
+    'get_transcript_for_video',
+    {
+      title: 'Get transcript for video',
+      description:
+        'Build a user message that asks the model to fetch the video transcript using the get_transcript tool.',
+      argsSchema: promptUrlArgsSchema,
+    },
+    ({ url }) => ({
+      messages: [
+        {
+          role: 'user',
+          content: {
+            type: 'text',
+            text: `Fetch the transcript for this video using the get_transcript tool and return the transcript text. Video URL: ${url}`,
+          },
+        },
+      ],
+    })
+  );
+
+  server.registerPrompt(
+    'summarize_video',
+    {
+      title: 'Summarize video',
+      description:
+        'Build a user message that asks the model to fetch the transcript and summarize the video content.',
+      argsSchema: promptUrlArgsSchema,
+    },
+    ({ url }) => ({
+      messages: [
+        {
+          role: 'user',
+          content: {
+            type: 'text',
+            text: `Use get_transcript to fetch the transcript for this video, then summarize the video content in a few sentences. Video URL: ${url}`,
+          },
+        },
+      ],
+    })
+  );
+
+  const SUPPORTED_PLATFORMS_URI = 'transcriptor://docs/supported-platforms';
+  const USAGE_URI = 'transcriptor://docs/usage';
+
+  server.registerResource(
+    'supported-platforms',
+    SUPPORTED_PLATFORMS_URI,
+    {
+      description: 'List of supported video platforms for subtitles and transcripts',
+      mimeType: 'text/plain',
+    },
+    () => ({
+      contents: [
+        {
+          uri: SUPPORTED_PLATFORMS_URI,
+          mimeType: 'text/plain',
+          text: 'Supported platforms: YouTube, Twitter/X, Instagram, TikTok, Twitch, Vimeo, Facebook, Bilibili, VK, Dailymotion. You can also pass a YouTube video ID directly.',
+        },
+      ],
+    })
+  );
+
+  server.registerResource(
+    'usage',
+    USAGE_URI,
+    {
+      description: 'Brief usage guide for transcriptor-mcp tools',
+      mimeType: 'text/plain',
+    },
+    () => ({
+      contents: [
+        {
+          uri: USAGE_URI,
+          mimeType: 'text/plain',
+          text: 'Use get_transcript for plain-text subtitles, get_raw_subtitles for SRT/VTT, get_available_subtitles to list languages, get_video_info for metadata, get_video_chapters for chapter markers. All tools accept a video URL or YouTube video ID.',
+        },
+      ],
+    })
+  );
+
   return server;
 }
 

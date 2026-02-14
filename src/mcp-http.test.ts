@@ -95,6 +95,8 @@ describe('mcp-http', () => {
           name: string;
           annotations?: { readOnlyHint?: boolean; idempotentHint?: boolean };
         }>;
+        prompts: Array<{ name: string; arguments?: Array<{ name: string; required?: boolean }> }>;
+        resources: Array<{ name: string; uri: string }>;
       };
       const body: ServerCard = response.json();
       expect(body.serverInfo).toEqual({ name: 'transcriptor-mcp', version: expect.any(String) });
@@ -113,6 +115,20 @@ describe('mcp-http', () => {
           readOnlyHint: true,
           idempotentHint: true,
         });
+      }
+      expect(body.prompts.length).toBeGreaterThanOrEqual(1);
+      for (const prompt of body.prompts) {
+        expect(prompt).toHaveProperty('name');
+        expect(typeof prompt.name).toBe('string');
+        if (prompt.arguments?.length) {
+          const urlArg = prompt.arguments.find((a) => a.name === 'url');
+          expect(urlArg).toBeDefined();
+        }
+      }
+      expect(body.resources.length).toBeGreaterThanOrEqual(1);
+      for (const resource of body.resources) {
+        expect(resource).toHaveProperty('uri');
+        expect(resource).toHaveProperty('name');
       }
     });
   });

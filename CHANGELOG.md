@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.4] - 2026-02-14
+
+### Added
+
+- **MCP Prompts:** Server now exposes two prompts for discovery and use by MCP clients (e.g. Smithery). `get_transcript_for_video` — builds a user message that asks the model to fetch the video transcript via the get_transcript tool (argument: `url`). `summarize_video` — builds a user message that asks the model to fetch the transcript and summarize the video (argument: `url`). Both appear in `GET /.well-known/mcp/server-card.json` and are available via `prompts/list` and `prompts/get`.
+- **MCP Resources:** Server now exposes two static resources. `supported-platforms` (`transcriptor://docs/supported-platforms`) — list of supported video platforms. `usage` (`transcriptor://docs/usage`) — brief usage guide for transcriptor-mcp tools. Both appear in the server card and are available via `resources/list` and `resources/read`. Improves Smithery Server Capabilities score (Prompts and Resources).
+
 ## [0.5.3] - 2026-02-14
 
 ### Added

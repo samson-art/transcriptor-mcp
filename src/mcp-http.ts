@@ -124,8 +124,46 @@ function getServerCard(): {
         annotations: { readOnlyHint: true, idempotentHint: true },
       },
     ],
-    resources: [],
-    prompts: [],
+    resources: [
+      {
+        name: 'supported-platforms',
+        uri: 'transcriptor://docs/supported-platforms',
+        description: 'List of supported video platforms for subtitles and transcripts',
+        mimeType: 'text/plain',
+      },
+      {
+        name: 'usage',
+        uri: 'transcriptor://docs/usage',
+        description: 'Brief usage guide for transcriptor-mcp tools',
+        mimeType: 'text/plain',
+      },
+    ],
+    prompts: [
+      {
+        name: 'get_transcript_for_video',
+        description:
+          'Build a user message that asks the model to fetch the video transcript using the get_transcript tool.',
+        arguments: [
+          {
+            name: 'url',
+            description: 'Video URL or YouTube video ID',
+            required: true,
+          },
+        ],
+      },
+      {
+        name: 'summarize_video',
+        description:
+          'Build a user message that asks the model to fetch the transcript and summarize the video content.',
+        arguments: [
+          {
+            name: 'url',
+            description: 'Video URL or YouTube video ID',
+            required: true,
+          },
+        ],
+      },
+    ],
   };
 }
 

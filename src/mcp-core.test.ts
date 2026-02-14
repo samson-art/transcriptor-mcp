@@ -10,6 +10,14 @@ jest.mock('@modelcontextprotocol/sdk/server/mcp.js', () => {
     registerTool(name: string, _definition: any, handler: (args: any, extra: any) => any) {
       this.tools.set(name, handler);
     }
+
+    registerPrompt(_name: string, _config: any, _handler: any) {
+      // no-op for tests that only exercise tools
+    }
+
+    registerResource(_name: string, _uri: string, _config: any, _handler: any) {
+      // no-op for tests that only exercise tools
+    }
   }
 
   return { McpServer: FakeMcpServer };
