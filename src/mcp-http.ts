@@ -1,4 +1,5 @@
 import Fastify, { type FastifyReply, type FastifyRequest } from 'fastify';
+import cors from '@fastify/cors';
 import rateLimit from '@fastify/rate-limit';
 import { randomUUID } from 'node:crypto';
 import type {
@@ -157,6 +158,11 @@ export const MCP_SESSION_CONFIG_SCHEMA = {
 
 /** Static MCP server card for discovery (e.g. Smithery) at /.well-known/mcp/server-card.json */
 function getServerCard(): {
+  $schema?: string;
+  version?: string;
+  protocolVersion?: string;
+  transport?: { type: string; endpoint: string };
+  capabilities?: Record<string, object>;
   serverInfo: { name: string; version: string };
   authentication: { required: boolean; schemes: string[] };
   configSchema: typeof MCP_SESSION_CONFIG_SCHEMA;
@@ -171,6 +177,11 @@ function getServerCard(): {
   prompts: unknown[];
 } {
   return {
+    $schema: 'https://static.modelcontextprotocol.io/schemas/mcp-server-card/v1.json',
+    version: '1.0',
+    protocolVersion: '2025-06-18',
+    transport: { type: 'streamable-http', endpoint: '/mcp' },
+    capabilities: { tools: {}, resources: {}, prompts: {} },
     serverInfo: { name: 'transcriptor-mcp', version },
     authentication: {
       required: !!authToken,
@@ -365,6 +376,11 @@ const SESSION_CLEANUP_INTERVAL_MS = process.env.MCP_SESSION_CLEANUP_INTERVAL_MS
 app.register(rateLimit, {
   max: process.env.MCP_RATE_LIMIT_MAX ? Number.parseInt(process.env.MCP_RATE_LIMIT_MAX, 10) : 100,
   timeWindow: process.env.MCP_RATE_LIMIT_TIME_WINDOW || '1 minute',
+});
+
+app.register(cors, {
+  origin: true,
+  methods: ['GET'],
 });
 
 app.get('/health', async (_request, reply) => {

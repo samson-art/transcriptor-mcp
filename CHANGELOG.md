@@ -7,8 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.6] - 2026-02-15
+
 ### Added
 
+- **CORS for MCP HTTP discovery:** `@fastify/cors` enabled for MCP HTTP server (origin: true, methods: GET). Allows Smithery and other registries to fetch `/.well-known/mcp/server-card.json` and `/.well-known/mcp/config-schema.json` from cross-origin requests (SEP-1649).
+- **SEP-1649 server card fields:** Server card now includes `$schema`, `version`, `protocolVersion`, `transport` (streamable-http /mcp), and `capabilities`. Improves compatibility with MCP Server Cards spec and Smithery tool discovery.
 - **README "When to use Transcriptor MCP":** New section describing when to choose transcriptor-mcp (transcripts/metadata without downloads, multi-platform, Whisper fallback, remote/HTTP, monitoring).
 - **Quick Start reordered:** Smithery URL (`https://server.smithery.ai/samson-art/transcriptor-mcp`) is now the first option ("no install"); Docker and local Node follow. Explicit "Connect by URL — no local install" messaging. README links to [Smithery server page](https://smithery.ai/servers/samson-art/transcriptor-mcp) in header, Quick Start, Features, and "When to use".
 - **Use-case documentation:** `docs/use-case-summarize-video.md` (summarize video via get_transcript + model) and `docs/use-case-search-and-transcript.md` (search YouTube, then get transcript). Linked from `docs/README.md` and main README.
@@ -17,7 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Discoverable info resource:** New MCP resource `transcriptor://info` (Smithery discoverable) returning JSON with server message, `availableResources` (info, transcript template, supported-platforms, usage), `tools`, and `prompts`. Registered in `mcp-core.ts` and listed in server card.
 - **Dynamic transcript resource:** New MCP resource template `transcriptor://transcript/{videoId}`. Clients can read a video transcript by URI (e.g. `transcriptor://transcript/dQw4w9WgXcQ`) without calling a tool. Uses `ResourceTemplate` from the MCP SDK; handler fetches and parses subtitles and returns JSON (`videoId`, `type`, `lang`, `text`, optional `source`).
 - **MCP prompt `search_and_summarize`:** New prompt with args `query` (required) and `url` (optional). Builds a user message that asks the model to search YouTube for the query and summarize the first result’s transcript, or to summarize the given video URL. Exposed in server card and in `transcriptor://info`.
-- **Unit tests for Tool Quality:** In `mcp-http.test.ts`, two tests for `GET /.well-known/mcp/server-card.json`: "includes title for each tool (Tool Quality)" asserts every tool has the expected `title`; "includes parameter descriptions for get_raw_subtitles (Tool Quality)" asserts all parameters of `get_raw_subtitles` (url, type, lang, response_limit, next_cursor) have a non-empty `description`.
+- **Unit tests for Tool Quality:** In `mcp-http.test.ts`, two tests for `GET /.well-known/mcp/server-card.json`: "includes title for each tool (Tool Quality)" asserts every tool has the expected `title`; "includes parameter descriptions for get_raw_subtitles (Tool Quality)" asserts all parameters of `get_raw_subtitles` (url, type, lang, response_limit, next_cursor) have a non-empty `description`. Added "includes SEP-1649 fields" test for `$schema`, `version`, `protocolVersion`, `transport`, and `capabilities`.
 
 ### Changed
 

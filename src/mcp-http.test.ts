@@ -190,6 +190,23 @@ describe('mcp-http', () => {
       }
     });
 
+    it('includes SEP-1649 fields ($schema, version, protocolVersion, transport, capabilities)', async () => {
+      await app.ready();
+      const response = await app.inject({
+        method: 'GET',
+        url: '/.well-known/mcp/server-card.json',
+      });
+      expect(response.statusCode).toBe(200);
+      const body = response.json();
+      expect(body.$schema).toBe(
+        'https://static.modelcontextprotocol.io/schemas/mcp-server-card/v1.json'
+      );
+      expect(body.version).toBe('1.0');
+      expect(body.protocolVersion).toBe('2025-06-18');
+      expect(body.transport).toEqual({ type: 'streamable-http', endpoint: '/mcp' });
+      expect(body.capabilities).toEqual({ tools: {}, resources: {}, prompts: {} });
+    });
+
     it('includes configSchema with optional session config (x-from non-reserved, x-to Authorization)', async () => {
       await app.ready();
       const response = await app.inject({
