@@ -143,6 +143,16 @@ export const MCP_SESSION_CONFIG_SCHEMA = {
   },
   required: [] as string[],
   additionalProperties: false,
+  documentation: {
+    gettingStarted: {
+      title: 'Getting started',
+      description:
+        '1. Connect to the server URL (e.g. https://server.smithery.ai/samson-art/transcriptor-mcp) — no config required for public instances.\n2. Use get_transcript, get_video_info, or search_videos to fetch transcripts and metadata.\n3. If your deployment uses MCP_AUTH_TOKEN, set the authToken in the session config; the gateway will send it as Authorization: Bearer <token>.',
+    },
+    apiLink: 'https://github.com/samson-art/transcriptor-mcp#readme',
+    security:
+      'Keep your auth token secret when the server requires one. Do not commit or log authToken.',
+  },
 } as const;
 
 /** Static MCP server card for discovery (e.g. Smithery) at /.well-known/mcp/server-card.json */
@@ -254,6 +264,18 @@ function getServerCard(): {
     ],
     resources: [
       {
+        name: 'info',
+        uri: 'transcriptor://info',
+        description: 'Server information and usage (Smithery discoverable)',
+        mimeType: 'application/json',
+      },
+      {
+        name: 'transcript',
+        uriTemplate: 'transcriptor://transcript/{videoId}',
+        description: 'Get the transcript for a video by YouTube video ID',
+        mimeType: 'application/json',
+      },
+      {
         name: 'supported-platforms',
         uri: 'transcriptor://docs/supported-platforms',
         description: 'List of supported video platforms for subtitles and transcripts',
@@ -288,6 +310,23 @@ function getServerCard(): {
             name: 'url',
             description: 'Video URL or YouTube video ID',
             required: true,
+          },
+        ],
+      },
+      {
+        name: 'search_and_summarize',
+        description:
+          'Build a user message that asks the model to search YouTube, then fetch the transcript for the first result and summarize it.',
+        arguments: [
+          {
+            name: 'query',
+            description: 'Search query for YouTube',
+            required: true,
+          },
+          {
+            name: 'url',
+            description: 'Optional: use this video URL instead of searching',
+            required: false,
           },
         ],
       },

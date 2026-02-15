@@ -137,8 +137,11 @@ describe('mcp-http', () => {
       }
       expect(body.resources.length).toBeGreaterThanOrEqual(1);
       for (const resource of body.resources) {
-        expect(resource).toHaveProperty('uri');
         expect(resource).toHaveProperty('name');
+        expect(
+          (resource as { uri?: string; uriTemplate?: string }).uri !== undefined ||
+            (resource as { uri?: string; uriTemplate?: string }).uriTemplate !== undefined
+        ).toBe(true);
       }
     });
 

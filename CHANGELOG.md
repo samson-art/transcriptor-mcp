@@ -13,11 +13,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Quick Start reordered:** Smithery URL (`https://server.smithery.ai/samson-art/transcriptor-mcp`) is now the first option ("no install"); Docker and local Node follow. Explicit "Connect by URL — no local install" messaging. README links to [Smithery server page](https://smithery.ai/servers/samson-art/transcriptor-mcp) in header, Quick Start, Features, and "When to use".
 - **Use-case documentation:** `docs/use-case-summarize-video.md` (summarize video via get_transcript + model) and `docs/use-case-search-and-transcript.md` (search YouTube, then get transcript). Linked from `docs/README.md` and main README.
 - **`search_videos` extended:** Optional `offset` (pagination), `uploadDateFilter` (`hour` | `today` | `week` | `month` | `year`), and `response_format` (`json` | `markdown`). `searchVideos()` in `src/youtube.ts` now accepts `SearchVideosOptions` (`offset`, `dateAfter`); yt-dlp receives `--dateafter` when filter is set. Server card and README tool reference updated.
+- **Smithery badge and VS Code install badges (README):** Smithery badge added to the badge row; Overview now states "Optimized for Smithery with resources, prompts, and flexible configuration". Quick Start includes one-click install badges for VS Code and VS Code Insiders (URL-based config for the Smithery server).
+- **Discoverable info resource:** New MCP resource `transcriptor://info` (Smithery discoverable) returning JSON with server message, `availableResources` (info, transcript template, supported-platforms, usage), `tools`, and `prompts`. Registered in `mcp-core.ts` and listed in server card.
+- **Dynamic transcript resource:** New MCP resource template `transcriptor://transcript/{videoId}`. Clients can read a video transcript by URI (e.g. `transcriptor://transcript/dQw4w9WgXcQ`) without calling a tool. Uses `ResourceTemplate` from the MCP SDK; handler fetches and parses subtitles and returns JSON (`videoId`, `type`, `lang`, `text`, optional `source`).
+- **MCP prompt `search_and_summarize`:** New prompt with args `query` (required) and `url` (optional). Builds a user message that asks the model to search YouTube for the query and summarize the first result’s transcript, or to summarize the given video URL. Exposed in server card and in `transcriptor://info`.
 
 ### Changed
 
 - **README Features:** First bullet is "Connect by URL (Smithery)" — use the server without installing Docker or Node. MCP quick start section retitled to "Docker and self-hosted" with a pointer to Smithery for one-click connection.
 - **smithery.yaml:** Comment added with public URL and "Connect by URL — no local install".
+- **MCP config schema and .well-known/mcp-config:** Enriched `documentation` with expanded `gettingStarted` (three steps including Smithery URL and tool names), `apiLink` (GitHub readme), and updated `security` text. Applied in both `MCP_SESSION_CONFIG_SCHEMA` in `mcp-http.ts` and `.well-known/mcp-config`.
+- **Server card:** Resources list now includes `info` (`transcriptor://info`) and `transcript` (template `transcriptor://transcript/{videoId}`); prompts list includes `search_and_summarize` with arguments `query` and `url`. Server-card test updated to allow resources with either `uri` or `uriTemplate`.
 
 ## [0.5.5] - 2026-02-15
 

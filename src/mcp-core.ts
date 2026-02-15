@@ -1,4 +1,4 @@
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { McpServer, ResourceTemplate } from '@modelcontextprotocol/sdk/server/mcp.js';
 // IMPORTANT: use Zod v3 schemas for MCP JSON Schema compatibility.
 // Some MCP clients (e.g. n8n) are strict about JSON Schema shapes and can fail
 // on Zod v4 JSON schema output ($ref-heavy / missing "type" in some branches).
@@ -649,6 +649,86 @@ export function createMcpServer(opts?: CreateMcpServerOptions) {
     })
   );
 
+  server.registerPrompt(
+    'search_and_summarize',
+    {
+      title: 'Search and summarize',
+      description:
+        'Build a user message that asks the model to search YouTube for videos matching the query, then fetch the transcript for the first result and summarize it.',
+      argsSchema: {
+        query: z.string().min(1).describe('Search query for YouTube'),
+        url: z.string().optional().describe('Optional: use this video URL instead of searching'),
+      },
+    },
+    (args) => {
+      const text = args.url
+        ? `Use get_transcript to fetch the transcript for this video, then summarize the content. Video URL: ${args.url}`
+        : `Use search_videos to find YouTube videos matching "${args.query}", then use get_transcript on the first result and summarize the video content.`;
+      return {
+        messages: [
+          {
+            role: 'user',
+            content: { type: 'text', text },
+          },
+        ],
+      };
+    }
+  );
+
+  const INFO_URI = 'transcriptor://info';
+  server.registerResource(
+    'info',
+    INFO_URI,
+    {
+      title: 'Transcriptor MCP Server Information',
+      description: 'Information about available Transcriptor MCP resources and how to use them',
+      mimeType: 'application/json',
+    },
+    () => ({
+      contents: [
+        {
+          uri: INFO_URI,
+          mimeType: 'application/json',
+          text: JSON.stringify(
+            {
+              message: 'Transcriptor MCP Server Resources',
+              availableResources: {
+                info: {
+                  description: 'Server information and usage (this document)',
+                  uri: 'transcriptor://info',
+                },
+                transcript: {
+                  description: 'Access video transcript by YouTube video ID',
+                  uriPattern: 'transcriptor://transcript/{videoId}',
+                  example: 'transcriptor://transcript/dQw4w9WgXcQ',
+                },
+                supportedPlatforms: {
+                  description: 'List of supported video platforms',
+                  uri: 'transcriptor://docs/supported-platforms',
+                },
+                usage: {
+                  description: 'Brief usage guide for tools',
+                  uri: 'transcriptor://docs/usage',
+                },
+              },
+              tools: [
+                'get_transcript',
+                'get_raw_subtitles',
+                'get_available_subtitles',
+                'get_video_info',
+                'get_video_chapters',
+                'search_videos',
+              ],
+              prompts: ['get_transcript_for_video', 'summarize_video', 'search_and_summarize'],
+            },
+            null,
+            2
+          ),
+        },
+      ],
+    })
+  );
+
   const SUPPORTED_PLATFORMS_URI = 'transcriptor://docs/supported-platforms';
   const USAGE_URI = 'transcriptor://docs/usage';
 
@@ -686,6 +766,45 @@ export function createMcpServer(opts?: CreateMcpServerOptions) {
         },
       ],
     })
+  );
+
+  const transcriptTemplate = new ResourceTemplate('transcriptor://transcript/{videoId}', {
+    list: undefined,
+  });
+  server.registerResource(
+    'transcript',
+    transcriptTemplate,
+    {
+      title: 'Video transcript',
+      description:
+        'Get the transcript for a video by YouTube video ID. Use URI format: transcriptor://transcript/{videoId}',
+      mimeType: 'application/json',
+    },
+    async (uri, variables) => {
+      const { videoId } = variables as { videoId: string };
+      const url = `https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}`;
+      const result = await validateAndDownloadSubtitles(
+        { url, type: undefined, lang: undefined },
+        log
+      );
+      const plainText = parseSubtitles(result.subtitlesContent);
+      const payload = {
+        videoId: result.videoId,
+        type: result.type,
+        lang: result.lang,
+        text: plainText,
+        ...(result.source === 'whisper' && { source: result.source }),
+      };
+      return {
+        contents: [
+          {
+            uri: uri.href,
+            mimeType: 'application/json',
+            text: JSON.stringify(payload, null, 2),
+          },
+        ],
+      };
+    }
   );
 
   return server;

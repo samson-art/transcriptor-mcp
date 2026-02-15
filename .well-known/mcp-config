@@ -19,8 +19,9 @@
   "documentation": {
     "gettingStarted": {
       "title": "Getting started",
-      "description": "1. Connect to the server URL (no config required for public instances).\n2. If your deployment uses MCP_AUTH_TOKEN, set the authToken in the session config; the gateway will send it as Authorization: Bearer <token>."
+      "description": "1. Connect to the server URL (e.g. https://server.smithery.ai/samson-art/transcriptor-mcp) — no config required for public instances.\n2. Use get_transcript, get_video_info, or search_videos to fetch transcripts and metadata.\n3. If your deployment uses MCP_AUTH_TOKEN, set the authToken in the session config; the gateway will send it as Authorization: Bearer <token>."
     },
-    "security": "Keep your auth token secret when the server requires one."
+    "apiLink": "https://github.com/samson-art/transcriptor-mcp#readme",
+    "security": "Keep your auth token secret when the server requires one. Do not commit or log authToken."
   }
 }

@@ -4,6 +4,7 @@
   <h1>Transcriptor MCP</h1>
 
   <p>
+    <a href="https://smithery.ai/servers/samson-art/transcriptor-mcp"><img alt="smithery" src="https://smithery.ai/badge/samson-art/transcriptor-mcp" /></a>
     <a href="https://github.com/samson-art/transcriptor-mcp/releases"><img alt="version" src="https://img.shields.io/github/v/release/samson-art/transcriptor-mcp" /></a>
     <a href="https://github.com/samson-art/transcriptor-mcp/blob/main/LICENSE"><img alt="license" src="https://img.shields.io/github/license/samson-art/transcriptor-mcp" /></a>
     <a href="https://hub.docker.com/r/artsamsonov/transcriptor-mcp"><img alt="docker" src="https://img.shields.io/docker/v/artsamsonov/transcriptor-mcp?label=docker" /></a>
@@ -27,7 +28,6 @@
 
 ## Overview
 
-The repository may be cloned or named locally (e.g. `yt-captions-downloader`); the **npm package** and **Docker images** are published under the name **transcriptor-mcp**.
 
 This repository primarily ships an **MCP server**:
 
@@ -55,6 +55,8 @@ Add the MCP server by URL in your client (Cursor, Claude Code, etc.):
 
 - **URL:** `https://server.smithery.ai/samson-art/transcriptor-mcp`
 - **Server page:** [smithery.ai/servers/samson-art/transcriptor-mcp](https://smithery.ai/servers/samson-art/transcriptor-mcp)
+
+For one-click install in VS Code: [![Install in VS Code](https://img.shields.io/badge/VS_Code-Install-0098FF?style=flat-square&logo=visualstudiocode&logoColor=white)](https://insiders.vscode.dev/redirect/mcp/install?name=transcriptor&config=%7B%22url%22%3A%22https%3A%2F%2Fserver.smithery.ai%2Fsamson-art%2Ftranscriptor-mcp%22%7D) [![Install in VS Code Insiders](https://img.shields.io/badge/VS_Code_Insiders-Install-24bfa5?style=flat-square&logo=visualstudiocode&logoColor=white)](https://insiders.vscode.dev/redirect/mcp/install?name=transcriptor&config=%7B%22url%22%3A%22https%3A%2F%2Fserver.smithery.ai%2Fsamson-art%2Ftranscriptor-mcp%22%7D&quality=insiders)
 
 No config needed for the public instance. Use tools like `get_transcript` or `get_video_info` right away.
 

@@ -15,12 +15,21 @@ jest.mock('@modelcontextprotocol/sdk/server/mcp.js', () => {
       // no-op for tests that only exercise tools
     }
 
-    registerResource(_name: string, _uri: string, _config: any, _handler: any) {
-      // no-op for tests that only exercise tools
+    registerResource(
+      _name: string,
+      _uriOrTemplate: string | { uriTemplate: { toString: () => string } },
+      _config: any,
+      _handler: any
+    ) {
+      // no-op for tests that only exercise tools (supports both URI string and ResourceTemplate)
     }
   }
 
-  return { McpServer: FakeMcpServer };
+  class FakeResourceTemplate {
+    constructor(_uriTemplate: string, _callbacks: { list?: unknown }) {}
+  }
+
+  return { McpServer: FakeMcpServer, ResourceTemplate: FakeResourceTemplate };
 });
 
 jest.mock('./youtube.js', () => ({
