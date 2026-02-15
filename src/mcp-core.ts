@@ -133,9 +133,26 @@ const videoChaptersOutputSchema = z.object({
   ),
 });
 
+const UPLOAD_DATE_FILTER_TO_YTDLP: Record<string, string> = {
+  hour: 'now-1hour',
+  today: 'today',
+  week: 'now-1week',
+  month: 'now-1month',
+  year: 'now-1year',
+};
+
 const searchInputSchema = z.object({
   query: z.string().optional().describe('Search query'),
   limit: z.number().int().min(1).max(50).optional().describe('Max results (default 10)'),
+  offset: z.number().int().min(0).optional().describe('Skip first N results (pagination)'),
+  uploadDateFilter: z
+    .enum(['hour', 'today', 'week', 'month', 'year'])
+    .optional()
+    .describe('Filter by upload date (relative to now)'),
+  response_format: z
+    .enum(['json', 'markdown'])
+    .optional()
+    .describe('Format of the human-readable content: json (default) or markdown'),
 });
 
 const searchVideosOutputSchema = z.object({
@@ -524,7 +541,7 @@ export function createMcpServer(opts?: CreateMcpServerOptions) {
     {
       title: 'Search videos',
       description:
-        'Search videos on YouTube via yt-dlp (ytsearch). Returns list of matching videos with metadata. No required parameters; provide query and optional limit.',
+        'Search videos on YouTube via yt-dlp (ytsearch). Returns list of matching videos with metadata. Optional: limit, offset (pagination), uploadDateFilter (hour|today|week|month|year), response_format (json|markdown).',
       inputSchema: searchInputSchema,
       outputSchema: searchVideosOutputSchema,
       annotations: { readOnlyHint: true, idempotentHint: false },
@@ -538,10 +555,18 @@ export function createMcpServer(opts?: CreateMcpServerOptions) {
 
       const limit = args.limit ?? 10;
       const sanitizedLimit = Math.min(Math.max(limit, 1), 50);
+      const offset = Math.max(0, args.offset ?? 0);
+      const dateAfter = args.uploadDateFilter
+        ? UPLOAD_DATE_FILTER_TO_YTDLP[args.uploadDateFilter]
+        : undefined;
+      const format = args.response_format ?? 'json';
 
       let results: Awaited<ReturnType<typeof searchVideos>>;
       try {
-        results = await searchVideos(query, sanitizedLimit, log);
+        results = await searchVideos(query, sanitizedLimit, log, {
+          offset: offset > 0 ? offset : undefined,
+          dateAfter,
+        });
       } catch (err) {
         log.error({ err, tool: TOOL_SEARCH_VIDEOS }, 'MCP tool unexpected error');
         recordMcpToolError(TOOL_SEARCH_VIDEOS);
@@ -557,12 +582,19 @@ export function createMcpServer(opts?: CreateMcpServerOptions) {
       const text =
         results.length === 0
           ? 'No results found.'
-          : results
-              .map(
-                (r) =>
-                  `- ${r.title ?? 'Untitled'} (${r.videoId}): ${r.url ?? ''} | ${r.uploader ?? ''} | ${r.viewCount != null ? `${r.viewCount} views` : ''}`
-              )
-              .join('\n');
+          : format === 'markdown'
+            ? results
+                .map(
+                  (r, i) =>
+                    `${i + 1}. **${(r.title ?? 'Untitled').replace(/\*\*/g, '')}**\n   Channel: ${r.uploader ?? '—'}\n   Duration: ${r.duration != null ? `${r.duration}s` : '—'}\n   URL: ${r.url ?? '—'}${r.viewCount != null ? `\n   Views: ${r.viewCount}` : ''}`
+                )
+                .join('\n\n')
+            : results
+                .map(
+                  (r) =>
+                    `- ${r.title ?? 'Untitled'} (${r.videoId}): ${r.url ?? ''} | ${r.uploader ?? ''} | ${r.viewCount != null ? `${r.viewCount} views` : ''}`
+                )
+                .join('\n');
 
       return {
         content: [textContent(text)],

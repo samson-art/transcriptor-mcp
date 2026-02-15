@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **README "When to use Transcriptor MCP":** New section describing when to choose transcriptor-mcp (transcripts/metadata without downloads, multi-platform, Whisper fallback, remote/HTTP, monitoring) and pointing to [yt-dlp-mcp](https://github.com/kevinwatt/yt-dlp-mcp) for video/audio downloads. Links to use-case docs.
+- **Quick Start reordered:** Smithery URL (`https://server.smithery.ai/samson-art/transcriptor-mcp`) is now the first option ("no install"); Docker and local Node follow. Explicit "Connect by URL — no local install" messaging.
+- **Use-case documentation:** `docs/use-case-summarize-video.md` (summarize video via get_transcript + model) and `docs/use-case-search-and-transcript.md` (search YouTube, then get transcript). Linked from `docs/README.md` and main README.
+- **`search_videos` extended:** Optional `offset` (pagination), `uploadDateFilter` (`hour` | `today` | `week` | `month` | `year`), and `response_format` (`json` | `markdown`). `searchVideos()` in `src/youtube.ts` now accepts `SearchVideosOptions` (`offset`, `dateAfter`); yt-dlp receives `--dateafter` when filter is set. Server card and README tool reference updated.
+
+### Changed
+
+- **README Features:** First bullet is "Connect by URL (Smithery)" — use the server without installing Docker or Node. MCP quick start section retitled to "Docker and self-hosted" with a pointer to Smithery for one-click connection.
+- **smithery.yaml:** Comment added with public URL and "Connect by URL — no local install".
+
 ## [0.5.5] - 2026-02-15
 
 ### Added

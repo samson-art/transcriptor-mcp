@@ -494,7 +494,12 @@ describe('mcp-core tools', () => {
 
       const result = await handler({ query: 'test query', limit: 10 }, {});
 
-      expect(searchVideosMock).toHaveBeenCalledWith('test query', 10, expect.anything());
+      expect(searchVideosMock).toHaveBeenCalledWith(
+        'test query',
+        10,
+        expect.anything(),
+        expect.any(Object)
+      );
       expect(result.structuredContent).toEqual({ results: mockResults });
       expect(result.content[0].text).toContain('Video One');
       expect(result.content[0].text).toContain('vid1');
@@ -509,7 +514,55 @@ describe('mcp-core tools', () => {
 
       await handler({ query: 'test' }, {});
 
-      expect(searchVideosMock).toHaveBeenCalledWith('test', 10, expect.anything());
+      expect(searchVideosMock).toHaveBeenCalledWith(
+        'test',
+        10,
+        expect.anything(),
+        expect.any(Object)
+      );
+    });
+
+    it('should pass offset and uploadDateFilter to searchVideos', async () => {
+      const server = createMcpServer() as any;
+      const handler = getTool(server, 'search_videos');
+
+      searchVideosMock.mockResolvedValue([]);
+
+      await handler({ query: 'react hooks', limit: 5, offset: 10, uploadDateFilter: 'week' }, {});
+
+      expect(searchVideosMock).toHaveBeenCalledWith(
+        'react hooks',
+        5,
+        expect.anything(),
+        expect.objectContaining({ offset: 10, dateAfter: 'now-1week' })
+      );
+    });
+
+    it('should return markdown-formatted content when response_format is markdown', async () => {
+      const server = createMcpServer() as any;
+      const handler = getTool(server, 'search_videos');
+
+      const mockResults = [
+        {
+          videoId: 'ab1',
+          title: 'First Video',
+          url: 'https://www.youtube.com/watch?v=ab1',
+          duration: 300,
+          uploader: 'Dev Channel',
+          viewCount: 5000,
+          thumbnail: null,
+        },
+      ];
+      searchVideosMock.mockResolvedValue(mockResults);
+
+      const result = await handler(
+        { query: 'tutorial', limit: 10, response_format: 'markdown' },
+        {}
+      );
+
+      expect(result.content[0].text).toContain('**First Video**');
+      expect(result.content[0].text).toContain('Channel: Dev Channel');
+      expect(result.content[0].text).toContain('URL: https://www.youtube.com/watch?v=ab1');
     });
 
     it('should return error when searchVideos returns null', async () => {

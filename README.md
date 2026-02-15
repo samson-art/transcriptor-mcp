@@ -34,14 +34,28 @@ This repository primarily ships an **MCP server**:
 
 It also includes an optional **REST API** (Fastify), but MCP is the primary focus.
 
-## Quick Start (MCP URL / Smithery)
+## When to use Transcriptor MCP
 
-1. Add the MCP server URL to your client (e.g. Smithery, Cursor SSE).
-2. No config required — the server works with official subtitles out of the box.
+Transcriptor MCP is the best choice when you need **transcripts and metadata** for AI, summarization, or content analysis — without downloading video or audio files:
 
-**Minimal config:** None. Connect and use `get_transcript` or `get_video_info`.
+- **Transcripts and subtitles** — cleaned text or raw SRT/VTT; multi-language; **Whisper fallback** when subtitles are unavailable (local or OpenAI).
+- **Multi-platform** — YouTube, Twitter/X, Instagram, TikTok, Twitch, Vimeo, Facebook, Bilibili, VK, Dailymotion.
+- **Remote and production** — MCP over HTTP/SSE, optional auth, Redis cache, Prometheus metrics; **connect in one click** via [Smithery](https://server.smithery.ai/samson-art/transcriptor-mcp) with no local install.
+- **No media downloads** — we focus on text and metadata only. For downloading videos or audio, use [yt-dlp-mcp](https://github.com/kevinwatt/yt-dlp-mcp) or the yt-dlp CLI.
 
-**Example config** (when auth is required):
+See [Summarize video](docs/use-case-summarize-video.md) and [Search and get transcript](docs/use-case-search-and-transcript.md) for step-by-step use cases.
+
+## Quick Start (no install)
+
+**1. Connect via Smithery (recommended)** — no Docker or Node required.
+
+Add the MCP server by URL in your client (Cursor, Claude Code, etc.):
+
+- **URL:** `https://server.smithery.ai/samson-art/transcriptor-mcp`
+
+No config needed for the public instance. Use tools like `get_transcript` or `get_video_info` right away.
+
+**Optional config** (only when the server requires auth):
 
 ```json
 {
@@ -49,8 +63,13 @@ It also includes an optional **REST API** (Fastify), but MCP is the primary focu
 }
 ```
 
+**2. Docker (stdio)** — run locally: see [MCP quick start (recommended)](#mcp-quick-start-recommended) below.
+
+**3. Local Node** — build and run `node dist/mcp.js`; see [MCP Server (stdio)](#mcp-server-stdio) below.
+
 ## Features
 
+- **Connect by URL (Smithery)** — use the server without installing Docker or Node; connect via link.
 - **Transcripts + raw subtitles**: cleaned text or raw SRT/VTT.
 - **Language support**: official subtitles with auto-generated fallback.
 - **Video metadata**: extended info (title, channel, tags, thumbnails, etc.) and chapter markers.
@@ -70,7 +89,9 @@ Below is a real-world example of the same “summarize YouTube video” task wit
   <img src="./example-usage.webp" alt="Example usage: without MCP vs with MCP" />
 </picture>
 
-## MCP quick start (recommended)
+## MCP quick start (Docker and self-hosted)
+
+For one-click connection without installing anything, use the [Smithery URL](#quick-start-no-install) above. The sections below are for Docker or your own server.
 
 ### Docker Hub (stdio)
 
@@ -133,10 +154,11 @@ For more MCP configuration examples, see [`docs/quick-start.mcp.md`](docs/quick-
 - `get_available_subtitles`: list official vs auto language codes
 - `get_video_info`: extended metadata (title, channel, tags, thumbnails, views, etc.)
 - `get_video_chapters`: chapter markers with start/end time and title
+- `search_videos`: search YouTube (query, optional limit, offset, uploadDateFilter, response_format)
 
 ### MCP tool reference
 
-All tools share the same base input:
+All URL-based tools share the same base input:
 
 - `url` (string, required) – Video URL from a supported platform or YouTube video ID. Supported: YouTube, Twitter/X, Instagram, TikTok, Twitch, Vimeo, Facebook, Bilibili, VK, Dailymotion.
 
@@ -238,6 +260,22 @@ See `src/mcp-core.ts` and `src/youtube.ts` for the full JSON schema used by the 
 - `chapters` – array of `{ startTime: number; endTime: number; title: string }`.
 
 If the video has no chapters, `chapters` is an empty array; if yt-dlp cannot fetch chapter data at all, the tool returns an MCP error instead of structured chapters.
+
+#### `search_videos`
+
+**Purpose**: Search videos on YouTube via yt-dlp (ytsearch). Returns a list of videos with metadata.
+
+**Input**:
+
+- `query` (string, required) – Search query.
+- `limit` (number, optional) – Max results (default 10, max 50).
+- `offset` (number, optional) – Skip first N results (pagination).
+- `uploadDateFilter` (string, optional) – Filter by upload date: `hour`, `today`, `week`, `month`, or `year`.
+- `response_format` (string, optional) – Human-readable format: `json` (default) or `markdown`.
+
+**Structured response**:
+
+- `results` – array of `{ videoId, title, url, duration, uploader, viewCount, thumbnail }`.
 
 ## Requirements
 

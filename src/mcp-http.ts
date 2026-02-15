@@ -229,12 +229,23 @@ function getServerCard(): {
       {
         name: 'search_videos',
         description:
-          'Search videos on YouTube via yt-dlp (ytsearch). Returns list of matching videos with metadata. No required parameters; provide query and optional limit.',
+          'Search videos on YouTube via yt-dlp (ytsearch). Returns list of matching videos with metadata. Optional: limit, offset (pagination), uploadDateFilter (hour|today|week|month|year), response_format (json|markdown).',
         inputSchema: {
           type: 'object',
           properties: {
             query: { type: 'string', description: 'Search query' },
             limit: { type: 'integer', description: 'Max results (default 10, max 50)' },
+            offset: { type: 'integer', description: 'Skip first N results (pagination)' },
+            uploadDateFilter: {
+              type: 'string',
+              enum: ['hour', 'today', 'week', 'month', 'year'],
+              description: 'Filter by upload date (relative to now)',
+            },
+            response_format: {
+              type: 'string',
+              enum: ['json', 'markdown'],
+              description: 'Format of human-readable content: json (default) or markdown',
+            },
           },
           required: [],
         },

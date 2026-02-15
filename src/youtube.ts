@@ -566,19 +566,30 @@ type YtDlpSearchResponse = {
   entries?: YtDlpSearchEntry[];
 };
 
+/** Options for searchVideos: offset for pagination, dateAfter for yt-dlp --dateafter (e.g. "now-1week"). */
+export type SearchVideosOptions = {
+  offset?: number;
+  dateAfter?: string;
+};
+
 /**
  * Searches for videos on YouTube using yt-dlp (ytsearch).
  * @param query - Search query
- * @param limit - Max number of results (1-50, default 10)
+ * @param limit - Max number of results to return (1-50, default 10)
  * @param logger - Fastify logger instance for structured logging
+ * @param options - Optional offset (pagination) and dateAfter (yt-dlp --dateafter, e.g. "now-1week")
  * @returns Array of search results or null on error
  */
 export async function searchVideos(
   query: string,
   limit: number = 10,
-  logger?: FastifyBaseLogger
+  logger?: FastifyBaseLogger,
+  options?: SearchVideosOptions
 ): Promise<SearchVideoResult[] | null> {
-  const searchUrl = `ytsearch${Math.min(Math.max(limit, 1), 50)}:${query}`;
+  const sanitizedLimit = Math.min(Math.max(limit, 1), 50);
+  const offset = Math.max(0, options?.offset ?? 0);
+  const requestCount = Math.min(50, sanitizedLimit + offset);
+  const searchUrl = `ytsearch${requestCount}:${query}`;
   const { jsRuntimes, remoteComponents, cookiesFilePathFromEnv, proxyFromEnv } = getYtDlpEnv();
 
   let cookiesPathToUse = cookiesFilePathFromEnv;
@@ -590,6 +601,9 @@ export async function searchVideos(
   }
 
   const args = ['--flat-playlist', '--dump-single-json', '--skip-download', searchUrl];
+  if (options?.dateAfter) {
+    args.push('--dateafter', options.dateAfter);
+  }
   appendYtDlpEnvArgs(args, {
     jsRuntimes,
     remoteComponents,
@@ -602,7 +616,10 @@ export async function searchVideos(
     const timeout = process.env.YT_DLP_TIMEOUT
       ? Number.parseInt(process.env.YT_DLP_TIMEOUT, 10)
       : 60000;
-    logger?.info({ query, limit }, 'Searching videos via yt-dlp');
+    logger?.info(
+      { query, limit: sanitizedLimit, offset, dateAfter: options?.dateAfter },
+      'Searching videos via yt-dlp'
+    );
     const { stdout, stderr } = await execFileAsync('yt-dlp', args, {
       maxBuffer: 10 * 1024 * 1024,
       timeout,
@@ -631,7 +648,7 @@ export async function searchVideos(
     }
 
     const entries = Array.isArray(data.entries) ? data.entries : [];
-    return entries
+    const all = entries
       .filter((e): e is YtDlpSearchEntry => e != null)
       .map(
         (e): SearchVideoResult => ({
@@ -644,6 +661,7 @@ export async function searchVideos(
           thumbnail: e.thumbnail ?? null,
         })
       );
+    return all.slice(offset, offset + sanitizedLimit);
   } catch (error: unknown) {
     const err = error instanceof Error ? error : new Error(String(error));
     const execErr = isExecFileException(error) ? error : null;

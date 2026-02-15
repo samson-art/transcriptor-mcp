@@ -1,5 +1,6 @@
 # Smithery.ai configuration for transcriptor-mcp (URL server).
-# Config schema is used for the server page; the server is published by URL.
+# Connect by URL — no local install. Server is published by URL.
+# Public URL: https://server.smithery.ai/samson-art/transcriptor-mcp
 config:
   properties:
     authToken:
