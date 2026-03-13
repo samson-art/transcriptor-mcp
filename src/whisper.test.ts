@@ -54,7 +54,7 @@ describe('getWhisperConfig', () => {
   });
 
   it('should use default timeout when WHISPER_TIMEOUT unset', () => {
-    expect(getWhisperConfig().timeout).toBe(120_000);
+    expect(getWhisperConfig().timeout).toBe(600_000);
   });
 
   it('should use WHISPER_TIMEOUT when set', () => {

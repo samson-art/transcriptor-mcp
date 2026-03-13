@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.5] - 2026-03-13
+
+### Added
+
+- **Publish Docker workflow:** Manual run via `workflow_dispatch` with optional `version` input (e.g. `0.6.5` or `v0.6.5`) and `latest_only` flag. When `latest_only=true`, builds from default branch and pushes only `:latest` (no version tag).
+- **Docker image verification:** Publish workflow logs the yt-dlp version installed in the built image for easier debugging.
+- **docs/configuration.md:** Section on container memory limits for long Whisper transcriptions — `deploy.resources.limits.memory` (e.g. 4–6 GB) to avoid OOM kills on CPU.
+
+### Changed
+
+- **WHISPER_TIMEOUT default:** Increased from 2 minutes (120000 ms) to 10 minutes (600000 ms) to better support long videos.
+- **404 error messages:** When Whisper fallback fails, the "Subtitles not found" response now explicitly mentions that Whisper was attempted and suggests increasing `WHISPER_TIMEOUT` (e.g. 3600000 for 1-hour videos).
+- **Whisper error logging:** Local and API modes now distinguish timeout (AbortError) vs network/service error in log messages.
+- **docs/configuration.md:** Updated WHISPER_TIMEOUT description and flow text for 1-hour videos on CPU; `.env.example` and `docker-compose.example.yml` use 600000 as the example value.
+
 ## [0.6.4] - 2026-02-17
 
 ### Added

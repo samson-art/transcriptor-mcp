@@ -23,7 +23,7 @@ services:
       # Whisper fallback (local container)
       WHISPER_MODE: "local"
       WHISPER_BASE_URL: "http://whisper:9000"
-      WHISPER_TIMEOUT: "120000"
+      WHISPER_TIMEOUT: "600000"
       # Without Whisper: comment out the three lines above or set WHISPER_MODE=off
       # For OpenAI API instead: WHISPER_MODE=api, WHISPER_API_KEY=sk-...
     ports:
@@ -50,7 +50,7 @@ services:
       # Whisper fallback (local container)
       WHISPER_MODE: "local"
       WHISPER_BASE_URL: "http://whisper:9000"
-      WHISPER_TIMEOUT: "120000"
+      WHISPER_TIMEOUT: "600000"
     ports:
       - "4200:4200"
     volumes:

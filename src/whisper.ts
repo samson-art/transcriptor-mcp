@@ -13,7 +13,7 @@ export type WhisperConfig = {
   apiBaseUrl: string;
 };
 
-const DEFAULT_WHISPER_TIMEOUT = 120_000;
+const DEFAULT_WHISPER_TIMEOUT = 600_000;
 const OPENAI_API_BASE = 'https://api.openai.com/v1';
 
 /**
@@ -105,7 +105,11 @@ export async function transcribeWithWhisperLocal(
     return text?.trim() ? text : null;
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    logger?.error({ err: message, url }, 'Whisper local request error');
+    const isTimeout = err instanceof DOMException && err.name === 'AbortError';
+    logger?.error(
+      { err: message, url },
+      isTimeout ? 'Whisper request timed out' : 'Whisper request failed (network/service error)'
+    );
     return null;
   }
 }
@@ -169,7 +173,13 @@ export async function transcribeWithWhisperApi(
     return text?.trim() ? text : null;
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    logger?.error({ err: message }, 'Whisper API request error');
+    const isTimeout = err instanceof DOMException && err.name === 'AbortError';
+    logger?.error(
+      { err: message },
+      isTimeout
+        ? 'Whisper API request timed out'
+        : 'Whisper API request failed (network/service error)'
+    );
     return null;
   }
 }

@@ -405,14 +405,19 @@ export async function validateAndDownloadSubtitles(
 
     const result = await downloadWithAutoDiscover(url, format, logger);
     if (!result) {
-      if (getWhisperConfig().mode !== 'off') {
+      const whisperTried = getWhisperConfig().mode !== 'off';
+      if (whisperTried) {
         recordSubtitlesFailure(url);
       }
       const available = await validateAndFetchAvailableSubtitles({ url }, logger).catch(
         () => undefined
       );
+      const baseMsg = 'No subtitles available (tried official, auto, and Whisper fallback). ';
+      const whisperHint = whisperTried
+        ? 'Whisper fallback was attempted but failed (timeout or service error). For long videos, set WHISPER_TIMEOUT higher (e.g. 3600000 for 1-hour videos). '
+        : '';
       throw new NotFoundError(
-        'No subtitles available (tried official, auto, and Whisper fallback). Use /subtitles/available to list supported languages, or omit type/lang for auto-discovery.',
+        `${baseMsg}${whisperHint}Use /subtitles/available to list supported languages, or omit type/lang for auto-discovery.`,
         'Subtitles not found',
         available ? { official: available.official, auto: available.auto } : undefined
       );
@@ -459,14 +464,18 @@ export async function validateAndDownloadSubtitles(
   }
 
   if (!subtitlesContent) {
-    if (getWhisperConfig().mode !== 'off') {
+    const whisperTried = getWhisperConfig().mode !== 'off';
+    if (whisperTried) {
       recordSubtitlesFailure(url);
     }
     const available = await validateAndFetchAvailableSubtitles({ url }, logger).catch(
       () => undefined
     );
+    const whisperHint = whisperTried
+      ? ' Whisper fallback was attempted but failed (timeout or service error). For long videos, set WHISPER_TIMEOUT higher (e.g. 3600000 for 1-hour videos).'
+      : '';
     throw new NotFoundError(
-      `No subtitles for language "${sanitizedLang}". Use /subtitles/available to list supported languages, or omit type/lang for auto-discovery.`,
+      `No subtitles for language "${sanitizedLang}".${whisperHint} Use /subtitles/available to list supported languages, or omit type/lang for auto-discovery.`,
       'Subtitles not found',
       available ? { official: available.official, auto: available.auto } : undefined
     );

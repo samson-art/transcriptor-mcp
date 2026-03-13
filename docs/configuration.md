@@ -157,7 +157,7 @@ When subtitles cannot be obtained from YouTube (via yt-dlp), the app can optiona
 **For local Whisper** (e.g. container `whisper:9000`):
 
 - **`WHISPER_BASE_URL`** – base URL of the Whisper service (e.g. `http://whisper:9000`)
-- **`WHISPER_TIMEOUT`** – request timeout in milliseconds (default: `120000`)
+- **`WHISPER_TIMEOUT`** – request timeout in milliseconds (default: `600000`, 10 min). For 1-hour videos on CPU, set 30–60 minutes (e.g. `3600000`); for 5-hour videos, use `3600000` (1 h) or more.
 
 Local mode is compatible with [whisper-asr-webservice](https://github.com/ahmetoner/whisper-asr-webservice): the app sends `POST /asr` with the audio file in the `audio_file` form field and query parameters `output` (srt, vtt, or txt) and optional `language`.
 
@@ -166,9 +166,23 @@ Local mode is compatible with [whisper-asr-webservice](https://github.com/ahmeto
 - **`WHISPER_API_KEY`** – API key (required when `WHISPER_MODE=api`); never logged
 - **`WHISPER_API_BASE_URL`** – base URL (default: `https://api.openai.com/v1`) for custom endpoints
 
-Flow: the app downloads audio with yt-dlp (using format `bestaudio[abr<=192]/bestaudio` and `--audio-quality 5` by default to reduce download size and time without hurting speech recognition), sends it to Whisper, and returns the transcript as subtitles (SRT/VTT or plain text). Long videos may hit API size limits (e.g. OpenAI 25 MB); failures are logged and the client receives the same "Subtitles not found" response as when Whisper is disabled. For videos up to 5 hours: use `YT_DLP_AUDIO_TIMEOUT=900000`, `WHISPER_TIMEOUT=3600000`, and **local Whisper** only (API mode cannot accept files >25 MB).
+Flow: the app downloads audio with yt-dlp (using format `bestaudio[abr<=192]/bestaudio` and `--audio-quality 5` by default to reduce download size and time without hurting speech recognition), sends it to Whisper, and returns the transcript as subtitles (SRT/VTT or plain text). Long videos may hit API size limits (e.g. OpenAI 25 MB); failures are logged and the client receives a "Subtitles not found" response that explicitly mentions Whisper failure when applicable. For 1-hour videos on CPU, set `WHISPER_TIMEOUT=3600000` (30–60 min). For videos up to 5 hours: use `YT_DLP_AUDIO_TIMEOUT=900000`, `WHISPER_TIMEOUT=3600000`, and **local Whisper** only (API mode cannot accept files >25 MB).
 
 **Docker on Mac:** GPU is not available inside Docker (the Linux VM has no access to the host GPU). To speed up local Whisper on a MacBook, use a smaller model in the Whisper service (e.g. `ASR_MODEL=tiny` in the container env) or run Whisper natively with Metal support and point `WHISPER_BASE_URL` to that service.
+
+**Container memory limits:** For long videos, Whisper on CPU can use several GB of RAM. Without an explicit limit, the host OOM killer may terminate the container. Set `deploy.resources.limits.memory` (or `mem_limit` in older Compose) so the container has a predictable, sufficient allocation (e.g. 4–6 GB for 1-hour transcriptions). Example:
+
+```yaml
+whisper:
+  image: onerahmet/openai-whisper-asr-webservice:latest
+  deploy:
+    resources:
+      limits:
+        memory: 6G
+  environment:
+    ASR_ENGINE: openai_whisper
+    ASR_MODEL: base
+```
 
 ## Cache (Redis)
 
