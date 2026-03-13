@@ -55,7 +55,7 @@ const SubtitlesResponseSchema = Type.Object({
   lang: Type.String(),
   text: Type.String(),
   length: Type.Number(),
-  source: Type.Optional(Type.Union([Type.Literal('youtube'), Type.Literal('whisper')])),
+  source: Type.Optional(Type.String()),
 });
 
 const RawSubtitlesResponseSchema = Type.Object({
@@ -65,7 +65,7 @@ const RawSubtitlesResponseSchema = Type.Object({
   format: Type.String(),
   content: Type.String(),
   length: Type.Number(),
-  source: Type.Optional(Type.Union([Type.Literal('youtube'), Type.Literal('whisper')])),
+  source: Type.Optional(Type.String()),
 });
 
 const AvailableSubtitlesResponseSchema = Type.Object({

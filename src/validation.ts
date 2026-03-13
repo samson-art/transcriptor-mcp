@@ -305,6 +305,27 @@ function orderAutoForYouTube(auto: string[]): string[] {
   return [...withOrig, ...withoutOrig];
 }
 
+/** Extracts platform identifier from input URL hostname (youtube, reddit, vimeo, etc.). */
+export function extractPlatformFromUrl(url: string): string {
+  try {
+    const hostname = new URL(url).hostname.toLowerCase();
+    if (hostname.includes('youtube') || hostname.includes('youtu.be')) return 'youtube';
+    if (hostname.includes('reddit') || hostname.includes('v.redd.it')) return 'reddit';
+    if (hostname.includes('vimeo')) return 'vimeo';
+    if (hostname.includes('tiktok')) return 'tiktok';
+    if (hostname.includes('twitch')) return 'twitch';
+    if (hostname.includes('twitter') || hostname.includes('x.com')) return 'twitter';
+    if (hostname.includes('instagram')) return 'instagram';
+    if (hostname.includes('facebook') || hostname.includes('fb.')) return 'facebook';
+    if (hostname.includes('bilibili')) return 'bilibili';
+    if (hostname.includes('vk.')) return 'vk';
+    if (hostname.includes('dailymotion')) return 'dailymotion';
+    return 'unknown';
+  } catch {
+    return 'unknown';
+  }
+}
+
 /**
  * Auto-discovery: try official → auto (-orig first for YouTube) → all auto → Whisper.
  * @returns subtitle result or null if all attempts failed
@@ -318,11 +339,12 @@ async function downloadWithAutoDiscover(
   type: 'official' | 'auto';
   lang: string;
   subtitlesContent: string;
-  source: 'youtube' | 'whisper';
+  source: string;
 } | null> {
   const available = await validateAndFetchAvailableSubtitles({ url }, logger);
   const { videoId, official, auto } = available;
   const isYouTube = extractYouTubeVideoId(url) !== null;
+  const platform = extractPlatformFromUrl(url);
 
   // 1. Try official subtitles
   for (const lang of official) {
@@ -333,7 +355,7 @@ async function downloadWithAutoDiscover(
         type: 'official',
         lang,
         subtitlesContent: content,
-        source: 'youtube',
+        source: platform,
       };
     }
   }
@@ -348,7 +370,7 @@ async function downloadWithAutoDiscover(
         type: 'auto',
         lang,
         subtitlesContent: content,
-        source: 'youtube',
+        source: platform,
       };
     }
   }
@@ -387,7 +409,7 @@ export async function validateAndDownloadSubtitles(
   type: 'official' | 'auto';
   lang: string;
   subtitlesContent: string;
-  source?: 'youtube' | 'whisper';
+  source?: string;
 }> {
   const validated = validateVideoRequest(request.url);
   const { url } = validated;
@@ -404,7 +426,7 @@ export async function validateAndDownloadSubtitles(
         type: 'official' | 'auto';
         lang: string;
         subtitlesContent: string;
-        source?: 'youtube' | 'whisper';
+        source?: string;
       };
     }
     recordCacheMiss();
@@ -452,13 +474,13 @@ export async function validateAndDownloadSubtitles(
       type: 'official' | 'auto';
       lang: string;
       subtitlesContent: string;
-      source?: 'youtube' | 'whisper';
+      source?: string;
     };
   }
   recordCacheMiss();
 
   let subtitlesContent = await downloadSubtitles(url, type, sanitizedLang, format, logger);
-  let source: 'youtube' | 'whisper' = 'youtube';
+  let source: string = extractPlatformFromUrl(url);
 
   if (!subtitlesContent) {
     const whisperConfig = getWhisperConfig();

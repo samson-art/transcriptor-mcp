@@ -1,5 +1,6 @@
 import { NotFoundError, ValidationError } from './errors.js';
 import {
+  extractPlatformFromUrl,
   isValidYouTubeUrl,
   isValidSupportedUrl,
   normalizeVideoInput,
@@ -76,6 +77,25 @@ describe('validation', () => {
 
   it('should return true for valid YouTube subdomains', () => {
     expect(isValidYouTubeUrl('https://sub.youtube.com/watch?v=dQw4w9WgXcQ')).toBe(true);
+  });
+
+  describe('extractPlatformFromUrl', () => {
+    it('should return youtube for YouTube URLs', () => {
+      expect(extractPlatformFromUrl('https://www.youtube.com/watch?v=dQw4w9WgXcQ')).toBe('youtube');
+      expect(extractPlatformFromUrl('https://youtu.be/dQw4w9WgXcQ')).toBe('youtube');
+    });
+    it('should return reddit for Reddit URLs', () => {
+      expect(extractPlatformFromUrl('https://www.reddit.com/r/mcp/comments/1rstpfk/title/')).toBe(
+        'reddit'
+      );
+      expect(extractPlatformFromUrl('https://v.redd.it/abc123')).toBe('reddit');
+    });
+    it('should return vimeo for Vimeo URLs', () => {
+      expect(extractPlatformFromUrl('https://vimeo.com/123')).toBe('vimeo');
+    });
+    it('should return unknown for unsupported URLs', () => {
+      expect(extractPlatformFromUrl('https://example.com/video')).toBe('unknown');
+    });
   });
 
   describe('isValidSupportedUrl', () => {
@@ -444,7 +464,7 @@ describe('validation', () => {
         type: 'auto',
         lang: 'en',
         subtitlesContent: 'vimeo subtitle content',
-        source: 'youtube',
+        source: 'vimeo',
       });
       expect(youtube.downloadSubtitles).toHaveBeenCalledWith(
         vimeoUrl,

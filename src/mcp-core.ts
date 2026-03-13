@@ -88,7 +88,7 @@ const transcriptOutputSchema = z.object({
   total_length: z.number(),
   start_offset: z.number(),
   end_offset: z.number(),
-  source: z.enum(['youtube', 'whisper']).optional(),
+  source: z.string().optional(),
 });
 
 const rawSubtitlesOutputSchema = z.object({
@@ -102,7 +102,7 @@ const rawSubtitlesOutputSchema = z.object({
   total_length: z.number(),
   start_offset: z.number(),
   end_offset: z.number(),
-  source: z.enum(['youtube', 'whisper']).optional(),
+  source: z.string().optional(),
 });
 
 const availableSubtitlesOutputSchema = z.object({
@@ -323,7 +323,7 @@ export function createMcpServer(opts?: CreateMcpServerOptions) {
           total_length: page.totalLength,
           start_offset: page.startOffset,
           end_offset: page.endOffset,
-          ...(result.source === 'whisper' && { source: result.source }),
+          ...(result.source != null && { source: result.source }),
         },
       };
     }
@@ -393,7 +393,7 @@ export function createMcpServer(opts?: CreateMcpServerOptions) {
           total_length: page.totalLength,
           start_offset: page.startOffset,
           end_offset: page.endOffset,
-          ...(result.source === 'whisper' && { source: result.source }),
+          ...(result.source != null && { source: result.source }),
         },
       };
     }
@@ -935,7 +935,7 @@ export function createMcpServer(opts?: CreateMcpServerOptions) {
         type: result.type,
         lang: result.lang,
         text: plainText,
-        ...(result.source === 'whisper' && { source: result.source }),
+        ...(result.source != null && { source: result.source }),
       };
       return {
         contents: [
