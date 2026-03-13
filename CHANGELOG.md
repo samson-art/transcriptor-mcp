@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.6] - 2026-03-13
+
+### Added
+
+- **Reddit support:** Reddit (reddit.com, old.reddit.com, v.redd.it) added as a supported platform for video transcripts and metadata. Documentation, validation, and MCP tool descriptions updated.
+- **`extractPlatformFromUrl()`:** New helper extracts platform identifier from input URL hostname (youtube, reddit, vimeo, etc.) for flexible source reporting.
+
+### Changed
+
+- **`source` field:** Response schemas and validation now accept generic strings for `source` (e.g. `youtube`, `whisper`, `reddit`) instead of fixed literals, allowing new platforms without schema changes.
+- **Publish Docker workflow:** Extracts and outputs built image tags; removed unused release trigger.
+
 ## [0.6.5] - 2026-03-13
 
 ### Added
