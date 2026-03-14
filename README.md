@@ -2,11 +2,13 @@
 
 # Transcriptor MCP
 
+[![Dockerhub](https://img.shields.io/badge/Docker-artsamsonov/transcriptor--mcp-blue.svg)](https://hub.docker.com/r/artsamsonov/transcriptor-mcp)
+[![smithery badge](https://smithery.ai/badge/samson-art/transcriptor-mcp)](https://smithery.ai/servers/samson-art/transcriptor-mcp)
+[![GitHub License](https://img.shields.io/github/license/samson-art/transcriptor-mcp)](https://github.com/samson-art/transcriptor-mcp/blob/main/LICENSE)
 
+[![transcriptor-mcp MCP server](https://glama.ai/mcp/servers/samson-art/transcriptor-mcp/badges/card.svg)](https://glama.ai/mcp/servers/samson-art/transcriptor-mcp)
 
 An MCP server (stdio + HTTP/SSE) that fetches video transcripts/subtitles via `yt-dlp`, with pagination for large responses. Supports YouTube, Twitter/X, Instagram, TikTok, Twitch, Vimeo, Facebook, Bilibili, VK, Dailymotion, Reddit. **Whisper fallback** — transcribes audio when subtitles are unavailable (local or OpenAI API). Works with Cursor and other MCP hosts.
-
-[GitHub](https://github.com/samson-art/transcriptor-mcp) · [Issues](https://github.com/samson-art/transcriptor-mcp/issues) · [Docker Hub](https://hub.docker.com/r/artsamsonov/transcriptor-mcp) · [Smithery](https://smithery.ai/servers/samson-art/transcriptor-mcp) · [Glama](https://glama.ai/mcp/servers/samson-art/transcriptor-mcp)
 
 ## Overview
 
