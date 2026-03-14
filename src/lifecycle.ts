@@ -74,16 +74,16 @@ export function setupLifecycle(options: LifecycleOptions): (signal: string) => P
   });
 
   process.on('unhandledRejection', (reason: unknown) => {
-    const error =
-      reason instanceof Error
-        ? reason
-        : new Error(
-            typeof reason === 'string'
-              ? reason
-              : reason != null
-                ? JSON.stringify(reason)
-                : 'Unknown rejection'
-          );
+    let error: Error;
+    if (reason instanceof Error) {
+      error = reason;
+    } else if (typeof reason === 'string') {
+      error = new Error(reason);
+    } else if (reason !== null && reason !== undefined) {
+      error = new Error(JSON.stringify(reason));
+    } else {
+      error = new Error('Unknown rejection');
+    }
     log.error(error, 'Unhandled Rejection');
     Sentry.captureException(error);
   });
