@@ -693,5 +693,5 @@ export { app };
 
 // Skip start when running under Jest (tests use app.inject())
 if (!process.env.JEST_WORKER_ID) {
-  await start();
+  void start();
 }
