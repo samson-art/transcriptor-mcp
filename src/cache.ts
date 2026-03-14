@@ -126,8 +126,14 @@ export async function ping(): Promise<boolean> {
  * Closes Redis connection if it was opened. Useful for graceful shutdown or tests.
  */
 export async function close(): Promise<void> {
-  if (redisClient) {
-    await redisClient.quit();
-    redisClient = null;
+  if (!redisClient) {
+    return;
+  }
+  const client = redisClient;
+  redisClient = null;
+  try {
+    await client.quit();
+  } catch (err) {
+    console.warn({ err }, 'Redis quit error during close');
   }
 }
