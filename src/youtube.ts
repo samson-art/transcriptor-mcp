@@ -1182,16 +1182,6 @@ function parseSRT(content: string, logger?: FastifyBaseLogger): string {
     if (line.length > 0) {
       let cleanLine = cleanSubtitleLine(line);
 
-      // Remove index numbers: numbers at the beginning of line followed by space
-      cleanLine = cleanLine.replace(/^\d+\s+/g, '');
-
-      // Remove index numbers that stand alone between words
-      // Pattern: space, number, space (but not numbers that are part of words or phrases)
-      cleanLine = cleanLine.replace(/\s+\d+\s+/g, ' ');
-
-      // Remove numbers at the end of line before space (if it's an index)
-      cleanLine = cleanLine.replace(/\s+\d+$/g, '');
-
       // Final space cleanup
       cleanLine = cleanLine.replace(/\s+/g, ' ').trim();
 
