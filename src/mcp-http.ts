@@ -223,7 +223,8 @@ function getServerCard(): {
             },
             response_limit: {
               type: 'integer',
-              description: 'Max characters per response (default 50000, min 1000, max 200000)',
+              description:
+                'Max characters per response. When omitted, returns full content. When set: min 1000',
             },
             next_cursor: {
               type: 'string',

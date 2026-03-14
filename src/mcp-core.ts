@@ -37,8 +37,6 @@ function createDefaultLogger(): FastifyBaseLogger {
   return pino({ level: process.env.LOG_LEVEL || 'info' }) as unknown as FastifyBaseLogger;
 }
 
-const DEFAULT_RESPONSE_LIMIT = 50000;
-const MAX_RESPONSE_LIMIT = 200000;
 const MIN_RESPONSE_LIMIT = 1000;
 
 const baseInputSchema = z.object({
@@ -69,9 +67,10 @@ const subtitleInputSchema = baseInputSchema.extend({
     .number()
     .int()
     .min(MIN_RESPONSE_LIMIT)
-    .max(MAX_RESPONSE_LIMIT)
     .optional()
-    .describe('Max characters per response (default 50000, min 1000, max 200000)'),
+    .describe(
+      'Max characters per response. When omitted, returns full content. When set: min 1000'
+    ),
   next_cursor: z
     .string()
     .optional()
@@ -265,15 +264,15 @@ export function createMcpServer(opts?: CreateMcpServerOptions) {
     {
       title: 'Get video transcript',
       description:
-        'Fetch cleaned subtitles as plain text for a video (YouTube, Twitter/X, Instagram, TikTok, Twitch, Vimeo, Facebook, Bilibili, VK, Dailymotion, Reddit). Input: URL only. Uses auto-discovery for type/language and returns the first chunk with default size.',
-      inputSchema: baseInputSchema,
+        'Fetch cleaned subtitles as plain text for a video (YouTube, Twitter/X, Instagram, TikTok, Twitch, Vimeo, Facebook, Bilibili, VK, Dailymotion, Reddit). Uses auto-discovery for type/language when omitted. Optional: type, lang, response_limit (when omitted returns full transcript), next_cursor for pagination.',
+      inputSchema: subtitleInputSchema,
       outputSchema: transcriptOutputSchema,
       annotations: { readOnlyHint: true, idempotentHint: true },
     },
     async (args, _extra) => {
-      let resolved: ReturnType<typeof resolveTranscriptArgs>;
+      let resolved: ReturnType<typeof resolveSubtitleArgs>;
       try {
-        resolved = resolveTranscriptArgs(args);
+        resolved = resolveSubtitleArgs(args);
       } catch (err) {
         recordMcpToolError(TOOL_GET_TRANSCRIPT);
         return toolError(err instanceof Error ? err.message : 'Invalid request.');
@@ -339,7 +338,7 @@ export function createMcpServer(opts?: CreateMcpServerOptions) {
     {
       title: 'Get raw video subtitles',
       description:
-        'Fetch raw SRT/VTT subtitles for a video (supported platforms). Optional lang: when omitted and Whisper fallback is used, language is auto-detected.',
+        'Fetch raw SRT/VTT subtitles for a video (supported platforms). Optional: type, lang, response_limit (when omitted returns full content), next_cursor for pagination.',
       inputSchema: subtitleInputSchema,
       outputSchema: rawSubtitlesOutputSchema,
       annotations: { readOnlyHint: true, idempotentHint: true },
@@ -952,25 +951,6 @@ export function createMcpServer(opts?: CreateMcpServerOptions) {
   return server;
 }
 
-function resolveTranscriptArgs(args: { url: string; format?: string }) {
-  const url = resolveVideoUrl(args.url);
-  if (!url) {
-    throw new Error('Invalid video URL. Use a URL from a supported platform or YouTube video ID.');
-  }
-  const format =
-    args.format && ['srt', 'vtt', 'ass', 'lrc'].includes(args.format)
-      ? (args.format as 'srt' | 'vtt' | 'ass' | 'lrc')
-      : undefined;
-  return {
-    url,
-    type: undefined,
-    lang: undefined,
-    format,
-    responseLimit: DEFAULT_RESPONSE_LIMIT,
-    nextCursor: undefined,
-  };
-}
-
 function resolveSubtitleArgs(args: z.infer<typeof subtitleInputSchema>) {
   const url = resolveVideoUrl(args.url);
   if (!url) {
@@ -998,7 +978,7 @@ function resolveSubtitleArgs(args: z.infer<typeof subtitleInputSchema>) {
     }
   }
 
-  const responseLimit = args.response_limit ?? DEFAULT_RESPONSE_LIMIT;
+  const responseLimit = args.response_limit ?? Infinity;
   const nextCursor = args.next_cursor;
   const format =
     args.format && ['srt', 'vtt', 'ass', 'lrc'].includes(args.format) ? args.format : undefined;
