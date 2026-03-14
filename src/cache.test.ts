@@ -1,4 +1,13 @@
-import { getCacheConfig, get, set, close, ping, resetCacheConfigForTests } from './cache.js';
+import {
+  getCacheConfig,
+  get,
+  set,
+  close,
+  ping,
+  resetCacheConfigForTests,
+  buildCacheKey,
+  CACHE_KEY_PREFIX,
+} from './cache.js';
 
 const originalEnv = process.env;
 
@@ -10,6 +19,47 @@ beforeEach(() => {
 
 afterAll(() => {
   process.env = originalEnv;
+});
+
+describe('buildCacheKey', () => {
+  it('should build avail key', () => {
+    expect(buildCacheKey('avail', 'https://youtube.com/watch?v=abc')).toBe(
+      'avail:https://youtube.com/watch?v=abc'
+    );
+  });
+
+  it('should build info key', () => {
+    expect(buildCacheKey('info', 'https://youtube.com/watch?v=xyz')).toBe(
+      'info:https://youtube.com/watch?v=xyz'
+    );
+  });
+
+  it('should build chapters key', () => {
+    expect(buildCacheKey('chapters', 'https://youtube.com/watch?v=123')).toBe(
+      'chapters:https://youtube.com/watch?v=123'
+    );
+  });
+
+  it('should build sub key with auto-discovery', () => {
+    expect(buildCacheKey('sub', 'https://youtube.com/watch?v=abc', 'auto-discovery', 'srt')).toBe(
+      'sub:https://youtube.com/watch?v=abc:auto-discovery:srt'
+    );
+  });
+
+  it('should build sub key with type, lang, format', () => {
+    expect(
+      buildCacheKey('sub', 'https://youtube.com/watch?v=abc', 'official', 'en', 'default')
+    ).toBe('sub:https://youtube.com/watch?v=abc:official:en:default');
+  });
+
+  it('should have consistent CACHE_KEY_PREFIX values', () => {
+    expect(CACHE_KEY_PREFIX).toEqual({
+      sub: 'sub',
+      avail: 'avail',
+      info: 'info',
+      chapters: 'chapters',
+    });
+  });
 });
 
 describe('getCacheConfig', () => {

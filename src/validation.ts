@@ -10,7 +10,7 @@ import {
   type SubtitleFormat,
 } from './youtube.js';
 import { getWhisperConfig, transcribeWithWhisper } from './whisper.js';
-import { getCacheConfig, get, set } from './cache.js';
+import { getCacheConfig, get, set, buildCacheKey } from './cache.js';
 import { recordCacheHit, recordCacheMiss, recordSubtitlesFailure } from './metrics.js';
 
 /** Allowed video hostnames for top-10 platforms (exact or suffix match). */
@@ -440,7 +440,7 @@ async function handleAutoDiscoverFlow(
 ): Promise<SubtitleResult> {
   const format = request.format as SubtitleFormat | undefined;
   const cacheConfig = getCacheConfig();
-  const cacheKey = `sub:${url}:auto-discovery:${format ?? 'default'}`;
+  const cacheKey = buildCacheKey('sub', url, 'auto-discovery', format ?? 'default');
   const cached = await get(cacheKey);
   if (cached !== undefined) {
     try {
@@ -484,7 +484,7 @@ async function handleExplicitRequestFlow(
   }
 
   const cacheConfig = getCacheConfig();
-  const cacheKey = `sub:${url}:${type}:${sanitizedLang}:${format ?? 'default'}`;
+  const cacheKey = buildCacheKey('sub', url, type, sanitizedLang, format ?? 'default');
   const cached = await get(cacheKey);
   if (cached !== undefined) {
     try {
@@ -572,7 +572,7 @@ export async function validateAndFetchAvailableSubtitles(
   const { url } = validated;
 
   const cacheConfig = getCacheConfig();
-  const cacheKey = `avail:${url}`;
+  const cacheKey = buildCacheKey('avail', url);
   const cached = await get(cacheKey);
   if (cached !== undefined) {
     try {
@@ -619,7 +619,7 @@ export async function validateAndFetchVideoInfo(
   const { url } = validated;
 
   const cacheConfig = getCacheConfig();
-  const cacheKey = `info:${url}`;
+  const cacheKey = buildCacheKey('info', url);
   const cached = await get(cacheKey);
   if (cached !== undefined) {
     try {
@@ -658,7 +658,7 @@ export async function validateAndFetchVideoChapters(
   const { url } = validated;
 
   const cacheConfig = getCacheConfig();
-  const cacheKey = `chapters:${url}`;
+  const cacheKey = buildCacheKey('chapters', url);
   const cached = await get(cacheKey);
   if (cached !== undefined) {
     try {

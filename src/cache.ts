@@ -4,6 +4,26 @@ import { parseIntEnv } from './env.js';
 
 export type CacheMode = 'off' | 'redis';
 
+/** Prefixes for cache key types. Used by buildCacheKey. */
+export const CACHE_KEY_PREFIX = {
+  sub: 'sub',
+  avail: 'avail',
+  info: 'info',
+  chapters: 'chapters',
+} as const;
+
+export type CacheKeyType = keyof typeof CACHE_KEY_PREFIX;
+
+/**
+ * Builds a consistent cache key from type, URL, and optional parts.
+ * Format: {prefix}:{url}[:part1][:part2][...]
+ */
+export function buildCacheKey(type: CacheKeyType, url: string, ...parts: string[]): string {
+  const prefix = CACHE_KEY_PREFIX[type];
+  const allParts = [url, ...parts].filter(Boolean);
+  return `${prefix}:${allParts.join(':')}`;
+}
+
 const DEFAULT_TTL_SUBTITLES_SECONDS = 604800; // 7 days
 const DEFAULT_TTL_METADATA_SECONDS = 3600; // 1 hour
 
