@@ -479,7 +479,7 @@ export function createMcpServer(opts?: CreateMcpServerOptions) {
             info.title ? `Title: ${info.title}` : null,
             info.channel ? `Channel: ${info.channel}` : null,
             info.duration === null ? null : `Duration: ${info.duration}s`,
-            info.viewCount !== null ? `Views: ${info.viewCount}` : null,
+            info.viewCount === null ? null : `Views: ${info.viewCount}`,
             info.webpageUrl ? `URL: ${info.webpageUrl}` : null,
           ].filter(Boolean) as string[];
 
@@ -665,22 +665,24 @@ export function createMcpServer(opts?: CreateMcpServerOptions) {
           throw new Error('Failed to search videos.');
         }
 
-        const text =
-          results.length === 0
-            ? 'No results found.'
-            : format === 'markdown'
-              ? results
-                  .map(
-                    (r, i) =>
-                      `${i + 1}. **${(r.title ?? 'Untitled').replace(/\*\*/g, '')}**\n   Channel: ${r.uploader ?? '—'}\n   Duration: ${r.duration != null ? `${r.duration}s` : '—'}\n   URL: ${r.url ?? '—'}${r.viewCount != null ? `\n   Views: ${r.viewCount}` : ''}`
-                  )
-                  .join('\n\n')
-              : results
-                  .map(
-                    (r) =>
-                      `- ${r.title ?? 'Untitled'} (${r.videoId}): ${r.url ?? ''} | ${r.uploader ?? ''} | ${r.viewCount != null ? `${r.viewCount} views` : ''}`
-                  )
-                  .join('\n');
+        let text: string;
+        if (results.length === 0) {
+          text = 'No results found.';
+        } else if (format === 'markdown') {
+          text = results
+            .map(
+              (r, i) =>
+                `${i + 1}. **${(r.title ?? 'Untitled').replace(/\*\*/g, '')}**\n   Channel: ${r.uploader ?? '—'}\n   Duration: ${r.duration != null ? `${r.duration}s` : '—'}\n   URL: ${r.url ?? '—'}${r.viewCount != null ? `\n   Views: ${r.viewCount}` : ''}`
+            )
+            .join('\n\n');
+        } else {
+          text = results
+            .map(
+              (r) =>
+                `- ${r.title ?? 'Untitled'} (${r.videoId}): ${r.url ?? ''} | ${r.uploader ?? ''} | ${r.viewCount == null ? '' : `${r.viewCount} views`}`
+            )
+            .join('\n');
+        }
 
         return {
           content: [textContent(text)],
