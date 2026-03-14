@@ -1,5 +1,7 @@
 import Redis from 'ioredis';
 
+import { parseIntEnv } from './env.js';
+
 export type CacheMode = 'off' | 'redis';
 
 const DEFAULT_TTL_SUBTITLES_SECONDS = 604800; // 7 days
@@ -29,20 +31,14 @@ export function getCacheConfig(): CacheConfig {
   const raw = process.env.CACHE_MODE?.trim().toLowerCase();
   const mode: CacheMode = raw === 'redis' ? 'redis' : 'off';
 
-  const ttlSubtitles = process.env.CACHE_TTL_SUBTITLES_SECONDS
-    ? Number.parseInt(process.env.CACHE_TTL_SUBTITLES_SECONDS, 10)
-    : DEFAULT_TTL_SUBTITLES_SECONDS;
-  const ttlMetadata = process.env.CACHE_TTL_METADATA_SECONDS
-    ? Number.parseInt(process.env.CACHE_TTL_METADATA_SECONDS, 10)
-    : DEFAULT_TTL_METADATA_SECONDS;
+  const ttlSubtitles = parseIntEnv('CACHE_TTL_SUBTITLES_SECONDS', DEFAULT_TTL_SUBTITLES_SECONDS);
+  const ttlMetadata = parseIntEnv('CACHE_TTL_METADATA_SECONDS', DEFAULT_TTL_METADATA_SECONDS);
 
   return {
     mode,
     redisUrl: process.env.CACHE_REDIS_URL?.trim(),
-    ttlSubtitlesSeconds: Number.isFinite(ttlSubtitles)
-      ? ttlSubtitles
-      : DEFAULT_TTL_SUBTITLES_SECONDS,
-    ttlMetadataSeconds: Number.isFinite(ttlMetadata) ? ttlMetadata : DEFAULT_TTL_METADATA_SECONDS,
+    ttlSubtitlesSeconds: ttlSubtitles,
+    ttlMetadataSeconds: ttlMetadata,
   };
 }
 

@@ -7,6 +7,8 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import type { FastifyBaseLogger } from 'fastify';
 
+import { parseIntEnv } from './env.js';
+
 const execFileAsync = promisify(execFile);
 
 /** Builds a safe base name for temp files from URL (hash + timestamp). Exported for tests. */
@@ -158,9 +160,7 @@ async function runYtDlpAndExtractSubtitles(
   logger?: FastifyBaseLogger
 ): Promise<string | null> {
   try {
-    const timeout = process.env.YT_DLP_TIMEOUT
-      ? Number.parseInt(process.env.YT_DLP_TIMEOUT, 10)
-      : 60000;
+    const timeout = parseIntEnv('YT_DLP_TIMEOUT', 60000);
     const { stdout, stderr } = await execFileAsync('yt-dlp', args, {
       maxBuffer: 10 * 1024 * 1024,
       timeout,
@@ -360,9 +360,7 @@ async function collectSubtitleResults(
 }
 
 function getExtendedTimeout(): number {
-  const timeout = process.env.YT_DLP_TIMEOUT
-    ? Number.parseInt(process.env.YT_DLP_TIMEOUT, 10)
-    : 60000;
+  const timeout = parseIntEnv('YT_DLP_TIMEOUT', 60000);
   return Math.max(timeout, 120000);
 }
 
@@ -575,12 +573,8 @@ export async function downloadAudio(
 
   const audioFormat =
     (process.env.YT_DLP_AUDIO_FORMAT ?? '').trim() || 'bestaudio[abr<=192]/bestaudio';
-  const audioQualityRaw = process.env.YT_DLP_AUDIO_QUALITY ?? '5';
-  const audioQualityNum = Number.parseInt(audioQualityRaw, 10);
-  const audioQuality =
-    Number.isNaN(audioQualityNum) || audioQualityNum < 0 || audioQualityNum > 9
-      ? '5'
-      : String(audioQualityNum);
+  const audioQualityNum = parseIntEnv('YT_DLP_AUDIO_QUALITY', 5);
+  const audioQuality = audioQualityNum < 0 || audioQualityNum > 9 ? '5' : String(audioQualityNum);
 
   const args = [
     '-f',
@@ -610,11 +604,7 @@ export async function downloadAudio(
 
   try {
     await logCookiesFileStatus(logger, cookiesFilePathFromEnv);
-    const timeout = process.env.YT_DLP_AUDIO_TIMEOUT
-      ? Number.parseInt(process.env.YT_DLP_AUDIO_TIMEOUT, 10)
-      : process.env.YT_DLP_TIMEOUT
-        ? Number.parseInt(process.env.YT_DLP_TIMEOUT, 10)
-        : 60000;
+    const timeout = parseIntEnv('YT_DLP_AUDIO_TIMEOUT', parseIntEnv('YT_DLP_TIMEOUT', 60000));
     logger?.info('Downloading audio for Whisper');
     await execFileAsync('yt-dlp', args, {
       maxBuffer: 10 * 1024 * 1024,
@@ -1037,9 +1027,7 @@ export async function searchVideos(
 
   try {
     await logCookiesFileStatus(logger, cookiesFilePathFromEnv);
-    const timeout = process.env.YT_DLP_TIMEOUT
-      ? Number.parseInt(process.env.YT_DLP_TIMEOUT, 10)
-      : 60000;
+    const timeout = parseIntEnv('YT_DLP_TIMEOUT', 60000);
     logger?.info(
       {
         query,
@@ -1108,9 +1096,7 @@ export async function fetchYtDlpJson(
 
   try {
     await logCookiesFileStatus(logger, cookiesFilePathFromEnv);
-    const timeout = process.env.YT_DLP_TIMEOUT
-      ? Number.parseInt(process.env.YT_DLP_TIMEOUT, 10)
-      : 60000;
+    const timeout = parseIntEnv('YT_DLP_TIMEOUT', 60000);
     const { stdout, stderr } = await execFileAsync('yt-dlp', args, {
       maxBuffer: 10 * 1024 * 1024,
       timeout,

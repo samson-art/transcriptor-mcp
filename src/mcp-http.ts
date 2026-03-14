@@ -22,6 +22,7 @@ import { readChangelog } from './changelog.js';
 import * as Sentry from '@sentry/node';
 import { checkYtDlpAtStartup } from './yt-dlp-check.js';
 import { createLoggerWithSentryBreadcrumbs } from './logger-sentry-breadcrumbs.js';
+import { parseIntEnv } from './env.js';
 
 setMetricsService('mcp');
 
@@ -42,7 +43,7 @@ const app = Fastify({ loggerInstance: createLoggerWithSentryBreadcrumbs() });
 const streamableSessions = new Map<string, StreamableSession>();
 const sseSessions = new Map<string, SseSession>();
 
-const mcpPort = process.env.MCP_PORT ? Number.parseInt(process.env.MCP_PORT, 10) : 4200;
+const mcpPort = parseIntEnv('MCP_PORT', 4200);
 const mcpHost = process.env.MCP_HOST || '0.0.0.0';
 const authToken = process.env.MCP_AUTH_TOKEN?.trim();
 
@@ -411,15 +412,11 @@ function getServerCard(): {
   };
 }
 
-const SESSION_TTL_MS = process.env.MCP_SESSION_TTL_MS
-  ? Number.parseInt(process.env.MCP_SESSION_TTL_MS, 10)
-  : 60 * 60 * 1000; // 1 hour
-const SESSION_CLEANUP_INTERVAL_MS = process.env.MCP_SESSION_CLEANUP_INTERVAL_MS
-  ? Number.parseInt(process.env.MCP_SESSION_CLEANUP_INTERVAL_MS, 10)
-  : 15 * 60 * 1000; // 15 minutes
+const SESSION_TTL_MS = parseIntEnv('MCP_SESSION_TTL_MS', 60 * 60 * 1000); // 1 hour
+const SESSION_CLEANUP_INTERVAL_MS = parseIntEnv('MCP_SESSION_CLEANUP_INTERVAL_MS', 15 * 60 * 1000); // 15 minutes
 
 app.register(rateLimit, {
-  max: process.env.MCP_RATE_LIMIT_MAX ? Number.parseInt(process.env.MCP_RATE_LIMIT_MAX, 10) : 100,
+  max: parseIntEnv('MCP_RATE_LIMIT_MAX', 100),
   timeWindow: process.env.MCP_RATE_LIMIT_TIME_WINDOW || '1 minute',
 });
 
@@ -655,9 +652,7 @@ const shutdown = async (signal: string) => {
   isShuttingDown = true;
   app.log.info(`Received ${signal}, starting graceful shutdown...`);
 
-  const shutdownTimeout = process.env.SHUTDOWN_TIMEOUT
-    ? Number.parseInt(process.env.SHUTDOWN_TIMEOUT, 10)
-    : 10000;
+  const shutdownTimeout = parseIntEnv('SHUTDOWN_TIMEOUT', 10000);
 
   const forceShutdownTimer = setTimeout(() => {
     app.log.warn('Shutdown timeout reached, forcing exit...');

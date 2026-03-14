@@ -1,5 +1,6 @@
 import { readFile, unlink } from 'node:fs/promises';
 import type { FastifyBaseLogger } from 'fastify';
+import { parseIntEnv } from './env.js';
 import { recordWhisperRequest } from './metrics.js';
 import { downloadAudio } from './youtube.js';
 
@@ -24,16 +25,14 @@ export function getWhisperConfig(): WhisperConfig {
   const raw = process.env.WHISPER_MODE?.trim().toLowerCase();
   const mode: WhisperMode = raw === 'local' || raw === 'api' ? raw : 'off';
 
-  const timeout = process.env.WHISPER_TIMEOUT
-    ? Number.parseInt(process.env.WHISPER_TIMEOUT, 10)
-    : DEFAULT_WHISPER_TIMEOUT;
+  const timeout = parseIntEnv('WHISPER_TIMEOUT', DEFAULT_WHISPER_TIMEOUT);
 
   const apiBaseUrl = process.env.WHISPER_API_BASE_URL?.trim() || OPENAI_API_BASE;
 
   return {
     mode,
     baseUrl: process.env.WHISPER_BASE_URL?.trim(),
-    timeout: Number.isFinite(timeout) ? timeout : DEFAULT_WHISPER_TIMEOUT,
+    timeout,
     apiKey: process.env.WHISPER_API_KEY?.trim(),
     apiBaseUrl: apiBaseUrl.replace(/\/$/, ''),
   };

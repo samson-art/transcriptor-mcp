@@ -2,6 +2,8 @@ import { spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import { setTimeout as sleep } from 'node:timers/promises';
 
+import { parseIntFromString } from '../env.js';
+
 const DEFAULT_IMAGE_NAME = 'artsamsonov/transcriptor-mcp-api';
 const DEFAULT_IMAGE_TAG = 'latest';
 const DEFAULT_PORT = 33000;
@@ -505,7 +507,10 @@ async function runApiSmokeTest(apiBaseUrl: string): Promise<void> {
   await checkSwaggerDocs(apiBaseUrl);
 
   const videoUrl = getEnvVar('SMOKE_VIDEO_URL', DEFAULT_VIDEO_URL);
-  const requestTimeoutMs = Number.parseInt(getEnvVar('SMOKE_API_REQUEST_TIMEOUT_MS', '90000'), 10);
+  const requestTimeoutMs = parseIntFromString(
+    getEnvVar('SMOKE_API_REQUEST_TIMEOUT_MS', '90000'),
+    90000
+  );
 
   const hasAbortController = (globalThis as any).AbortController !== undefined;
 
@@ -574,9 +579,9 @@ async function runApiSmokeTest(apiBaseUrl: string): Promise<void> {
 
 async function main(): Promise<void> {
   const image = buildImageRef();
-  const port = Number.parseInt(getEnvVar('SMOKE_API_PORT', String(DEFAULT_PORT)), 10);
+  const port = parseIntFromString(getEnvVar('SMOKE_API_PORT', String(DEFAULT_PORT)), DEFAULT_PORT);
 
-  if (Number.isNaN(port) || port <= 0 || port > 65535) {
+  if (port <= 0 || port > 65535) {
     throw new Error(`Invalid SMOKE_API_PORT value: ${port}`);
   }
 
@@ -587,8 +592,11 @@ async function main(): Promise<void> {
 
   const skipMcp = getSkipMcp();
   let mcpContainerName: string | null = null;
-  const mcpPort = Number.parseInt(getEnvVar('SMOKE_MCP_PORT', String(DEFAULT_MCP_PORT)), 10);
-  if (Number.isNaN(mcpPort) || mcpPort <= 0 || mcpPort > 65535) {
+  const mcpPort = parseIntFromString(
+    getEnvVar('SMOKE_MCP_PORT', String(DEFAULT_MCP_PORT)),
+    DEFAULT_MCP_PORT
+  );
+  if (mcpPort <= 0 || mcpPort > 65535) {
     throw new Error(`Invalid SMOKE_MCP_PORT value: ${mcpPort}`);
   }
   const mcpBaseUrl = getEnvVar('SMOKE_MCP_URL', `http://127.0.0.1:${mcpPort}`);

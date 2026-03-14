@@ -31,6 +31,7 @@ import {
 } from './metrics.js';
 import { createLoggerWithSentryBreadcrumbs } from './logger-sentry-breadcrumbs.js';
 import { readChangelog } from './changelog.js';
+import { parseIntEnv } from './env.js';
 
 // Response schemas for OpenAPI/Swagger
 const ErrorResponseSchema = Type.Object({
@@ -166,7 +167,7 @@ fastify.register(cors, {
 
 // Register rate limiting
 fastify.register(rateLimit, {
-  max: process.env.RATE_LIMIT_MAX ? Number.parseInt(process.env.RATE_LIMIT_MAX, 10) : 100, // maximum number of requests
+  max: parseIntEnv('RATE_LIMIT_MAX', 100), // maximum number of requests
   timeWindow: process.env.RATE_LIMIT_TIME_WINDOW || '1 minute', // time window
 });
 
@@ -409,7 +410,7 @@ const start = async () => {
       error: (msg) => fastify.log.error(msg),
       warn: (msg) => fastify.log.warn(msg),
     });
-    const port = process.env.PORT ? Number.parseInt(process.env.PORT, 10) : 3000;
+    const port = parseIntEnv('PORT', 3000);
     const host = process.env.HOST || '0.0.0.0';
     await fastify.listen({ port, host });
     fastify.log.info(`Server listening on port ${port}`);
@@ -427,9 +428,7 @@ const shutdown = async (signal: string) => {
   isShuttingDown = true;
   fastify.log.info(`Received ${signal}, starting graceful shutdown...`);
 
-  const shutdownTimeout = process.env.SHUTDOWN_TIMEOUT
-    ? Number.parseInt(process.env.SHUTDOWN_TIMEOUT, 10)
-    : 10000; // 10 seconds default
+  const shutdownTimeout = parseIntEnv('SHUTDOWN_TIMEOUT', 10000); // 10 seconds default
 
   // Timer for forced termination if shutdown takes too long
   const forceShutdownTimer = setTimeout(() => {
