@@ -68,11 +68,24 @@ const SMITHERY_HOST = 'server.smithery.ai';
 
 function isSmitheryProxyRequest(request: FastifyRequest): boolean {
   const cfWorker = getHeaderValue(request.headers['cf-worker']);
-  return cfWorker != null && cfWorker.toLowerCase().includes('smithery');
+  return cfWorker?.toLowerCase()?.includes('smithery') ?? false;
 }
 
 function getSmitheryPublicUrl(): string | undefined {
   return process.env.MCP_SMITHERY_PUBLIC_URL?.trim();
+}
+
+function findUrlByHostname(allowedUrls: string[], hostname: string): string | undefined {
+  const target = hostname.toLowerCase();
+  for (const url of allowedUrls) {
+    try {
+      const u = new URL(url);
+      if (u.hostname.toLowerCase() === target) return url;
+    } catch {
+      // skip invalid URLs
+    }
+  }
+  return undefined;
 }
 
 /**
@@ -93,15 +106,7 @@ export function resolvePublicBaseUrlForRequest(
   if (isSmitheryProxyRequest(request)) {
     const smitheryUrl = getSmitheryPublicUrl();
     if (smitheryUrl) return smitheryUrl;
-    for (const url of allowedUrls) {
-      try {
-        const u = new URL(url);
-        if (u.hostname.toLowerCase() === SMITHERY_HOST) return url;
-      } catch {
-        // skip invalid URLs
-      }
-    }
-    return allowedUrls[0];
+    return findUrlByHostname(allowedUrls, SMITHERY_HOST) ?? allowedUrls[0];
   }
 
   const forwardedHost = getHeaderValue(request.headers['x-forwarded-host']);
@@ -110,17 +115,7 @@ export function resolvePublicBaseUrlForRequest(
   if (!effectiveHostRaw) return allowedUrls[0];
 
   const effectiveHost = effectiveHostRaw.split(':')[0].toLowerCase().trim();
-
-  for (const url of allowedUrls) {
-    try {
-      const u = new URL(url);
-      if (u.hostname.toLowerCase() === effectiveHost) return url;
-    } catch {
-      // skip invalid URLs
-    }
-  }
-
-  return allowedUrls[0];
+  return findUrlByHostname(allowedUrls, effectiveHost) ?? allowedUrls[0];
 }
 
 /**
@@ -698,5 +693,5 @@ export { app };
 
 // Skip start when running under Jest (tests use app.inject())
 if (!process.env.JEST_WORKER_ID) {
-  void start();
+  await start();
 }

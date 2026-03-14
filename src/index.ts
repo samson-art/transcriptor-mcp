@@ -270,7 +270,9 @@ fastify.register(async (instance) => {
       try {
         plainText = parseSubtitles(subtitlesContent, instance.log);
       } catch (error) {
-        throw new Error(error instanceof Error ? error.message : 'Failed to parse subtitles');
+        throw new Error(error instanceof Error ? error.message : 'Failed to parse subtitles', {
+          cause: error,
+        });
       }
 
       return reply.send({

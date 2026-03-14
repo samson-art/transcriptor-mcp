@@ -327,7 +327,8 @@ export function createMcpServer(opts?: CreateMcpServerOptions) {
           plainText = parseSubtitles(result.subtitlesContent);
         } catch (error) {
           throw new Error(
-            error instanceof Error ? error.message : 'Failed to parse subtitles content.'
+            error instanceof Error ? error.message : 'Failed to parse subtitles content.',
+            { cause: error }
           );
         }
         const page = paginateText(plainText, resolved.responseLimit, resolved.nextCursor);
@@ -672,14 +673,14 @@ export function createMcpServer(opts?: CreateMcpServerOptions) {
           text = results
             .map(
               (r, i) =>
-                `${i + 1}. **${(r.title ?? 'Untitled').replace(/\*\*/g, '')}**\n   Channel: ${r.uploader ?? '—'}\n   Duration: ${r.duration != null ? `${r.duration}s` : '—'}\n   URL: ${r.url ?? '—'}${r.viewCount != null ? `\n   Views: ${r.viewCount}` : ''}`
+                `${i + 1}. **${(r.title ?? 'Untitled').replaceAll('**', '')}**\n   Channel: ${r.uploader ?? '—'}\n   Duration: ${r.duration == null ? '—' : r.duration + 's'}\n   URL: ${r.url ?? '—'}${r.viewCount == null ? '' : '\n   Views: ' + r.viewCount}`
             )
             .join('\n\n');
         } else {
           text = results
             .map(
               (r) =>
-                `- ${r.title ?? 'Untitled'} (${r.videoId}): ${r.url ?? ''} | ${r.uploader ?? ''} | ${r.viewCount == null ? '' : `${r.viewCount} views`}`
+                `- ${r.title ?? 'Untitled'} (${r.videoId}): ${r.url ?? ''} | ${r.uploader ?? ''} | ${r.viewCount == null ? '' : r.viewCount + ' views'}`
             )
             .join('\n');
         }

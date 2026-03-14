@@ -103,8 +103,8 @@ export function extractYouTubeVideoId(url: string): string | null {
   ];
 
   for (const pattern of patterns) {
-    const match = url.match(pattern);
-    if (match && match[1]) {
+    const match = new RegExp(pattern).exec(url);
+    if (match?.[1]) {
       return match[1];
     }
   }
@@ -118,7 +118,7 @@ export const extractVideoId = extractYouTubeVideoId;
 /** Supported subtitle formats for yt-dlp and output. */
 export type SubtitleFormat = 'srt' | 'vtt' | 'ass' | 'lrc';
 
-const SUBTITLE_EXTENSIONS: SubtitleFormat[] = ['srt', 'vtt', 'ass', 'lrc'];
+const SUBTITLE_EXTENSIONS = new Set<SubtitleFormat>(['srt', 'vtt', 'ass', 'lrc']);
 
 const SUB_EXTENSIONS = ['.srt', '.vtt', '.ass', '.lrc'] as const;
 
@@ -126,7 +126,7 @@ const SUB_EXTENSIONS = ['.srt', '.vtt', '.ass', '.lrc'] as const;
 export function resolveSubtitleFormat(formatParam?: SubtitleFormat | null): SubtitleFormat {
   const fromParam =
     formatParam ?? (process.env.YT_DLP_SUB_FORMAT?.trim() as SubtitleFormat | undefined);
-  if (fromParam && SUBTITLE_EXTENSIONS.includes(fromParam)) {
+  if (fromParam && SUBTITLE_EXTENSIONS.has(fromParam)) {
     return fromParam;
   }
   return 'srt';
@@ -1190,19 +1190,19 @@ function cleanSubtitleLine(line: string): string {
   let cleanLine = line;
 
   // Remove HTML tags
-  cleanLine = cleanLine.replace(/<[^>]+>/g, '');
+  cleanLine = cleanLine.replaceAll(/<[^>]+>/g, '');
 
   // Remove speaker markers (>>)
-  cleanLine = cleanLine.replace(/^>>\s*/g, '').replace(/\s*>>\s*/g, ' ');
+  cleanLine = cleanLine.replaceAll(/^>>\s*/g, '').replaceAll(/\s*>>\s*/g, ' ');
 
   // Remove sound labels in square brackets: [music], [applause], [laughter], etc.
-  cleanLine = cleanLine.replace(/\[[^\]]+\]/g, '');
+  cleanLine = cleanLine.replaceAll(/\[[^\]]+\]/g, '');
 
   // Remove VTT cue settings
-  cleanLine = cleanLine.replace(/::cue\([^)]+\)\s*\{[^}]*\}/g, '');
+  cleanLine = cleanLine.replaceAll(/::cue\([^)]+\)\s*\{[^}]*\}/g, '');
 
   // Remove multiple spaces
-  cleanLine = cleanLine.replace(/\s+/g, ' ').trim();
+  cleanLine = cleanLine.replaceAll(/\s+/g, ' ').trim();
 
   return cleanLine;
 }
@@ -1238,7 +1238,7 @@ function parseSRT(content: string, logger?: FastifyBaseLogger): string {
       let cleanLine = cleanSubtitleLine(line);
 
       // Final space cleanup
-      cleanLine = cleanLine.replace(/\s+/g, ' ').trim();
+      cleanLine = cleanLine.replaceAll(/\s+/g, ' ').trim();
 
       if (cleanLine.length > 0) {
         textLines.push(cleanLine);
@@ -1342,7 +1342,10 @@ function extractDialogueText(dialogueLine: string): string {
   const afterPrefix = dialogueLine.slice('Dialogue:'.length);
   const parts = afterPrefix.split(',');
   const text = parts.slice(9).join(',');
-  return text.replace(/\\N/g, ' ').replace(/\\n/g, ' ').trim();
+  return text
+    .replaceAll(String.raw`\N`, ' ')
+    .replaceAll(String.raw`\n`, ' ')
+    .trim();
 }
 
 /**
@@ -1379,8 +1382,8 @@ function parseLRC(content: string, logger?: FastifyBaseLogger): string {
   const textLines: string[] = [];
 
   for (const line of lines) {
-    const match = line.match(/^\[\d{1,2}:\d{2}(?:\.\d{2,3})?\]\s*(.+)$/);
-    if (match && match[1]) {
+    const match = new RegExp(/^\[\d{1,2}:\d{2}(?:\.\d{2,3})?\]\s*(.+)$/).exec(line);
+    if (match?.[1]) {
       const cleaned = cleanSubtitleLine(match[1]);
       if (cleaned.length > 0) textLines.push(cleaned);
     }

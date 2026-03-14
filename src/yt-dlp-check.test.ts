@@ -153,10 +153,7 @@ describe('yt-dlp-check', () => {
 
     it('logs WARNING when installed version is older than latest', async () => {
       execFileMock.mockImplementation((...args: unknown[]) => {
-        const cb = args[args.length - 1] as (
-          e: null,
-          result: { stdout: string; stderr: string }
-        ) => void;
+        const cb = args.at(-1) as (e: null, result: { stdout: string; stderr: string }) => void;
         setImmediate(() => cb(null, { stdout: '2026.1.1', stderr: '' }));
       });
 
@@ -176,10 +173,7 @@ describe('yt-dlp-check', () => {
 
     it('does not log WARNING when installed version equals latest', async () => {
       execFileMock.mockImplementation((...args: unknown[]) => {
-        const cb = args[args.length - 1] as (
-          e: null,
-          result: { stdout: string; stderr: string }
-        ) => void;
+        const cb = args.at(-1) as (e: null, result: { stdout: string; stderr: string }) => void;
         setImmediate(() => cb(null, { stdout: '2026.02.04', stderr: '' }));
       });
 
@@ -196,10 +190,7 @@ describe('yt-dlp-check', () => {
 
     it('does not log WARNING when GitHub fetch fails', async () => {
       execFileMock.mockImplementation((...args: unknown[]) => {
-        const cb = args[args.length - 1] as (
-          e: null,
-          result: { stdout: string; stderr: string }
-        ) => void;
+        const cb = args.at(-1) as (e: null, result: { stdout: string; stderr: string }) => void;
         setImmediate(() => cb(null, { stdout: '2026.1.1', stderr: '' }));
       });
       global.fetch = jest.fn().mockRejectedValue(new Error('network error'));
@@ -214,10 +205,7 @@ describe('yt-dlp-check', () => {
     it('skips version check when YT_DLP_SKIP_VERSION_CHECK=1', async () => {
       process.env.YT_DLP_SKIP_VERSION_CHECK = '1';
       execFileMock.mockImplementation((...args: unknown[]) => {
-        const cb = args[args.length - 1] as (
-          e: null,
-          result: { stdout: string; stderr: string }
-        ) => void;
+        const cb = args.at(-1) as (e: null, result: { stdout: string; stderr: string }) => void;
         setImmediate(() => cb(null, { stdout: '2020.1.1', stderr: '' }));
       });
       const fetchSpy = jest.fn();

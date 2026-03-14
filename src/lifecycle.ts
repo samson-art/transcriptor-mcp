@@ -51,7 +51,7 @@ export function setupLifecycle(options: LifecycleOptions): (signal: string) => P
       process.exit(0);
     } catch (err) {
       clearTimeout(forceShutdownTimer);
-      const error = err instanceof Error ? err : new Error(String(err));
+      const error = err instanceof Error ? err : new Error(String(err), { cause: err });
       log.error(error, 'Error during shutdown');
       if (sentryContext) {
         Sentry.withScope((scope) => {
@@ -80,7 +80,7 @@ export function setupLifecycle(options: LifecycleOptions): (signal: string) => P
     } else if (typeof reason === 'string') {
       error = new Error(reason);
     } else if (reason !== null && reason !== undefined) {
-      error = new Error(JSON.stringify(reason));
+      error = new Error(JSON.stringify(reason), { cause: reason });
     } else {
       error = new Error('Unknown rejection');
     }

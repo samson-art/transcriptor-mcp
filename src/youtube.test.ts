@@ -735,7 +735,7 @@ today to pay our respects to MCP, which
       expect(args).toContain('15');
       expect(args).toContain('--retry-sleep');
       expect(args).toContain('linear=1::2');
-      expect(args[args.length - 1]).toBe('https://example.com');
+      expect(args.at(-1)).toBe('https://example.com');
     });
 
     it('should add YT_DLP_EXTRA_ARGS when set', () => {
@@ -746,7 +746,7 @@ today to pay our respects to MCP, which
 
       expect(args).toContain('--no-check-certificate');
       expect(args).toContain('-v');
-      expect(args[args.length - 1]).toBe('https://example.com');
+      expect(args.at(-1)).toBe('https://example.com');
     });
 
     it('should add --no-warnings when YT_DLP_NO_WARNINGS is 1', () => {
@@ -758,7 +758,7 @@ today to pay our respects to MCP, which
       expect(args).toContain('--no-warnings');
       expect(args).toContain('--no-progress');
       expect(args).toContain('--quiet');
-      expect(args[args.length - 1]).toBe('https://example.com');
+      expect(args.at(-1)).toBe('https://example.com');
     });
 
     it('should add sleep options when env vars are set', () => {
@@ -778,7 +778,7 @@ today to pay our respects to MCP, which
       expect(args).toContain('10');
       expect(args).toContain('--sleep-subtitles');
       expect(args).toContain('1');
-      expect(args[args.length - 1]).toBe('https://example.com');
+      expect(args.at(-1)).toBe('https://example.com');
     });
   });
 
@@ -795,7 +795,7 @@ today to pay our respects to MCP, which
 
       expect(args).toContain('--encoding');
       expect(args).toContain('utf-8');
-      expect(args[args.length - 1]).toBe('https://example.com');
+      expect(args.at(-1)).toBe('https://example.com');
     });
 
     it('should not add --encoding when YT_DLP_ENCODING is unset', () => {
@@ -834,7 +834,7 @@ today to pay our respects to MCP, which
       expect(args).toContain('2M');
       expect(args).toContain('--fragment-retries');
       expect(args).toContain('20');
-      expect(args[args.length - 1]).toBe('https://example.com');
+      expect(args.at(-1)).toBe('https://example.com');
     });
 
     it('should not add args when no audio env vars are set', () => {
