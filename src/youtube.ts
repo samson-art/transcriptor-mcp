@@ -140,6 +140,68 @@ function buildSubFormatArgs(format: SubtitleFormat): string[] {
   return args;
 }
 
+async function readAndReturnSubtitleIfValid(subtitleFile: string | null): Promise<string | null> {
+  if (!subtitleFile) return null;
+  const content = await readFile(subtitleFile, 'utf-8');
+  if (content.trim().length <= 0) return null;
+  await unlink(subtitleFile).catch(() => {});
+  return content;
+}
+
+async function runYtDlpAndExtractSubtitles(
+  args: string[],
+  outputPath: string,
+  tempDir: string,
+  subFormat: SubtitleFormat,
+  type: 'official' | 'auto',
+  lang: string,
+  logger?: FastifyBaseLogger
+): Promise<string | null> {
+  try {
+    const timeout = process.env.YT_DLP_TIMEOUT
+      ? Number.parseInt(process.env.YT_DLP_TIMEOUT, 10)
+      : 60000;
+    const { stdout, stderr } = await execFileAsync('yt-dlp', args, {
+      maxBuffer: 10 * 1024 * 1024,
+      timeout,
+    });
+    logger?.debug({ stdout }, 'yt-dlp stdout');
+    if (stderr) logger?.debug({ stderr }, 'yt-dlp stderr');
+
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    const subtitleFile = await findSubtitleFile(outputPath, tempDir, subFormat, logger);
+    return await readAndReturnSubtitleIfValid(subtitleFile);
+  } catch (error: unknown) {
+    const err = error instanceof Error ? error : new Error(String(error));
+    const execErr = isExecFileException(error) ? error : null;
+    logger?.error(
+      {
+        error: err.message,
+        type,
+        lang,
+        ...(execErr && { stdout: execErr.stdout, stderr: execErr.stderr }),
+      },
+      `Error downloading ${type} subtitles`
+    );
+
+    logger?.debug('Checking for subtitle file despite error...');
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    const subtitleFile = await findSubtitleFile(outputPath, tempDir, subFormat, logger);
+    logger?.debug({ subtitleFile }, 'subtitleFile found after error');
+
+    if (subtitleFile) {
+      try {
+        return await readAndReturnSubtitleIfValid(subtitleFile);
+      } catch (readError) {
+        logger?.error({ error: readError, subtitleFile }, 'Error reading subtitle file');
+      }
+    }
+    return null;
+  }
+}
+
 /**
  * Downloads subtitles using yt-dlp
  * @param url - Video URL (any supported platform)
@@ -195,61 +257,15 @@ export async function downloadSubtitles(
       `Downloading ${type} subtitles in language ${lang}`
     );
 
-    try {
-      const timeout = process.env.YT_DLP_TIMEOUT
-        ? Number.parseInt(process.env.YT_DLP_TIMEOUT, 10)
-        : 60000;
-      const { stdout, stderr } = await execFileAsync('yt-dlp', args, {
-        maxBuffer: 10 * 1024 * 1024,
-        timeout,
-      });
-      logger?.debug({ stdout }, 'yt-dlp stdout');
-      if (stderr) logger?.debug({ stderr }, 'yt-dlp stderr');
-
-      await new Promise((resolve) => setTimeout(resolve, 100));
-
-      const subtitleFile = await findSubtitleFile(outputPath, tempDir, subFormat, logger);
-
-      if (subtitleFile) {
-        const content = await readFile(subtitleFile, 'utf-8');
-        if (content.trim().length > 0) {
-          await unlink(subtitleFile).catch(() => {});
-          return content;
-        }
-      }
-    } catch (error: unknown) {
-      const err = error instanceof Error ? error : new Error(String(error));
-      const execErr = isExecFileException(error) ? error : null;
-      logger?.error(
-        {
-          error: err.message,
-          type,
-          lang,
-          ...(execErr && { stdout: execErr.stdout, stderr: execErr.stderr }),
-        },
-        `Error downloading ${type} subtitles`
-      );
-
-      logger?.debug('Checking for subtitle file despite error...');
-      await new Promise((resolve) => setTimeout(resolve, 100));
-
-      const subtitleFile = await findSubtitleFile(outputPath, tempDir, subFormat, logger);
-      logger?.debug({ subtitleFile }, 'subtitleFile found after error');
-
-      if (subtitleFile) {
-        try {
-          const content = await readFile(subtitleFile, 'utf-8');
-          if (content.trim().length > 0) {
-            await unlink(subtitleFile).catch(() => {});
-            return content;
-          }
-        } catch (readError) {
-          logger?.error({ error: readError, subtitleFile }, 'Error reading subtitle file');
-        }
-      }
-    }
-
-    return null;
+    return await runYtDlpAndExtractSubtitles(
+      args,
+      outputPath,
+      tempDir,
+      subFormat,
+      type,
+      lang,
+      logger
+    );
   } catch (error) {
     logger?.error({ error }, 'Error downloading subtitles');
     return null;
@@ -274,6 +290,90 @@ export type DownloadPlaylistSubtitlesOptions = {
   /** yt-dlp --max-downloads */
   maxItems?: number;
 };
+
+function buildPlaylistDownloadArgs(opts: {
+  type: 'official' | 'auto';
+  lang: string;
+  subFormat: SubtitleFormat;
+  outputTemplate: string;
+  playlistItems?: string;
+  maxItems?: number;
+  url: string;
+}): string[] {
+  const subFlag = opts.type === 'official' ? '--write-subs' : '--write-auto-subs';
+  const args = [
+    subFlag,
+    '--skip-download',
+    '--sub-lang',
+    opts.lang,
+    ...buildSubFormatArgs(opts.subFormat),
+    '--output',
+    opts.outputTemplate,
+    '--yes-playlist',
+  ];
+  if (opts.playlistItems) {
+    args.push('--playlist-items', opts.playlistItems);
+  }
+  if (opts.maxItems != null && opts.maxItems > 0) {
+    args.push('--max-downloads', String(opts.maxItems));
+  }
+  const downloadArchive = process.env.YT_DLP_DOWNLOAD_ARCHIVE?.trim();
+  if (downloadArchive) {
+    args.push('--download-archive', downloadArchive, '--break-on-existing');
+  }
+  args.push(opts.url);
+  return args;
+}
+
+function parseSubtitleFilename(file: string): { videoId: string; ext: string } | null {
+  const parts = file.split('.');
+  if (parts.length < 3) return null;
+  const ext = parts.pop()!.toLowerCase();
+  parts.pop();
+  const videoId = parts.join('.');
+  const validExts = SUB_EXTENSIONS.map((e) => e.slice(1));
+  if (!videoId || !validExts.includes(ext)) return null;
+  return { videoId, ext };
+}
+
+async function collectSubtitleResults(
+  subtitleFiles: string[],
+  tempDir: string,
+  logger?: FastifyBaseLogger
+): Promise<PlaylistSubtitlesResult[]> {
+  const results: PlaylistSubtitlesResult[] = [];
+  for (const file of subtitleFiles) {
+    const parsed = parseSubtitleFilename(file);
+    if (!parsed) continue;
+    const filePath = join(tempDir, file);
+    try {
+      const content = await readFile(filePath, 'utf-8');
+      if (content.trim().length > 0) {
+        results.push({ videoId: parsed.videoId, content });
+      }
+    } catch (readErr) {
+      logger?.warn({ file, error: readErr }, 'Failed to read subtitle file');
+    }
+    await unlink(filePath).catch(() => {});
+  }
+  return results;
+}
+
+function getExtendedTimeout(): number {
+  const timeout = process.env.YT_DLP_TIMEOUT
+    ? Number.parseInt(process.env.YT_DLP_TIMEOUT, 10)
+    : 60000;
+  return Math.max(timeout, 120000);
+}
+
+function formatPlaylistDownloadError(error: unknown): Record<string, unknown> {
+  const err = error instanceof Error ? error : new Error(String(error));
+  const execErr = isExecFileException(error) ? error : null;
+  return {
+    error: err.message,
+    ...(execErr && { stdout: execErr.stdout, stderr: execErr.stderr }),
+  };
+}
 
 /**
  * Downloads subtitles for multiple videos from a playlist using yt-dlp.
@@ -310,29 +410,15 @@ export async function downloadPlaylistSubtitles(
     await mkdir(tempDir, { recursive: true });
     await logCookiesFileStatus(logger, cookiesFilePathFromEnv);
 
-    const subFlag = type === 'official' ? '--write-subs' : '--write-auto-subs';
-    const args = [
-      subFlag,
-      '--skip-download',
-      '--sub-lang',
+    const args = buildPlaylistDownloadArgs({
+      type,
       lang,
-      ...buildSubFormatArgs(subFormat),
-      '--output',
+      subFormat,
       outputTemplate,
-      '--yes-playlist',
-    ];
-    if (playlistItems) {
-      args.push('--playlist-items', playlistItems);
-    }
-    if (maxItems != null && maxItems > 0) {
-      args.push('--max-downloads', String(maxItems));
-    }
-    args.push(url);
-
-    const downloadArchive = process.env.YT_DLP_DOWNLOAD_ARCHIVE?.trim();
-    if (downloadArchive) {
-      args.splice(-1, 0, '--download-archive', downloadArchive, '--break-on-existing');
-    }
+      playlistItems,
+      maxItems,
+      url,
+    });
     appendYtDlpEnvArgs(args, {
       jsRuntimes,
       remoteComponents,
@@ -352,56 +438,21 @@ export async function downloadPlaylistSubtitles(
       'Downloading playlist subtitles via yt-dlp'
     );
 
-    const timeout = process.env.YT_DLP_TIMEOUT
-      ? Number.parseInt(process.env.YT_DLP_TIMEOUT, 10)
-      : 60000;
-    const extendedTimeout = Math.max(timeout, 120000);
     await execFileAsync('yt-dlp', args, {
       maxBuffer: 50 * 1024 * 1024,
-      timeout: extendedTimeout,
+      timeout: getExtendedTimeout(),
     });
-    if (logger) {
-      logger.debug({ tempDir }, 'yt-dlp playlist subtitles completed');
-    }
+    logger?.debug({ tempDir }, 'yt-dlp playlist subtitles completed');
 
     await new Promise((resolve) => setTimeout(resolve, 200));
 
     const files = await readdir(tempDir);
     const subtitleFiles = files.filter((f) => SUB_EXTENSIONS.some((e) => f.endsWith(e)));
-    const results: PlaylistSubtitlesResult[] = [];
-
-    for (const file of subtitleFiles) {
-      const parts = file.split('.');
-      if (parts.length < 3) continue;
-      const ext = parts.pop()!.toLowerCase();
-      parts.pop();
-      const videoId = parts.join('.');
-      const validExts = SUB_EXTENSIONS.map((e) => e.slice(1));
-      if (!videoId || !validExts.includes(ext)) continue;
-
-      const filePath = join(tempDir, file);
-      try {
-        const content = await readFile(filePath, 'utf-8');
-        if (content.trim().length > 0) {
-          results.push({ videoId, content });
-        }
-      } catch (readErr) {
-        logger?.warn({ file, error: readErr }, 'Failed to read subtitle file');
-      }
-      await unlink(filePath).catch(() => {});
-    }
+    const results = await collectSubtitleResults(subtitleFiles, tempDir, logger);
 
     return results;
   } catch (error: unknown) {
-    const err = error instanceof Error ? error : new Error(String(error));
-    const execErr = isExecFileException(error) ? error : null;
-    logger?.error(
-      {
-        error: err.message,
-        ...(execErr && { stdout: execErr.stdout, stderr: execErr.stderr }),
-      },
-      'Error downloading playlist subtitles'
-    );
+    logger?.error(formatPlaylistDownloadError(error), 'Error downloading playlist subtitles');
     return null;
   } finally {
     await cookiesCleanup?.();
@@ -460,7 +511,7 @@ export async function fetchVideoChapters(
   logger?: FastifyBaseLogger,
   preFetchedData?: YtDlpVideoInfo | null
 ): Promise<VideoChapter[] | null> {
-  const data = preFetchedData !== undefined ? preFetchedData : await fetchYtDlpJson(url, logger);
+  const data = preFetchedData === undefined ? await fetchYtDlpJson(url, logger) : preFetchedData;
   if (!data || !Array.isArray(data.chapters) || data.chapters.length === 0) {
     return data && Array.isArray(data.chapters) ? [] : null;
   }
@@ -895,6 +946,58 @@ export type SearchVideosOptions = {
   matchFilter?: string;
 };
 
+function appendSearchOptionsArgs(args: string[], options?: SearchVideosOptions): void {
+  if (options?.dateAfter) args.push('--dateafter', options.dateAfter);
+  if (options?.dateBefore) args.push('--datebefore', options.dateBefore);
+  if (options?.date) args.push('--date', options.date);
+  if (options?.matchFilter) args.push('--match-filter', options.matchFilter);
+  const ageLimit = process.env.YT_DLP_AGE_LIMIT?.trim();
+  if (ageLimit) args.push('--age-limit', ageLimit);
+}
+
+function parseSearchResponse(
+  trimmed: string,
+  logger?: FastifyBaseLogger
+): YtDlpSearchResponse | null {
+  try {
+    return JSON.parse(trimmed) as YtDlpSearchResponse;
+  } catch (parseError) {
+    logger?.error(
+      {
+        error: parseError instanceof Error ? parseError.message : String(parseError),
+        stdoutPreview: trimmed.slice(0, 200),
+      },
+      'Error parsing yt-dlp search JSON output'
+    );
+    return null;
+  }
+}
+
+function mapSearchEntryToResult(e: YtDlpSearchEntry): SearchVideoResult {
+  return {
+    videoId: e.id ?? '',
+    title: e.title ?? null,
+    url: e.webpage_url ?? e.url ?? null,
+    duration: typeof e.duration === 'number' ? e.duration : null,
+    uploader: e.uploader ?? null,
+    viewCount: typeof e.view_count === 'number' ? e.view_count : null,
+    thumbnail: e.thumbnail ?? null,
+  };
+}
+
+function getSearchErrorPayload(error: unknown): {
+  message: string;
+  stdout?: string;
+  stderr?: string;
+} {
+  const err = error instanceof Error ? error : new Error(String(error));
+  const execErr = isExecFileException(error) ? error : null;
+  return {
+    message: err.message,
+    ...(execErr && { stdout: execErr.stdout, stderr: execErr.stderr }),
+  };
+}
+
 /**
  * Searches for videos on YouTube using yt-dlp (ytsearch).
  * @param query - Search query
@@ -924,22 +1027,7 @@ export async function searchVideos(
   }
 
   const args = ['--flat-playlist', '--dump-single-json', '--skip-download', searchUrl];
-  if (options?.dateAfter) {
-    args.push('--dateafter', options.dateAfter);
-  }
-  if (options?.dateBefore) {
-    args.push('--datebefore', options.dateBefore);
-  }
-  if (options?.date) {
-    args.push('--date', options.date);
-  }
-  if (options?.matchFilter) {
-    args.push('--match-filter', options.matchFilter);
-  }
-  const ageLimit = process.env.YT_DLP_AGE_LIMIT?.trim();
-  if (ageLimit) {
-    args.push('--age-limit', ageLimit);
-  }
+  appendSearchOptionsArgs(args, options);
   appendYtDlpEnvArgs(args, {
     jsRuntimes,
     remoteComponents,
@@ -973,47 +1061,18 @@ export async function searchVideos(
     }
 
     const trimmed = stdout.trim();
-    if (!trimmed) {
-      return [];
-    }
+    if (!trimmed) return [];
 
-    let data: YtDlpSearchResponse;
-    try {
-      data = JSON.parse(trimmed) as YtDlpSearchResponse;
-    } catch (parseError) {
-      logger?.error(
-        {
-          error: parseError instanceof Error ? parseError.message : String(parseError),
-          stdoutPreview: trimmed.slice(0, 200),
-        },
-        'Error parsing yt-dlp search JSON output'
-      );
-      return null;
-    }
+    const data = parseSearchResponse(trimmed, logger);
+    if (!data) return null;
 
     const entries = Array.isArray(data.entries) ? data.entries : [];
-    const all = entries
-      .filter((e): e is YtDlpSearchEntry => e != null)
-      .map(
-        (e): SearchVideoResult => ({
-          videoId: e.id ?? '',
-          title: e.title ?? null,
-          url: e.webpage_url ?? e.url ?? null,
-          duration: typeof e.duration === 'number' ? e.duration : null,
-          uploader: e.uploader ?? null,
-          viewCount: typeof e.view_count === 'number' ? e.view_count : null,
-          thumbnail: e.thumbnail ?? null,
-        })
-      );
+    const all = entries.filter((e): e is YtDlpSearchEntry => e != null).map(mapSearchEntryToResult);
     return all.slice(offset, offset + sanitizedLimit);
   } catch (error: unknown) {
-    const err = error instanceof Error ? error : new Error(String(error));
-    const execErr = isExecFileException(error) ? error : null;
+    const { message, stdout, stderr } = getSearchErrorPayload(error);
     logger?.error(
-      {
-        error: err.message,
-        ...(execErr && { stdout: execErr.stdout, stderr: execErr.stderr }),
-      },
+      { error: message, ...(stdout !== undefined && { stdout, stderr }) },
       'Error searching videos via yt-dlp'
     );
     return null;
@@ -1198,6 +1257,47 @@ function parseSRT(content: string, logger?: FastifyBaseLogger): string {
 
 const VTT_TIMESTAMP_RE = /^\d{2}:\d{2}:\d{2}[,.]\d{3}\s*-->\s*\d{2}:\d{2}:\d{2}[,.]\d{3}/;
 
+function isVTTSkipLine(line: string): boolean {
+  const t = line.trim();
+  return t.startsWith('STYLE') || t.startsWith('::cue') || t.startsWith('NOTE');
+}
+
+function skipVTTHeader(lines: string[], start: number): number {
+  let i = start;
+  while (
+    i < lines.length &&
+    (lines[i].startsWith('WEBVTT') || lines[i].startsWith('NOTE') || lines[i].trim() === '')
+  ) {
+    i++;
+  }
+  return i;
+}
+
+function parseCueBlock(
+  lines: string[],
+  startIndex: number
+): { cueText: string; nextIndex: number } {
+  const cueLines: string[] = [];
+  let i = startIndex + 1;
+  while (i < lines.length) {
+    const l = lines[i].trim();
+    if (l === '') {
+      i++;
+      continue;
+    }
+    if (VTT_TIMESTAMP_RE.test(l)) break;
+    if (isVTTSkipLine(l)) {
+      i++;
+      continue;
+    }
+    const clean = cleanSubtitleLine(l);
+    if (clean) cueLines.push(clean);
+    i++;
+  }
+  const cueText = cueLines.join(' ').trim();
+  return { cueText, nextIndex: i };
+}
+
 /**
  * Parses VTT format. Groups text by cue (timestamp block) and deduplicates
  * consecutive cues with identical text (word-by-word VTT format).
@@ -1209,60 +1309,27 @@ function parseVTT(content: string, logger?: FastifyBaseLogger): string {
   const lines = content.split('\n');
   const textLines: string[] = [];
   let prevCueText = '';
-  let i = 0;
-
-  // Skip WEBVTT header and metadata
-  while (
-    i < lines.length &&
-    (lines[i].startsWith('WEBVTT') || lines[i].startsWith('NOTE') || lines[i].trim() === '')
-  ) {
-    i++;
-  }
+  let i = skipVTTHeader(lines, 0);
 
   while (i < lines.length) {
-    const line = lines[i];
-    const trimmed = line.trim();
-
-    // Skip empty lines
+    const trimmed = lines[i].trim();
     if (trimmed === '') {
       i++;
       continue;
     }
-
-    // Timestamp = start of new cue
     if (VTT_TIMESTAMP_RE.test(trimmed)) {
-      i++;
-      const cueLines: string[] = [];
-      while (i < lines.length) {
-        const l = lines[i].trim();
-        if (l === '') {
-          i++;
-          continue;
-        }
-        if (VTT_TIMESTAMP_RE.test(l)) break;
-        if (l.startsWith('STYLE') || l.startsWith('::cue') || l.startsWith('NOTE')) {
-          i++;
-          continue;
-        }
-        const clean = cleanSubtitleLine(l);
-        if (clean) cueLines.push(clean);
-        i++;
-      }
-      const cueText = cueLines.join(' ').trim();
+      const { cueText, nextIndex } = parseCueBlock(lines, i);
       if (cueText && cueText !== prevCueText) {
         textLines.push(cueText);
         prevCueText = cueText;
       }
+      i = nextIndex;
       continue;
     }
-
-    // Skip styles and settings outside cue blocks
-    if (trimmed.startsWith('STYLE') || trimmed.startsWith('::cue') || trimmed.startsWith('NOTE')) {
+    if (isVTTSkipLine(lines[i])) {
       i++;
       continue;
     }
-
-    // Orphan text (malformed VTT) - treat as single-line cue
     const clean = cleanSubtitleLine(trimmed);
     if (clean && clean !== prevCueText) {
       textLines.push(clean);
@@ -1272,6 +1339,14 @@ function parseVTT(content: string, logger?: FastifyBaseLogger): string {
   }
 
   return textLines.join(' ');
+}
+
+/** Extracts text from ASS Dialogue line (format: Dialogue: Layer,Start,End,...,Text) */
+function extractDialogueText(dialogueLine: string): string {
+  const afterPrefix = dialogueLine.slice('Dialogue:'.length);
+  const parts = afterPrefix.split(',');
+  const text = parts.slice(9).join(',');
+  return text.replace(/\\N/g, ' ').replace(/\\n/g, ' ').trim();
 }
 
 /**
@@ -1289,17 +1364,11 @@ function parseASS(content: string, logger?: FastifyBaseLogger): string {
       inEvents = true;
       continue;
     }
-    if (inEvents && trimmed.startsWith('Dialogue:')) {
-      const commaIdx = trimmed.indexOf(',', 'Dialogue:'.length);
-      let rest = commaIdx >= 0 ? trimmed.slice(commaIdx + 1) : '';
-      for (let i = 0; i < 9 && rest; i++) {
-        const next = rest.indexOf(',');
-        rest = next >= 0 ? rest.slice(next + 1) : rest;
-      }
-      const text = rest.replace(/\\N/g, ' ').replace(/\\n/g, ' ').trim();
-      const cleaned = cleanSubtitleLine(text);
-      if (cleaned.length > 0) textLines.push(cleaned);
-    }
+    if (!inEvents || !trimmed.startsWith('Dialogue:')) continue;
+
+    const text = extractDialogueText(trimmed);
+    const cleaned = cleanSubtitleLine(text);
+    if (cleaned.length > 0) textLines.push(cleaned);
   }
 
   return textLines.join(' ');
