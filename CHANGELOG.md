@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.9] - 2026-03-31
+
+### Added
+
+- **`get_playlist_transcripts` hardening (`downloadPlaylistSubtitles` in `src/youtube.ts`):** Returns a discriminated **`DownloadPlaylistSubtitlesOutcome`** (`ok` + `results` or `failure`) instead of `null` on error. On yt-dlp failure, still scans the temp directory and returns **partial results** when any subtitle files were written (aligned with single-video `runYtDlpAndExtractSubtitles`).
+- **`--ignore-errors`** for playlist subtitle runs so one bad entry does not abort the batch. Opt out with **`YT_DLP_PLAYLIST_IGNORE_ERRORS=0`**. Documented in `docs/configuration.md` and `.env.example`.
+- **`YT_DLP_VERBOSE_ON_ERROR`:** When set to `1`, after a failed playlist run with no partial files, runs yt-dlp once more with `-v` and without `--quiet`/`--no-progress` and logs stderr for diagnostics. Documented in `docs/configuration.md` and `.env.example`.
+- **`collectExecFileErrorDetails()`** and **`ExecFileErrorDetails`:** Normalized fields from failed `execFile` / yt-dlp runs (`message`, `exitCode`, `signal`, `cmd`, `stdout`, `stderr`) for structured logs.
+- **`formatPlaylistDownloadFailureMessage()`:** Builds the MCP/API-facing error string (message, exit code, stderr tail, operational hints).
+- **`appendYtDlpEnvArgs` options:** Optional third argument **`AppendYtDlpEnvArgsOptions`** with **`quiet: false`** to omit `--no-progress` and `--quiet` (used for verbose replay).
+
+### Changed
+
+- **Playlist failure logging:** Logs **`exitCode`**, **`signal`**, and **`cmd`** when present, not only empty stdout/stderr under `--quiet`.
+- **MCP `get_playlist_transcripts`:** On full failure, throws an error whose message comes from **`formatPlaylistDownloadFailureMessage`** instead of the generic `Failed to fetch playlist subtitles.`
+
+### Tests
+
+- **`src/youtube.test.ts`:** Coverage for `collectExecFileErrorDetails`, `formatPlaylistDownloadFailureMessage`, `--ignore-errors` / `YT_DLP_PLAYLIST_IGNORE_ERRORS=0`, failure outcome shape, and `appendYtDlpEnvArgs` with `quiet: false`.
+
 ## [0.6.8] - 2026-03-23
 
 ### Added

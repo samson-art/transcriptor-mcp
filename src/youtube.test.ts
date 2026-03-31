@@ -29,6 +29,8 @@ const {
   resolveSubtitleFormat,
   ensureWritableCookiesFile,
   urlToSafeBase,
+  collectExecFileErrorDetails,
+  formatPlaylistDownloadFailureMessage,
 } = youtube;
 
 describe('youtube', () => {
@@ -780,6 +782,13 @@ today to pay our respects to MCP, which
       expect(args).toContain('1');
       expect(args.at(-1)).toBe('https://example.com');
     });
+
+    it('should omit --no-progress and --quiet when opts.quiet is false', () => {
+      const optionalArgs: string[] = [];
+      appendYtDlpEnvArgs(optionalArgs, {}, { quiet: false });
+      expect(optionalArgs).not.toContain('--quiet');
+      expect(optionalArgs).not.toContain('--no-progress');
+    });
   });
 
   describe('appendYtDlpSubtitleArgs', () => {
@@ -1203,12 +1212,46 @@ today to pay our respects to MCP, which
     });
   });
 
+  describe('collectExecFileErrorDetails', () => {
+    it('should include exitCode, cmd, and streams when present', () => {
+      const err = new Error('Command failed: yt-dlp') as Error & {
+        code?: number;
+        cmd?: string;
+        stdout?: string;
+        stderr?: string;
+      };
+      err.code = 1;
+      err.cmd = 'yt-dlp --help';
+      err.stderr = 'boom';
+      const d = collectExecFileErrorDetails(err);
+      expect(d.message).toContain('Command failed');
+      expect(d.exitCode).toBe(1);
+      expect(d.cmd).toBe('yt-dlp --help');
+      expect(d.stderr).toBe('boom');
+    });
+  });
+
+  describe('formatPlaylistDownloadFailureMessage', () => {
+    it('should include exit code and stderr tail', () => {
+      const msg = formatPlaylistDownloadFailureMessage({
+        message: 'Command failed: yt-dlp',
+        exitCode: 1,
+        stderr: 'Sign in to confirm',
+      });
+      expect(msg).toContain('Command failed');
+      expect(msg).toContain('exit code: 1');
+      expect(msg).toContain('Sign in to confirm');
+      expect(msg).toContain('YT_DLP_VERBOSE_ON_ERROR');
+    });
+  });
+
   describe('downloadPlaylistSubtitles', () => {
     beforeEach(() => {
       jest.clearAllMocks();
+      delete process.env.YT_DLP_PLAYLIST_IGNORE_ERRORS;
     });
 
-    it('should pass --yes-playlist, --playlist-items, --max-downloads to yt-dlp', async () => {
+    it('should pass --yes-playlist, --playlist-items, --max-downloads, --ignore-errors to yt-dlp', async () => {
       let capturedArgs: string[] = [];
       execFileMock.mockImplementation(
         (
@@ -1221,19 +1264,78 @@ today to pay our respects to MCP, which
           setImmediate(() => cb(null, '', ''));
         }
       );
-      await downloadPlaylistSubtitles('https://www.youtube.com/playlist?list=PLxxx', {
-        playlistItems: '1:5',
-        maxItems: 3,
-        type: 'official',
-        lang: 'en',
-      });
+      const outcome = await downloadPlaylistSubtitles(
+        'https://www.youtube.com/playlist?list=PLxxx',
+        {
+          playlistItems: '1:5',
+          maxItems: 3,
+          type: 'official',
+          lang: 'en',
+        }
+      );
+      expect(outcome.ok).toBe(true);
+      if (outcome.ok) {
+        expect(outcome.results).toEqual([]);
+      }
       expect(execFileMock).toHaveBeenCalled();
       expect(capturedArgs).toContain('--yes-playlist');
+      expect(capturedArgs).toContain('--ignore-errors');
       expect(capturedArgs).toContain('--playlist-items');
       expect(capturedArgs[capturedArgs.indexOf('--playlist-items') + 1]).toBe('1:5');
       expect(capturedArgs).toContain('--max-downloads');
       expect(capturedArgs[capturedArgs.indexOf('--max-downloads') + 1]).toBe('3');
       expect(capturedArgs).toContain('--write-subs');
+    });
+
+    it('should omit --ignore-errors when YT_DLP_PLAYLIST_IGNORE_ERRORS=0', async () => {
+      process.env.YT_DLP_PLAYLIST_IGNORE_ERRORS = '0';
+      let capturedArgs: string[] = [];
+      execFileMock.mockImplementation(
+        (
+          _file: string,
+          args: string[],
+          _opts: unknown,
+          cb: (err: null, stdout: string, stderr: string) => void
+        ) => {
+          capturedArgs = args;
+          setImmediate(() => cb(null, '', ''));
+        }
+      );
+      const outcome = await downloadPlaylistSubtitles(
+        'https://www.youtube.com/playlist?list=PLxxx',
+        {}
+      );
+      expect(outcome.ok).toBe(true);
+      expect(capturedArgs).not.toContain('--ignore-errors');
+    });
+
+    it('should return ok:false with failure details when yt-dlp exits with error', async () => {
+      execFileMock.mockImplementation(
+        (
+          _file: string,
+          _args: string[],
+          _opts: unknown,
+          cb: (err: Error | null, stdout: string, stderr: string) => void
+        ) => {
+          const err = new Error('Command failed: yt-dlp') as Error & {
+            code?: number;
+            stderr?: string;
+          };
+          err.code = 1;
+          err.stderr = 'private video';
+          setImmediate(() => cb(err, '', ''));
+        }
+      );
+      const outcome = await downloadPlaylistSubtitles(
+        'https://www.youtube.com/playlist?list=PLxxx',
+        {}
+      );
+      expect(outcome.ok).toBe(false);
+      if (!outcome.ok) {
+        expect(outcome.failure.message).toContain('Command failed');
+        expect(outcome.failure.exitCode).toBe(1);
+        expect(outcome.failure.stderr).toBe('private video');
+      }
     });
   });
 });

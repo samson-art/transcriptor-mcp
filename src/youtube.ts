@@ -21,6 +21,41 @@ function isExecFileException(error: unknown): error is ExecFileException {
   return error instanceof Error && (error as ExecFileException).code !== undefined;
 }
 
+/** Fields from a failed yt-dlp exec for logging and MCP error messages. Exported for tests and callers. */
+export type ExecFileErrorDetails = {
+  message: string;
+  exitCode?: number | string;
+  signal?: string;
+  cmd?: string;
+  stdout?: string;
+  stderr?: string;
+};
+
+export function collectExecFileErrorDetails(error: unknown): ExecFileErrorDetails {
+  const err = error instanceof Error ? error : new Error(String(error));
+  const execErr = isExecFileException(error) ? error : null;
+  const details: ExecFileErrorDetails = { message: err.message };
+  if (!execErr) {
+    return details;
+  }
+  if (execErr.code !== undefined && execErr.code !== null) {
+    details.exitCode = execErr.code;
+  }
+  if (execErr.signal) {
+    details.signal = execErr.signal;
+  }
+  if (execErr.cmd) {
+    details.cmd = execErr.cmd;
+  }
+  if (typeof execErr.stdout === 'string' && execErr.stdout.length > 0) {
+    details.stdout = execErr.stdout;
+  }
+  if (typeof execErr.stderr === 'string' && execErr.stderr.length > 0) {
+    details.stderr = execErr.stderr;
+  }
+  return details;
+}
+
 type YtDlpChapter = {
   start_time?: number;
   end_time?: number;
@@ -279,6 +314,27 @@ export type PlaylistSubtitlesResult = {
   content: string;
 };
 
+export type DownloadPlaylistSubtitlesOutcome =
+  | { ok: true; results: PlaylistSubtitlesResult[] }
+  | { ok: false; failure: ExecFileErrorDetails };
+
+/** User-facing message for MCP/HTTP when playlist subtitle download fails completely. */
+export function formatPlaylistDownloadFailureMessage(f: ExecFileErrorDetails): string {
+  const parts: string[] = [f.message];
+  if (f.exitCode !== undefined) {
+    parts.push(`exit code: ${String(f.exitCode)}`);
+  }
+  if (f.signal) {
+    parts.push(`signal: ${f.signal}`);
+  }
+  const errTail = f.stderr?.trim();
+  if (errTail) {
+    const clipped = errTail.length > 4000 ? `${errTail.slice(0, 4000)}…` : errTail;
+    parts.push(`stderr: ${clipped}`);
+  }
+  return `${parts.join(' | ')} If this persists, refresh COOKIES_FILE_PATH, run yt-dlp -U, or set YT_DLP_VERBOSE_ON_ERROR=1 for diagnostics.`;
+}
+
 /** Options for downloadPlaylistSubtitles */
 export type DownloadPlaylistSubtitlesOptions = {
   type?: 'official' | 'auto';
@@ -320,6 +376,10 @@ function buildPlaylistDownloadArgs(opts: {
   const downloadArchive = process.env.YT_DLP_DOWNLOAD_ARCHIVE?.trim();
   if (downloadArchive) {
     args.push('--download-archive', downloadArchive, '--break-on-existing');
+  }
+  const ignoreErrors = process.env.YT_DLP_PLAYLIST_IGNORE_ERRORS?.trim();
+  if (ignoreErrors !== '0') {
+    args.push('--ignore-errors');
   }
   return args;
 }
@@ -363,13 +423,56 @@ function getExtendedTimeout(): number {
   return Math.max(timeout, 120000);
 }
 
-function formatPlaylistDownloadError(error: unknown): Record<string, unknown> {
-  const err = error instanceof Error ? error : new Error(String(error));
-  const execErr = isExecFileException(error) ? error : null;
-  return {
-    error: err.message,
-    ...(execErr && { stdout: execErr.stdout, stderr: execErr.stderr }),
-  };
+function execDetailsToLogFields(d: ExecFileErrorDetails): Record<string, unknown> {
+  const out: Record<string, unknown> = { error: d.message };
+  if (d.exitCode !== undefined) out.exitCode = d.exitCode;
+  if (d.signal) out.signal = d.signal;
+  if (d.cmd) out.cmd = d.cmd;
+  if (d.stdout) out.stdout = d.stdout;
+  if (d.stderr) out.stderr = d.stderr;
+  return out;
+}
+
+async function runPlaylistVerboseReplay(
+  buildFullArgs: (quiet: boolean, verbose: boolean) => string[],
+  logger?: FastifyBaseLogger
+): Promise<void> {
+  if (process.env.YT_DLP_VERBOSE_ON_ERROR !== '1') {
+    return;
+  }
+  try {
+    const verboseArgs = buildFullArgs(false, true);
+    await execFileAsync('yt-dlp', verboseArgs, {
+      maxBuffer: 50 * 1024 * 1024,
+      timeout: getExtendedTimeout(),
+    });
+  } catch (replayErr: unknown) {
+    const replayDetails = collectExecFileErrorDetails(replayErr);
+    logger?.error(execDetailsToLogFields(replayDetails), 'yt-dlp playlist verbose replay stderr');
+  }
+}
+
+async function handlePlaylistDownloadError(
+  error: unknown,
+  readResults: () => Promise<PlaylistSubtitlesResult[]>,
+  buildFullArgs: (quiet: boolean, verbose: boolean) => string[],
+  tempDir: string,
+  logger?: FastifyBaseLogger
+): Promise<DownloadPlaylistSubtitlesOutcome> {
+  const details = collectExecFileErrorDetails(error);
+  logger?.error(execDetailsToLogFields(details), 'Error downloading playlist subtitles');
+
+  const partial = await readResults().catch(() => []);
+  if (partial.length > 0) {
+    logger?.warn(
+      { count: partial.length, tempDir },
+      'Returning partial playlist subtitle results after yt-dlp error'
+    );
+    return { ok: true, results: partial };
+  }
+
+  await runPlaylistVerboseReplay(buildFullArgs, logger);
+  return { ok: false, failure: details };
 }
 
 /**
@@ -377,13 +480,13 @@ function formatPlaylistDownloadError(error: unknown): Record<string, unknown> {
  * @param url - Playlist URL or watch URL with list= parameter
  * @param options - Optional type, lang, playlistItems, maxItems
  * @param logger - Fastify logger instance for structured logging
- * @returns Array of { videoId, content } or null on error
+ * @returns Discriminated outcome: results on success or partial success; failure details if yt-dlp failed with no subtitle files
  */
 export async function downloadPlaylistSubtitles(
   url: string,
   options: DownloadPlaylistSubtitlesOptions = {},
   logger?: FastifyBaseLogger
-): Promise<PlaylistSubtitlesResult[] | null> {
+): Promise<DownloadPlaylistSubtitlesOutcome> {
   const { type = 'auto', lang = 'en', format, playlistItems, maxItems } = options;
   const subFormat = resolveSubtitleFormat(format);
   const tempDir = join(
@@ -403,6 +506,13 @@ export async function downloadPlaylistSubtitles(
 
   const { mkdir, readdir } = await import('node:fs/promises');
 
+  const readPlaylistSubtitleResults = async (): Promise<PlaylistSubtitlesResult[]> => {
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    const files = await readdir(tempDir);
+    const subtitleFiles = files.filter((f) => SUB_EXTENSIONS.some((e) => f.endsWith(e)));
+    return collectSubtitleResults(subtitleFiles, tempDir, logger);
+  };
+
   try {
     await mkdir(tempDir, { recursive: true });
     await logCookiesFileStatus(logger, cookiesFilePathFromEnv);
@@ -416,43 +526,61 @@ export async function downloadPlaylistSubtitles(
       maxItems,
       url,
     });
-    const optionalArgs: string[] = [];
-    appendYtDlpEnvArgs(optionalArgs, {
-      jsRuntimes,
-      remoteComponents,
-      cookiesFilePathFromEnv: cookiesPathToUse,
-    });
-    appendYtDlpSubtitleArgs(optionalArgs);
-    const args = [...baseArgs, ...optionalArgs, url];
 
-    logger?.info(
-      {
-        type,
-        lang,
-        format: subFormat,
-        playlistItems,
-        maxItems,
-        hasCookies: Boolean(cookiesFilePathFromEnv),
-      },
-      'Downloading playlist subtitles via yt-dlp'
-    );
+    const buildFullArgs = (quiet: boolean, verbose: boolean): string[] => {
+      const optionalArgs: string[] = [];
+      appendYtDlpEnvArgs(
+        optionalArgs,
+        {
+          jsRuntimes,
+          remoteComponents,
+          cookiesFilePathFromEnv: cookiesPathToUse,
+        },
+        { quiet }
+      );
+      if (verbose) {
+        optionalArgs.push('-v');
+      }
+      appendYtDlpSubtitleArgs(optionalArgs);
+      return [...baseArgs, ...optionalArgs, url];
+    };
 
-    await execFileAsync('yt-dlp', args, {
-      maxBuffer: 50 * 1024 * 1024,
-      timeout: getExtendedTimeout(),
-    });
-    logger?.debug({ tempDir }, 'yt-dlp playlist subtitles completed');
+    try {
+      const args = buildFullArgs(true, false);
 
-    await new Promise((resolve) => setTimeout(resolve, 200));
+      logger?.info(
+        {
+          type,
+          lang,
+          format: subFormat,
+          playlistItems,
+          maxItems,
+          hasCookies: Boolean(cookiesFilePathFromEnv),
+        },
+        'Downloading playlist subtitles via yt-dlp'
+      );
 
-    const files = await readdir(tempDir);
-    const subtitleFiles = files.filter((f) => SUB_EXTENSIONS.some((e) => f.endsWith(e)));
-    const results = await collectSubtitleResults(subtitleFiles, tempDir, logger);
+      await execFileAsync('yt-dlp', args, {
+        maxBuffer: 50 * 1024 * 1024,
+        timeout: getExtendedTimeout(),
+      });
+      logger?.debug({ tempDir }, 'yt-dlp playlist subtitles completed');
 
-    return results;
-  } catch (error: unknown) {
-    logger?.error(formatPlaylistDownloadError(error), 'Error downloading playlist subtitles');
-    return null;
+      const results = await readPlaylistSubtitleResults();
+      return { ok: true, results };
+    } catch (error: unknown) {
+      return handlePlaylistDownloadError(
+        error,
+        readPlaylistSubtitleResults,
+        buildFullArgs,
+        tempDir,
+        logger
+      );
+    }
+  } catch (outerError: unknown) {
+    const details = collectExecFileErrorDetails(outerError);
+    logger?.error(execDetailsToLogFields(details), 'Error preparing playlist subtitle download');
+    return { ok: false, failure: details };
   } finally {
     await cookiesCleanup?.();
     const { rm } = await import('node:fs/promises');
@@ -776,6 +904,11 @@ export async function ensureWritableCookiesFile(
  *
  * @param out - Array to push options into (inserted before URL in final args)
  */
+export type AppendYtDlpEnvArgsOptions = {
+  /** When false, omit --no-progress and --quiet (e.g. verbose diagnostic replay). Default true. */
+  quiet?: boolean;
+};
+
 // Exported for testing.
 export function appendYtDlpEnvArgs(
   out: string[],
@@ -784,9 +917,12 @@ export function appendYtDlpEnvArgs(
     remoteComponents?: string;
     cookiesFilePathFromEnv?: string;
     proxyFromEnv?: string;
-  }
+  },
+  opts?: AppendYtDlpEnvArgsOptions
 ) {
-  out.push('--no-progress', '--quiet');
+  if (opts?.quiet !== false) {
+    out.push('--no-progress', '--quiet');
+  }
 
   if (process.env.YT_DLP_NO_WARNINGS === '1') {
     out.push('--no-warnings');

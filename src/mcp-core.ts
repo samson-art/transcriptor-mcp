@@ -9,6 +9,7 @@ import pino from 'pino';
 import {
   detectSubtitleFormat,
   downloadPlaylistSubtitles,
+  formatPlaylistDownloadFailureMessage,
   parseSubtitles,
   searchVideos,
   type VideoChapter,
@@ -591,7 +592,7 @@ export function createMcpServer(opts?: CreateMcpServerOptions) {
             ? args.format
             : undefined;
 
-        const rawResults = await downloadPlaylistSubtitles(
+        const outcome = await downloadPlaylistSubtitles(
           url,
           {
             type: args.type ?? 'auto',
@@ -603,9 +604,11 @@ export function createMcpServer(opts?: CreateMcpServerOptions) {
           log
         );
 
-        if (rawResults === null) {
-          throw new Error('Failed to fetch playlist subtitles.');
+        if (!outcome.ok) {
+          throw new Error(formatPlaylistDownloadFailureMessage(outcome.failure));
         }
+
+        const rawResults = outcome.results;
 
         const results = rawResults.map((r) => ({
           videoId: r.videoId,
