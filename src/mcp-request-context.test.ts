@@ -17,4 +17,10 @@ describe('mcp-request-context', () => {
       expect(getMcpRequestContext()?.clientApiKey).toBe('async-key');
     });
   });
+
+  it('exposes anonymousQuotaMaterial inside runWithMcpRequestContext', () => {
+    runWithMcpRequestContext({ anonymousQuotaMaterial: '203.0.113.7' }, () => {
+      expect(getMcpRequestContext()?.anonymousQuotaMaterial).toBe('203.0.113.7');
+    });
+  });
 });

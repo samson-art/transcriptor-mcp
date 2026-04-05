@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-04-05
+
+### Added
+
+- **`MCP_TRUST_PROXY`:** Parsed in **`src/env.ts`** (`parseMcpTrustProxyEnv`) and passed to Fastify **`trustProxy`** in **`src/mcp-http.ts`** so **`request.ip`** reflects the client behind reverse proxies (**`X-Forwarded-For`**). Supports boolean-ish strings, hop counts, or proxy-addr-style strings (unset/empty defaults to **`true`**).
+- **Prometheus `mcp_http_requests_by_client_ip_total`:** Counter with **`route`**, **`method`**, **`client_ip`** (`src/metrics.ts`, **`recordMcpHttpRequestByClientIp`**); incremented on **`onResponse`** with stable route labels (**`routeLabelForMcpHttpMetrics`**). Optional disable via **`MCP_METRICS_HTTP_REQUESTS_BY_CLIENT_IP`** (`isMcpMetricsHttpRequestsByClientIpEnabled`) to avoid high cardinality.
+- **Anonymous MCP quota by client (HTTP):** When there is no **`X-Api-Key`**, **`resolveLimit`** / **`enforceMcpToolQuota`** accept optional anonymous material (hashed as **`anon:<material>`**); HTTP supplies normalized client IP via **`McpRequestContext.anonymousQuotaMaterial`** and **`createMcpServer({ getAnonymousQuotaMaterial })`**. Stdio MCP omits the resolver and keeps the legacy single global anonymous bucket (**`__mcp_quota_anonymous_v1__`**).
+- **IP helpers for quota/metrics:** **`normalizeIpStringForQuota`**, **`normalizeMcpClientIp`** in **`src/mcp-http.ts`** (trim, bracketed IPv6, zone id strip, lowercase).
+
+### Changed
+
+- **MCP HTTP:** **`GET /sse`** session setup runs inside **`runWithMcpRequestContext(buildMcpHttpRequestContext(...))`** so SSE tool calls see the same API key and anonymous quota material as streamable **`/mcp`** and **`/message`**.
+
+### Tests
+
+- **`src/env.test.ts`:** **`parseMcpTrustProxyEnv`**, **`isMcpMetricsHttpRequestsByClientIpEnabled`**.
+- **`src/mcp-http.test.ts`:** IP normalization and route label helpers.
+- **`src/mcp-quota.test.ts`:** Distinct anonymous buckets, **`enforceMcpToolQuota`** with anonymous material vs stdio global bucket.
+- **`src/mcp-request-context.test.ts`:** **`anonymousQuotaMaterial`** in context.
+- **`src/metrics.test.ts`:** **`mcp_http_requests_by_client_ip_total`** export.
+- **E2E `src/e2e/api-smoke.ts`:** Asserts **`mcp_http_requests_by_client_ip_total`** on **`GET /metrics`** when MCP quota metrics are checked.
+
 ## [0.7.0] - 2026-04-05
 
 ### Added

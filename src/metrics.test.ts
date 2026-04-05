@@ -1,4 +1,5 @@
 import {
+  recordMcpHttpRequestByClientIp,
   recordMcpQuotaCheck,
   recordMcpQuotaCheckDuration,
   recordMcpQuotaExceeded,
@@ -128,6 +129,29 @@ describe('MCP quota metrics', () => {
     expect(text).toContain('mcp_quota_check_duration_seconds_count');
     expect(histogramCount(text, 'mcp_quota_check_duration_seconds')).toBe(2);
     expect(histogramSum(text, 'mcp_quota_check_duration_seconds')).toBeCloseTo(0.006, 10);
+  });
+
+  it('exports mcp_http_requests_by_client_ip_total by route, method, and client_ip', async () => {
+    recordMcpHttpRequestByClientIp('/mcp', 'POST', '203.0.113.1');
+    recordMcpHttpRequestByClientIp('/mcp', 'POST', '203.0.113.1');
+    recordMcpHttpRequestByClientIp('/health', 'GET', '2001:db8::1');
+
+    const text = await renderPrometheus();
+    expect(text).toContain('mcp_http_requests_by_client_ip_total');
+    expect(
+      counterValue(text, 'mcp_http_requests_by_client_ip_total', [
+        'route="/mcp"',
+        'method="POST"',
+        'client_ip="203.0.113.1"',
+      ])
+    ).toBe(2);
+    expect(
+      counterValue(text, 'mcp_http_requests_by_client_ip_total', [
+        'route="/health"',
+        'method="GET"',
+        'client_ip="2001:db8::1"',
+      ])
+    ).toBe(1);
   });
 
   it('increments check and exceeded independently for an exceed flow', async () => {

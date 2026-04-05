@@ -62,3 +62,50 @@ export function parseQuotaWindowMs(spec: string): number {
 
   throw new Error(`Invalid quota window: ${spec}`);
 }
+
+/**
+ * Parses `MCP_TRUST_PROXY` for Fastify `trustProxy`
+ * (https://fastify.dev/docs/latest/Reference/Server/#trustproxy).
+ *
+ * Behind a reverse proxy (nginx, Traefik, Cloudflare, Smithery, etc.), the TCP peer is usually the
+ * proxy, not the end client. When trust is configured, Fastify sets `request.ip` from `X-Forwarded-For`
+ * using `@fastify/proxy-addr` (same semantics as Express: the leftmost untrusted hop is the client).
+ *
+ * **Values**
+ * - Unset or empty: `true` — use the forwarded chain (typical when the app is only reachable via a load balancer).
+ * - `0`, `false`, `no`, `off`: `false` — `request.ip` is the socket peer; forwarded headers are not used for IP.
+ * - `true`, `yes`, `on`: `true` — trust the full `X-Forwarded-For` chain.
+ * - A positive integer (`1`, `2`, …): number of trusted proxy hops (see Fastify / proxy-addr docs).
+ * - Any other non-empty string: passed through (comma-separated IPs, CIDR, or names such as `loopback`).
+ *
+ * If clients can reach the process **without** a proxy, trusting forwarded headers allows IP spoofing;
+ * use `false` or match your deployment’s hop count.
+ */
+export function parseMcpTrustProxyEnv(): boolean | number | string {
+  const raw = process.env.MCP_TRUST_PROXY?.trim();
+  if (!raw) return true;
+  const lower = raw.toLowerCase();
+  if (lower === 'false' || lower === 'no' || lower === 'off' || lower === '0') {
+    return false;
+  }
+  if (lower === 'true' || lower === 'yes' || lower === 'on') {
+    return true;
+  }
+  if (/^\d+$/.test(raw)) {
+    const n = Number(raw);
+    return n > 0 ? n : false;
+  }
+  return raw;
+}
+
+/**
+ * When true (default), increments `mcp_http_requests_by_client_ip_total` per HTTP request with
+ * `route`, `method`, and `client_ip` labels. Disable (`0`/`false`/`no`/`off`) on high-traffic
+ * deployments to avoid Prometheus cardinality from many unique IPs.
+ */
+export function isMcpMetricsHttpRequestsByClientIpEnabled(): boolean {
+  const v = process.env.MCP_METRICS_HTTP_REQUESTS_BY_CLIENT_IP?.trim().toLowerCase();
+  if (v === undefined || v === '') return true;
+  if (v === '0' || v === 'false' || v === 'no' || v === 'off') return false;
+  return v === '1' || v === 'true' || v === 'yes';
+}

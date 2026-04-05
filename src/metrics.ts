@@ -152,6 +152,17 @@ export const mcpQuotaCheckDurationSeconds = new Histogram({
   registers: [register],
 });
 
+/**
+ * Per-request HTTP counts for the MCP server, labeled by route pattern, method, and client IP.
+ * High cardinality when many unique IPs connect; disable via MCP_METRICS_HTTP_REQUESTS_BY_CLIENT_IP=0.
+ */
+export const mcpHttpRequestsByClientIpTotal = new Counter({
+  name: 'mcp_http_requests_by_client_ip_total',
+  help: 'HTTP requests to the MCP server by route, method, and client_ip (disable if cardinality is too high)',
+  labelNames: ['route', 'method', 'client_ip'],
+  registers: [register],
+});
+
 // Bounded ring buffer for failed subtitles URLs (max 100)
 const FAILURES_BUFFER_SIZE = 100;
 const failuresBuffer: Array<{ url: string; timestamp: string }> = [];
@@ -256,6 +267,14 @@ export function recordMcpQuotaHttp429(route: string): void {
 
 export function recordMcpQuotaCheckDuration(durationSeconds: number): void {
   mcpQuotaCheckDurationSeconds.observe(durationSeconds);
+}
+
+export function recordMcpHttpRequestByClientIp(
+  route: string,
+  method: string,
+  clientIp: string
+): void {
+  mcpHttpRequestsByClientIpTotal.inc({ route, method, client_ip: clientIp });
 }
 
 /**

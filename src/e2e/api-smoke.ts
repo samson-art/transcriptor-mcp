@@ -416,6 +416,7 @@ async function checkMcpQuotaMetricsOnPrometheus(mcpBaseUrl: string): Promise<voi
 
   const body = await response.text();
   const required = [
+    'mcp_http_requests_by_client_ip_total',
     'mcp_quota_checks_total',
     'mcp_quota_check_duration_seconds',
     'mcp_tool_calls_total',

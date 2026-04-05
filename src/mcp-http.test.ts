@@ -1,7 +1,10 @@
 import {
   app,
   cleanupExpiredSessions,
+  normalizeIpStringForQuota,
+  normalizeMcpClientIp,
   resolvePublicBaseUrlForRequest,
+  routeLabelForMcpHttpMetrics,
   streamableSessions,
   sseSessions,
 } from './mcp-http.js';
@@ -21,6 +24,49 @@ describe('mcp-http', () => {
     streamableSessions.clear();
     sseSessions.clear();
     jest.clearAllMocks();
+  });
+
+  describe('normalizeIpStringForQuota', () => {
+    it('returns undefined for empty input', () => {
+      expect(normalizeIpStringForQuota(undefined)).toBeUndefined();
+      expect(normalizeIpStringForQuota('')).toBeUndefined();
+      expect(normalizeIpStringForQuota('   ')).toBeUndefined();
+    });
+
+    it('trims and lowercases IPv6 hex', () => {
+      expect(normalizeIpStringForQuota(' 2001:DB8::1 ')).toBe('2001:db8::1');
+    });
+
+    it('unwraps bracketed IPv6', () => {
+      expect(normalizeIpStringForQuota('[2001:db8::1]')).toBe('2001:db8::1');
+    });
+
+    it('strips IPv6 zone identifier', () => {
+      expect(normalizeIpStringForQuota('fe80::1%eth0')).toBe('fe80::1');
+    });
+
+    it('normalizes IPv4', () => {
+      expect(normalizeIpStringForQuota('192.0.2.1')).toBe('192.0.2.1');
+    });
+  });
+
+  describe('normalizeMcpClientIp', () => {
+    it('delegates to normalizeIpStringForQuota on request.ip', () => {
+      expect(normalizeMcpClientIp({ ip: ' 2001:DB8::1 ' } as any)).toBe('2001:db8::1');
+      expect(normalizeMcpClientIp({ ip: undefined } as any)).toBeUndefined();
+    });
+  });
+
+  describe('routeLabelForMcpHttpMetrics', () => {
+    it('prefers routeOptions.url', () => {
+      expect(
+        routeLabelForMcpHttpMetrics({ url: '/foo', routeOptions: { url: '/mcp' } } as any)
+      ).toBe('/mcp');
+    });
+
+    it('uses pathname from request url when route pattern is missing', () => {
+      expect(routeLabelForMcpHttpMetrics({ url: '/health?x=1' } as any)).toBe('/health');
+    });
   });
 
   describe('cleanupExpiredSessions', () => {

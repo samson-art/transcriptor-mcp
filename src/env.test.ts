@@ -1,4 +1,9 @@
-import { parseIntEnv, parseIntFromString } from './env.js';
+import {
+  isMcpMetricsHttpRequestsByClientIpEnabled,
+  parseIntEnv,
+  parseIntFromString,
+  parseMcpTrustProxyEnv,
+} from './env.js';
 
 const originalEnv = process.env;
 
@@ -51,5 +56,70 @@ describe('parseIntEnv', () => {
   it('returns defaultValue when env var is invalid (NaN)', () => {
     process.env.TEST_PARSE_INT = 'not-a-number';
     expect(parseIntEnv('TEST_PARSE_INT', 8080)).toBe(8080);
+  });
+});
+
+describe('parseMcpTrustProxyEnv', () => {
+  it('returns true when MCP_TRUST_PROXY is unset or empty', () => {
+    delete process.env.MCP_TRUST_PROXY;
+    expect(parseMcpTrustProxyEnv()).toBe(true);
+    process.env.MCP_TRUST_PROXY = '';
+    expect(parseMcpTrustProxyEnv()).toBe(true);
+    process.env.MCP_TRUST_PROXY = '   ';
+    expect(parseMcpTrustProxyEnv()).toBe(true);
+  });
+
+  it('returns false for 0, false, no, off', () => {
+    for (const v of ['0', 'false', 'no', 'off', 'FALSE', 'NO']) {
+      process.env.MCP_TRUST_PROXY = v;
+      expect(parseMcpTrustProxyEnv()).toBe(false);
+    }
+  });
+
+  it('returns true for true, yes, on', () => {
+    for (const v of ['true', 'yes', 'on', 'TRUE', 'YES']) {
+      process.env.MCP_TRUST_PROXY = v;
+      expect(parseMcpTrustProxyEnv()).toBe(true);
+    }
+  });
+
+  it('returns a positive integer for decimal digit strings', () => {
+    process.env.MCP_TRUST_PROXY = '1';
+    expect(parseMcpTrustProxyEnv()).toBe(1);
+    process.env.MCP_TRUST_PROXY = '3';
+    expect(parseMcpTrustProxyEnv()).toBe(3);
+  });
+
+  it('returns false for numeric zero string', () => {
+    process.env.MCP_TRUST_PROXY = '0';
+    expect(parseMcpTrustProxyEnv()).toBe(false);
+  });
+
+  it('passes through other strings (e.g. proxy CIDR list)', () => {
+    process.env.MCP_TRUST_PROXY = 'loopback, 10.0.0.0/8';
+    expect(parseMcpTrustProxyEnv()).toBe('loopback, 10.0.0.0/8');
+  });
+});
+
+describe('isMcpMetricsHttpRequestsByClientIpEnabled', () => {
+  it('defaults to true when unset or empty', () => {
+    delete process.env.MCP_METRICS_HTTP_REQUESTS_BY_CLIENT_IP;
+    expect(isMcpMetricsHttpRequestsByClientIpEnabled()).toBe(true);
+    process.env.MCP_METRICS_HTTP_REQUESTS_BY_CLIENT_IP = '';
+    expect(isMcpMetricsHttpRequestsByClientIpEnabled()).toBe(true);
+  });
+
+  it('returns false for 0, false, no, off', () => {
+    for (const v of ['0', 'false', 'no', 'off', 'FALSE']) {
+      process.env.MCP_METRICS_HTTP_REQUESTS_BY_CLIENT_IP = v;
+      expect(isMcpMetricsHttpRequestsByClientIpEnabled()).toBe(false);
+    }
+  });
+
+  it('returns true for 1, true, yes', () => {
+    for (const v of ['1', 'true', 'yes', 'TRUE']) {
+      process.env.MCP_METRICS_HTTP_REQUESTS_BY_CLIENT_IP = v;
+      expect(isMcpMetricsHttpRequestsByClientIpEnabled()).toBe(true);
+    }
   });
 });

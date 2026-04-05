@@ -12,19 +12,28 @@ import { close as closeCache } from './cache.js';
 import { setupLifecycle } from './lifecycle.js';
 import {
   getFailedSubtitlesUrls,
+  recordMcpHttpRequestByClientIp,
   renderPrometheus,
   setMcpSessionCount,
   setMetricsService,
 } from './metrics.js';
 import { ensureAuth, getHeaderValue } from './mcp-auth.js';
 import { createMcpServer } from './mcp-core.js';
-import { getMcpRequestContext, runWithMcpRequestContext } from './mcp-request-context.js';
+import {
+  type McpRequestContext,
+  getMcpRequestContext,
+  runWithMcpRequestContext,
+} from './mcp-request-context.js';
 import { version } from './version.js';
 import { readChangelog } from './changelog.js';
 import * as Sentry from '@sentry/node';
 import { checkYtDlpAtStartup } from './yt-dlp-check.js';
 import { createLoggerWithSentryBreadcrumbs } from './logger-sentry-breadcrumbs.js';
-import { parseIntEnv } from './env.js';
+import {
+  isMcpMetricsHttpRequestsByClientIpEnabled,
+  parseIntEnv,
+  parseMcpTrustProxyEnv,
+} from './env.js';
 
 setMetricsService('mcp');
 
@@ -40,7 +49,11 @@ type SseSession = {
   createdAt: number;
 };
 
-const app = Fastify({ loggerInstance: createLoggerWithSentryBreadcrumbs() });
+const app = Fastify({
+  loggerInstance: createLoggerWithSentryBreadcrumbs(),
+  /** So `request.ip` reflects the client behind reverse proxies (`X-Forwarded-For`); see `MCP_TRUST_PROXY`. */
+  trustProxy: parseMcpTrustProxyEnv(),
+});
 
 const streamableSessions = new Map<string, StreamableSession>();
 const sseSessions = new Map<string, SseSession>();
@@ -53,10 +66,59 @@ function getClientApiKeyFromRequest(request: FastifyRequest): string | undefined
   return getHeaderValue(request.headers['x-api-key'])?.trim() || undefined;
 }
 
+/**
+ * Normalizes a client IP string for anonymous quota bucketing (trim, unwrap brackets,
+ * strip IPv6 zone id, lowercase hex).
+ */
+export function normalizeIpStringForQuota(raw: string | undefined): string | undefined {
+  const trimmed = raw?.trim();
+  if (!trimmed) return undefined;
+  let ip = trimmed;
+  if (ip.startsWith('[') && ip.endsWith(']')) {
+    ip = ip.slice(1, -1);
+  }
+  const zoneIdx = ip.indexOf('%');
+  if (zoneIdx !== -1) {
+    ip = ip.slice(0, zoneIdx);
+  }
+  return ip.toLowerCase();
+}
+
+/**
+ * Stable client IP for anonymous quota bucketing. Uses Fastify `request.ip`, which honors
+ * `trustProxy` and `X-Forwarded-For` (see {@link parseMcpTrustProxyEnv} / `MCP_TRUST_PROXY`).
+ * Normalization matches {@link normalizeIpStringForQuota}. Do not log raw values for privacy.
+ */
+export function normalizeMcpClientIp(request: FastifyRequest): string | undefined {
+  return normalizeIpStringForQuota(request.ip);
+}
+
+/** Stable route label for metrics (`routeOptions.url` or path from the request URL). */
+export function routeLabelForMcpHttpMetrics(request: FastifyRequest): string {
+  const pattern = request.routeOptions?.url;
+  if (typeof pattern === 'string' && pattern.length > 0) {
+    return pattern;
+  }
+  try {
+    const pathname = new URL(request.url, 'http://localhost').pathname;
+    return pathname.length > 0 ? pathname : 'unknown';
+  } catch {
+    return 'unknown';
+  }
+}
+
+function buildMcpHttpRequestContext(request: FastifyRequest): McpRequestContext {
+  return {
+    clientApiKey: getClientApiKeyFromRequest(request),
+    anonymousQuotaMaterial: normalizeMcpClientIp(request),
+  };
+}
+
 function createAppMcpServer() {
   return createMcpServer({
     logger: app.log,
     getClientApiKey: () => getMcpRequestContext()?.clientApiKey?.trim() || undefined,
+    getAnonymousQuotaMaterial: () => getMcpRequestContext()?.anonymousQuotaMaterial,
   });
 }
 
@@ -551,20 +613,17 @@ app.route({
       return;
     }
 
-    return runWithMcpRequestContext(
-      { clientApiKey: getClientApiKeyFromRequest(request) },
-      async () => {
-        reply.hijack();
-        const sessionId = getHeaderValue(request.headers['mcp-session-id']);
+    return runWithMcpRequestContext(buildMcpHttpRequestContext(request), async () => {
+      reply.hijack();
+      const sessionId = getHeaderValue(request.headers['mcp-session-id']);
 
-        if (request.method === 'POST') {
-          await handleStreamablePost(request, reply);
-          return;
-        }
-
-        await handleStreamableGetOrDelete(request, reply, sessionId);
+      if (request.method === 'POST') {
+        await handleStreamablePost(request, reply);
+        return;
       }
-    );
+
+      await handleStreamableGetOrDelete(request, reply, sessionId);
+    });
   },
 });
 
@@ -575,13 +634,10 @@ app.post('/sse', async (request, reply) => {
     return;
   }
 
-  return runWithMcpRequestContext(
-    { clientApiKey: getClientApiKeyFromRequest(request) },
-    async () => {
-      reply.hijack();
-      await handleStreamablePost(request, reply);
-    }
-  );
+  return runWithMcpRequestContext(buildMcpHttpRequestContext(request), async () => {
+    reply.hijack();
+    await handleStreamablePost(request, reply);
+  });
 });
 
 app.get('/sse', async (request, reply) => {
@@ -590,26 +646,28 @@ app.get('/sse', async (request, reply) => {
   }
 
   reply.hijack();
-  const server = createAppMcpServer();
-  const sseOptions = getSseOptions();
-  const resolvedUrl = resolvePublicBaseUrlForRequest(request, mcpPublicUrls);
-  const transport = createSseTransport('/message', reply.raw, sseOptions, resolvedUrl);
+  return runWithMcpRequestContext(buildMcpHttpRequestContext(request), async () => {
+    const server = createAppMcpServer();
+    const sseOptions = getSseOptions();
+    const resolvedUrl = resolvePublicBaseUrlForRequest(request, mcpPublicUrls);
+    const transport = createSseTransport('/message', reply.raw, sseOptions, resolvedUrl);
 
-  transport.onclose = () => {
-    sseSessions.delete(transport.sessionId);
+    transport.onclose = () => {
+      sseSessions.delete(transport.sessionId);
+      updateMcpSessionGauges();
+    };
+    transport.onerror = (error) => {
+      app.log.error({ error }, 'SSE transport error');
+      Sentry.withScope((scope) => {
+        scope.setContext('mcp', { transport: 'sse', sessionId: transport.sessionId });
+        Sentry.captureException(error instanceof Error ? error : new Error(String(error)));
+      });
+    };
+
+    await server.connect(transport);
+    sseSessions.set(transport.sessionId, { server, transport, createdAt: Date.now() });
     updateMcpSessionGauges();
-  };
-  transport.onerror = (error) => {
-    app.log.error({ error }, 'SSE transport error');
-    Sentry.withScope((scope) => {
-      scope.setContext('mcp', { transport: 'sse', sessionId: transport.sessionId });
-      Sentry.captureException(error instanceof Error ? error : new Error(String(error)));
-    });
-  };
-
-  await server.connect(transport);
-  sseSessions.set(transport.sessionId, { server, transport, createdAt: Date.now() });
-  updateMcpSessionGauges();
+  });
 });
 
 app.post('/message', async (request, reply) => {
@@ -630,13 +688,21 @@ app.post('/message', async (request, reply) => {
     return;
   }
 
-  return runWithMcpRequestContext(
-    { clientApiKey: getClientApiKeyFromRequest(request) },
-    async () => {
-      reply.hijack();
-      await session.transport.handlePostMessage(request.raw, reply.raw, request.body);
-    }
-  );
+  return runWithMcpRequestContext(buildMcpHttpRequestContext(request), async () => {
+    reply.hijack();
+    await session.transport.handlePostMessage(request.raw, reply.raw, request.body);
+  });
+});
+
+app.addHook('onResponse', (request, _reply, done) => {
+  if (!isMcpMetricsHttpRequestsByClientIpEnabled()) {
+    done();
+    return;
+  }
+  const route = routeLabelForMcpHttpMetrics(request);
+  const clientIp = normalizeMcpClientIp(request) ?? 'unknown';
+  recordMcpHttpRequestByClientIp(route, request.method, clientIp);
+  done();
 });
 
 /**

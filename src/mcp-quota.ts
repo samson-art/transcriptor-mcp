@@ -69,6 +69,18 @@ function getPepper(): string {
   return process.env[MCP_CLIENT_API_KEY_PEPPER_ENV]?.trim() ?? '';
 }
 
+/** Normalizes client-supplied material for anonymous quota bucketing (e.g. IP string). */
+function normalizeAnonymousQuotaMaterial(material: string | undefined): string | undefined {
+  if (material === undefined) {
+    return undefined;
+  }
+  const t = material.trim();
+  if (t.length === 0) {
+    return undefined;
+  }
+  return t.toLowerCase();
+}
+
 function getContactMessage(): string {
   return process.env.MCP_QUOTA_CONTACT_MESSAGE?.trim() || DEFAULT_CONTACT_MESSAGE;
 }
@@ -102,8 +114,16 @@ export const parseWindowToMs = parseQuotaWindowMs;
 /**
  * Maps a client API key (or none) to a quota bucket and limits.
  * When MCP quota is disabled, returns `{ type: 'skip' }` so callers do not enforce.
+ *
+ * @param anonymousQuotaMaterial — When there is no API key and quota allows anonymous use,
+ *   non-empty material (e.g. normalized client IP) selects a per-client bucket via
+ *   hashPresentedApiKey(pepper, "anon:" + material). Otherwise the legacy single bucket
+ *   `__mcp_quota_anonymous_v1__` is used (e.g. stdio MCP).
  */
-export function resolveLimit(apiKey: string | undefined): QuotaResolution {
+export function resolveLimit(
+  apiKey: string | undefined,
+  anonymousQuotaMaterial?: string
+): QuotaResolution {
   if (!isMcpQuotaEnabled()) {
     return { type: 'skip' };
   }
@@ -151,6 +171,10 @@ export function resolveLimit(apiKey: string | undefined): QuotaResolution {
     return { type: 'rejected', reason: 'no_key', tier: 'anonymous' };
   }
 
+  const normalizedAnon = normalizeAnonymousQuotaMaterial(anonymousQuotaMaterial);
+  const anonymousKeyMaterial =
+    normalizedAnon !== undefined ? `anon:${normalizedAnon}` : '__mcp_quota_anonymous_v1__';
+
   return {
     type: 'ok',
     limit: {
@@ -159,7 +183,7 @@ export function resolveLimit(apiKey: string | undefined): QuotaResolution {
       tier: 'anonymous',
       identity: {
         keyId: 'default',
-        keyHashHex: hashPresentedApiKey(pepper, '__mcp_quota_anonymous_v1__'),
+        keyHashHex: hashPresentedApiKey(pepper, anonymousKeyMaterial),
       },
     },
   };
@@ -180,7 +204,8 @@ export type EnforceMcpToolQuotaResult = { allowed: true } | { allowed: false; me
  */
 export async function enforceMcpToolQuota(
   toolName: string,
-  getClientApiKey: (() => string | undefined) | undefined
+  getClientApiKey: (() => string | undefined) | undefined,
+  getAnonymousQuotaMaterial?: () => string | undefined
 ): Promise<EnforceMcpToolQuotaResult> {
   if (!isMcpQuotaEnabled()) {
     return { allowed: true };
@@ -190,9 +215,10 @@ export async function enforceMcpToolQuota(
 
   try {
     const apiKey = getClientApiKey?.();
+    const anonymousQuotaMaterial = getAnonymousQuotaMaterial?.();
     let resolution: QuotaResolution;
     try {
-      resolution = resolveLimit(apiKey);
+      resolution = resolveLimit(apiKey, anonymousQuotaMaterial);
     } catch {
       log.error({ tool: toolName }, 'MCP quota: client API key registry configuration invalid');
       return {

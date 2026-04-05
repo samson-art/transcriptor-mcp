@@ -293,18 +293,24 @@ export type CreateMcpServerOptions = {
    * When omitted (stdio MCP), quota uses the default/anonymous policy when enabled.
    */
   getClientApiKey?: () => string | undefined;
+  /**
+   * When there is no API key, non-empty material (e.g. normalized client IP from HTTP) selects a
+   * per-client anonymous bucket. Omit for stdio MCP so all anonymous calls share one global bucket.
+   */
+  getAnonymousQuotaMaterial?: () => string | undefined;
 };
 
 export function createMcpServer(opts?: CreateMcpServerOptions) {
   const log = opts?.logger ?? createDefaultLogger();
   const getClientApiKey = opts?.getClientApiKey;
+  const getAnonymousQuotaMaterial = opts?.getAnonymousQuotaMaterial;
 
   async function invokeTool(
     toolName: string,
     fn: () => Promise<ToolSuccessResult>,
     options?: WithToolErrorHandlingOptions
   ): Promise<ToolResult> {
-    const quota = await enforceMcpToolQuota(toolName, getClientApiKey);
+    const quota = await enforceMcpToolQuota(toolName, getClientApiKey, getAnonymousQuotaMaterial);
     if (!quota.allowed) {
       return toolError(quota.message);
     }

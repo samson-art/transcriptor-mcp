@@ -1,4 +1,8 @@
-import { computeSecretHashHex, MCP_CLIENT_API_KEY_PEPPER_ENV } from './api-key-registry.js';
+import {
+  computeSecretHashHex,
+  hashPresentedApiKey,
+  MCP_CLIENT_API_KEY_PEPPER_ENV,
+} from './api-key-registry.js';
 import {
   enforceMcpToolQuota,
   isMcpQuotaEnabled,
@@ -58,7 +62,45 @@ describe('mcp-quota', () => {
         expect(r.limit.identity.keyId).toBe('default');
         expect(r.limit.maxToolCalls).toBe(50);
         expect(r.limit.windowMs).toBe(3_600_000);
+        expect(r.limit.identity.keyHashHex).toBe(
+          hashPresentedApiKey('', '__mcp_quota_anonymous_v1__')
+        );
       }
+    });
+
+    it('uses distinct anonymous buckets for different material', () => {
+      process.env.MCP_QUOTA_ENABLED = '1';
+      process.env[MCP_CLIENT_API_KEY_PEPPER_ENV] = 'pepper-anon';
+      delete process.env.MCP_QUOTA_REJECT_UNREGISTERED;
+      delete process.env.MCP_CLIENT_API_KEYS_JSON;
+
+      const r1 = resolveLimit(undefined, '192.168.0.1');
+      const r2 = resolveLimit(undefined, '192.168.0.2');
+      const rGlobal = resolveLimit(undefined);
+      expect(r1.type).toBe('ok');
+      expect(r2.type).toBe('ok');
+      expect(rGlobal.type).toBe('ok');
+      if (r1.type === 'ok' && r2.type === 'ok' && rGlobal.type === 'ok') {
+        expect(r1.limit.identity.keyHashHex).toBe(
+          hashPresentedApiKey('pepper-anon', 'anon:192.168.0.1')
+        );
+        expect(r2.limit.identity.keyHashHex).toBe(
+          hashPresentedApiKey('pepper-anon', 'anon:192.168.0.2')
+        );
+        expect(r1.limit.identity.keyHashHex).not.toBe(r2.limit.identity.keyHashHex);
+        expect(rGlobal.limit.identity.keyHashHex).toBe(
+          hashPresentedApiKey('pepper-anon', '__mcp_quota_anonymous_v1__')
+        );
+      }
+    });
+
+    it('treats blank anonymous material like no material (global bucket)', () => {
+      process.env.MCP_QUOTA_ENABLED = '1';
+      process.env[MCP_CLIENT_API_KEY_PEPPER_ENV] = 'p';
+      delete process.env.MCP_QUOTA_REJECT_UNREGISTERED;
+      delete process.env.MCP_CLIENT_API_KEYS_JSON;
+
+      expect(resolveLimit(undefined, '  \t')).toEqual(resolveLimit(undefined));
     });
 
     it('matches registered secret and uses registry limits', () => {
@@ -161,6 +203,60 @@ describe('mcp-quota', () => {
       if (last.allowed === false) {
         expect(last.message).toContain('operator');
       }
+    });
+
+    it('uses separate anonymous buckets when getAnonymousQuotaMaterial differs', async () => {
+      process.env.MCP_QUOTA_ENABLED = '1';
+      process.env.MCP_QUOTA_DEFAULT_MAX = '1';
+      process.env.MCP_QUOTA_DEFAULT_WINDOW = '24h';
+      delete process.env.MCP_CLIENT_API_KEYS_JSON;
+
+      const callA = () =>
+        enforceMcpToolQuota(
+          'search_videos',
+          () => undefined,
+          () => 'client-a'
+        );
+      const callB = () =>
+        enforceMcpToolQuota(
+          'search_videos',
+          () => undefined,
+          () => 'client-b'
+        );
+
+      expect((await callA()).allowed).toBe(true);
+      expect((await callA()).allowed).toBe(false);
+      expect((await callB()).allowed).toBe(true);
+      expect((await callB()).allowed).toBe(false);
+    });
+
+    it('stdio (no anonymous material resolver): global bucket is separate from per-material HTTP', async () => {
+      process.env.MCP_QUOTA_ENABLED = '1';
+      process.env.MCP_QUOTA_DEFAULT_MAX = '1';
+      process.env.MCP_QUOTA_DEFAULT_WINDOW = '24h';
+      delete process.env.MCP_CLIENT_API_KEYS_JSON;
+
+      expect(
+        (
+          await enforceMcpToolQuota(
+            'search_videos',
+            () => undefined,
+            () => 'by-ip'
+          )
+        ).allowed
+      ).toBe(true);
+      expect(
+        (
+          await enforceMcpToolQuota(
+            'search_videos',
+            () => undefined,
+            () => 'by-ip'
+          )
+        ).allowed
+      ).toBe(false);
+
+      expect((await enforceMcpToolQuota('search_videos', () => undefined)).allowed).toBe(true);
+      expect((await enforceMcpToolQuota('search_videos', () => undefined)).allowed).toBe(false);
     });
 
     it('uses separate buckets for two registered keys', async () => {
