@@ -1,7 +1,7 @@
 # ============================================
 # Stage 1: Build
 # ============================================
-FROM node:20-slim AS builder
+FROM node:20-alpine AS builder
 
 WORKDIR /app
 
@@ -15,8 +15,9 @@ RUN npm run build
 
 # ============================================
 # Stage 2: Base (shared runtime: yt-dlp, ffmpeg, Deno)
+# Debian-based image — has apt-get (Alpine uses apk, not apt).
 # ============================================
-FROM node:20-slim AS base
+FROM node:20-bookworm-slim AS base
 
 # Системные зависимости для yt-dlp и JS runtime (ffmpeg для постобработки аудио)
 RUN apt-get update && apt-get install -y \

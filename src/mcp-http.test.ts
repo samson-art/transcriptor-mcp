@@ -179,6 +179,10 @@ describe('mcp-http', () => {
       expect(schema.properties.authToken['x-from']).toEqual({ header: 'x-mcp-auth-token' });
       expect(schema.properties.authToken['x-to']).toEqual({ header: 'Authorization' });
       expect(schema.properties.authToken.secret).toBe(true);
+      expect(schema.properties.apiKey.type).toBe('string');
+      expect(schema.properties.apiKey['x-from']).toEqual({ header: 'x-api-key' });
+      expect(schema.properties.apiKey['x-to']).toEqual({ header: 'X-Api-Key' });
+      expect(schema.properties.apiKey.secret).toBe(true);
     });
   });
 
@@ -195,12 +199,19 @@ describe('mcp-http', () => {
       expect(schema.type).toBe('object');
       expect(schema.required).toEqual([]);
       expect(schema.properties).toHaveProperty('authToken');
+      expect(schema.properties).toHaveProperty('apiKey');
       const authTokenProp = schema.properties!.authToken;
       expect(authTokenProp.type).toBe('string');
       expect(typeof authTokenProp.description).toBe('string');
       expect(authTokenProp['x-from']).toEqual({ header: 'x-mcp-auth-token' });
       expect(authTokenProp['x-to']).toEqual({ header: 'Authorization' });
       expect(authTokenProp.secret).toBe(true);
+      const apiKeyProp = schema.properties!.apiKey;
+      expect(apiKeyProp.type).toBe('string');
+      expect(typeof apiKeyProp.description).toBe('string');
+      expect(apiKeyProp['x-from']).toEqual({ header: 'x-api-key' });
+      expect(apiKeyProp['x-to']).toEqual({ header: 'X-Api-Key' });
+      expect(apiKeyProp.secret).toBe(true);
     });
   });
 

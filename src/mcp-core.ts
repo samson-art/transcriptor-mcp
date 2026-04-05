@@ -24,6 +24,7 @@ import {
   validateAndFetchVideoChapters,
 } from './validation.js';
 import { recordMcpRequestDuration, recordMcpToolCall, recordMcpToolError } from './metrics.js';
+import { enforceMcpToolQuota } from './mcp-quota.js';
 import { version } from './version.js';
 
 const TOOL_GET_TRANSCRIPT = 'get_transcript';
@@ -287,10 +288,29 @@ async function withToolErrorHandling(
 
 export type CreateMcpServerOptions = {
   logger?: FastifyBaseLogger;
+  /**
+   * Optional resolver for the client API key (e.g. `X-Api-Key` via AsyncLocalStorage in HTTP).
+   * When omitted (stdio MCP), quota uses the default/anonymous policy when enabled.
+   */
+  getClientApiKey?: () => string | undefined;
 };
 
 export function createMcpServer(opts?: CreateMcpServerOptions) {
   const log = opts?.logger ?? createDefaultLogger();
+  const getClientApiKey = opts?.getClientApiKey;
+
+  async function invokeTool(
+    toolName: string,
+    fn: () => Promise<ToolSuccessResult>,
+    options?: WithToolErrorHandlingOptions
+  ): Promise<ToolResult> {
+    const quota = await enforceMcpToolQuota(toolName, getClientApiKey);
+    if (!quota.allowed) {
+      return toolError(quota.message);
+    }
+    return withToolErrorHandling(toolName, log, fn, options);
+  }
+
   const server = new McpServer({
     name: 'transcriptor-mcp',
     version,
@@ -312,7 +332,7 @@ export function createMcpServer(opts?: CreateMcpServerOptions) {
       annotations: { readOnlyHint: true, idempotentHint: true },
     },
     async (args, _extra) =>
-      withToolErrorHandling(TOOL_GET_TRANSCRIPT, log, async () => {
+      invokeTool(TOOL_GET_TRANSCRIPT, async () => {
         const resolved = resolveSubtitleArgs(args);
         const result = await validateAndDownloadSubtitles(
           {
@@ -367,7 +387,7 @@ export function createMcpServer(opts?: CreateMcpServerOptions) {
       annotations: { readOnlyHint: true, idempotentHint: true },
     },
     async (args, _extra) =>
-      withToolErrorHandling(TOOL_GET_RAW_SUBTITLES, log, async () => {
+      invokeTool(TOOL_GET_RAW_SUBTITLES, async () => {
         const resolved = resolveSubtitleArgs(args);
         const result = await validateAndDownloadSubtitles(
           {
@@ -418,9 +438,8 @@ export function createMcpServer(opts?: CreateMcpServerOptions) {
       annotations: { readOnlyHint: true, idempotentHint: true },
     },
     async (args, _extra) =>
-      withToolErrorHandling(
+      invokeTool(
         TOOL_GET_AVAILABLE_SUBTITLES,
-        log,
         async () => {
           const url = resolveVideoUrl(args.url);
           if (!url) {
@@ -462,9 +481,8 @@ export function createMcpServer(opts?: CreateMcpServerOptions) {
       annotations: { readOnlyHint: true, idempotentHint: true },
     },
     async (args, _extra) =>
-      withToolErrorHandling(
+      invokeTool(
         TOOL_GET_VIDEO_INFO,
-        log,
         async () => {
           const url = resolveVideoUrl(args.url);
           if (!url) {
@@ -532,9 +550,8 @@ export function createMcpServer(opts?: CreateMcpServerOptions) {
       annotations: { readOnlyHint: true, idempotentHint: true },
     },
     async (args, _extra) =>
-      withToolErrorHandling(
+      invokeTool(
         TOOL_GET_VIDEO_CHAPTERS,
-        log,
         async () => {
           const url = resolveVideoUrl(args.url);
           if (!url) {
@@ -577,7 +594,7 @@ export function createMcpServer(opts?: CreateMcpServerOptions) {
       annotations: { readOnlyHint: true, idempotentHint: true },
     },
     async (args, _extra) =>
-      withToolErrorHandling(TOOL_GET_PLAYLIST_TRANSCRIPTS, log, async () => {
+      invokeTool(TOOL_GET_PLAYLIST_TRANSCRIPTS, async () => {
         const url = resolveVideoUrl(args.url);
         if (!url) {
           throw new ValidationError(
@@ -643,7 +660,7 @@ export function createMcpServer(opts?: CreateMcpServerOptions) {
       annotations: { readOnlyHint: true, idempotentHint: false },
     },
     async (args, _extra) =>
-      withToolErrorHandling(TOOL_SEARCH_VIDEOS, log, async () => {
+      invokeTool(TOOL_SEARCH_VIDEOS, async () => {
         const query = typeof args.query === 'string' ? args.query.trim() : '';
         if (!query) {
           throw new ValidationError('Query is required for search.');

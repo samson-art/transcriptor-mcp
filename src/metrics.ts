@@ -106,6 +106,52 @@ export const mcpRequestDurationSeconds = new Histogram({
   registers: [register],
 });
 
+/** Outcome of a quota check before `tools/call` (plan: observability / cardinality-safe tiers). */
+export type McpQuotaCheckResult =
+  | 'allowed'
+  | 'exceeded'
+  | 'rejected_no_key'
+  | 'rejected_invalid_key';
+
+/** Quota tier for metrics labels (`anonymous` = unregistered / unknown key bucket). */
+export type McpQuotaTier = 'registered' | 'default' | 'anonymous';
+
+export const mcpQuotaChecksTotal = new Counter({
+  name: 'mcp_quota_checks_total',
+  help: 'MCP quota checks before tools/call',
+  labelNames: ['result', 'tier'],
+  registers: [register],
+});
+
+/** Use `key_id="none"` when the exceed is not tied to a registry entry. */
+export const mcpQuotaExceededTotal = new Counter({
+  name: 'mcp_quota_exceeded_total',
+  help: 'MCP quota limit exceeded (decision before responding to client)',
+  labelNames: ['tier', 'key_id'],
+  registers: [register],
+});
+
+export const mcpQuotaToolCallsBlockedTotal = new Counter({
+  name: 'mcp_quota_tool_calls_blocked_total',
+  help: 'MCP tool calls blocked by quota',
+  labelNames: ['tool'],
+  registers: [register],
+});
+
+export const mcpQuotaHttp429Total = new Counter({
+  name: 'mcp_quota_http_429_total',
+  help: 'HTTP 429 responses emitted for MCP quota before the MCP session',
+  labelNames: ['route'],
+  registers: [register],
+});
+
+export const mcpQuotaCheckDurationSeconds = new Histogram({
+  name: 'mcp_quota_check_duration_seconds',
+  help: 'Duration of a single MCP quota check (Redis / in-memory)',
+  buckets: [0.0001, 0.0005, 0.001, 0.005, 0.01, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10],
+  registers: [register],
+});
+
 // Bounded ring buffer for failed subtitles URLs (max 100)
 const FAILURES_BUFFER_SIZE = 100;
 const failuresBuffer: Array<{ url: string; timestamp: string }> = [];
@@ -184,6 +230,34 @@ export function recordMcpRequestDuration(endpoint: string, durationSeconds: numb
   mcpRequestDurationSeconds.observe({ endpoint }, durationSeconds);
 }
 
+export function recordMcpQuotaCheck(result: McpQuotaCheckResult, tier: McpQuotaTier): void {
+  mcpQuotaChecksTotal.inc({ result, tier });
+}
+
+/**
+ * @param keyId Stable registry id for registered keys; use `none` when not applicable.
+ */
+export function recordMcpQuotaExceeded(tier: McpQuotaTier, keyId: string = 'none'): void {
+  mcpQuotaExceededTotal.inc({ tier, key_id: keyId });
+}
+
+export function recordMcpQuotaToolCallsBlocked(tool: string): void {
+  mcpQuotaToolCallsBlockedTotal.inc({ tool });
+}
+
+/** Alias for {@link recordMcpQuotaToolCallsBlocked} (stdio quota module naming). */
+export function recordMcpQuotaToolBlocked(tool: string): void {
+  recordMcpQuotaToolCallsBlocked(tool);
+}
+
+export function recordMcpQuotaHttp429(route: string): void {
+  mcpQuotaHttp429Total.inc({ route });
+}
+
+export function recordMcpQuotaCheckDuration(durationSeconds: number): void {
+  mcpQuotaCheckDurationSeconds.observe(durationSeconds);
+}
+
 /**
  * Sets default labels (service=api or service=mcp). Call from mcp-http to override.
  */
@@ -196,4 +270,9 @@ export function setMetricsService(service: 'api' | 'mcp'): void {
  */
 export async function renderPrometheus(): Promise<string> {
   return register.metrics();
+}
+
+/** Resets all metric values (for tests only). */
+export function resetMetricsRegistryForTests(): void {
+  register.resetMetrics();
 }

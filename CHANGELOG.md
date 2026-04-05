@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-04-05
+
+### Added
+
+- **MCP tool call quota (optional):** Per-client limits keyed by **`X-Api-Key`** on MCP HTTP (`src/mcp-quota.ts`, `src/mcp-core.ts`). Enable with **`MCP_QUOTA_ENABLED`**; defaults **`MCP_QUOTA_DEFAULT_MAX`** / **`MCP_QUOTA_DEFAULT_WINDOW`**; optional strict mode **`MCP_QUOTA_REJECT_UNREGISTERED`**; customizable messages via **`MCP_QUOTA_CONTACT_MESSAGE`**, **`MCP_QUOTA_MESSAGE_NO_KEY`**, **`MCP_QUOTA_MESSAGE_INVALID_KEY`**.
+- **Client API key registry (hashed secrets only):** JSON file or inline env — **`MCP_CLIENT_API_KEYS_FILE`** (preferred) or **`MCP_CLIENT_API_KEYS_JSON`**, plus **`MCP_CLIENT_API_KEY_PEPPER`**. Validation, prefix keys, and lookup in **`src/api-key-registry.ts`**; map-based registry builder for fast hash lookup; **`src/mcp-quota-registry.ts`** re-exports loader helpers.
+- **HTTP request context for quota:** **`src/mcp-request-context.ts`** (`AsyncLocalStorage`) so streamable **`/mcp`**, POST **`/sse`**, and **`/message`** expose the client key to **`createMcpServer({ getClientApiKey })`** (`src/mcp-http.ts`).
+- **Prometheus metrics (MCP):** `mcp_quota_checks_total`, `mcp_quota_exceeded_total`, `mcp_quota_tool_calls_blocked_total`, `mcp_quota_http_429_total`, `mcp_quota_check_duration_seconds` in **`src/metrics.ts`**; **`resetMetricsRegistryForTests()`** for unit tests.
+- **Quota counter store:** Fixed-window buckets in **`src/mcp-quota-store.ts`** — in-memory (**`MemoryQuotaCounterStore`**) for single-process; **`RedisQuotaCounterStore`** (Lua INCR + PEXPIRE) for shared Redis when wired in.
+- **Duration parsing:** **`parseQuotaWindowMs()`** in **`src/env.ts`** for quota windows (e.g. `24h`, `30m`, `1 minute`).
+- **MCP session config / Smithery:** Optional **`apiKey`** in **`MCP_SESSION_CONFIG_SCHEMA`** and **`.well-known/mcp-config`** — gateway maps form field to **`X-Api-Key`** (distinct from **`MCP_AUTH_TOKEN`** / Bearer).
+- **Monitoring stack (repo):** `monitoring/prometheus.yml`, Grafana provisioning (`monitoring/grafana/provisioning/...`) and **MCP quota** dashboard JSON **`monitoring/grafana/provisioning/dashboards/files/mcp-quota.json`**. **`docs/monitoring.md`** — new quota metrics, PromQL snippets, dashboard mount notes.
+- **Docs and repo hygiene:** **`CONTRIBUTING.md`** (dev setup, `make prepare` / `make check`); **`SECURITY.md`** (supported versions, private reporting via GitHub Security Advisories). **`docs/configuration.md`** and **`.env.example`** — full quota and registry variable list.
+- **Tests:** **`src/api-key-registry.test.ts`**, **`src/mcp-quota.test.ts`**, **`src/mcp-quota-store.test.ts`**, **`src/mcp-request-context.test.ts`**, **`src/metrics.test.ts`**; MCP quota scenarios in **`src/mcp-core.test.ts`**; schema assertions in **`src/mcp-http.test.ts`**. E2E **`src/e2e/api-smoke.ts`** — optional **`MCP_QUOTA_ENABLED`** / high default max, asserts quota-related series on **`GET /metrics`** (skip with **`SMOKE_SKIP_MCP_QUOTA_METRICS`**).
+
+### Changed
+
+- **Dockerfile:** Build stage **`node:20-alpine`**; runtime base **`node:20-bookworm-slim`** (Debian, `apt-get` for yt-dlp/ffmpeg stack); comment clarifying Alpine vs Debian for system packages.
+- **`npm test`:** Jest runs with **`--forceExit`** to avoid hanging on open handles in CI.
+
+### Security
+
+- **`.gitignore`:** Ignore **`secrets/`** to reduce risk of committing local key material.
+
 ## [0.6.9] - 2026-03-31
 
 ### Added

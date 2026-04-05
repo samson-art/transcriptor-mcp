@@ -18,6 +18,7 @@ import {
 } from './metrics.js';
 import { ensureAuth, getHeaderValue } from './mcp-auth.js';
 import { createMcpServer } from './mcp-core.js';
+import { getMcpRequestContext, runWithMcpRequestContext } from './mcp-request-context.js';
 import { version } from './version.js';
 import { readChangelog } from './changelog.js';
 import * as Sentry from '@sentry/node';
@@ -48,6 +49,17 @@ const mcpPort = parseIntEnv('MCP_PORT', 4200);
 const mcpHost = process.env.MCP_HOST || '0.0.0.0';
 const authToken = process.env.MCP_AUTH_TOKEN?.trim();
 
+function getClientApiKeyFromRequest(request: FastifyRequest): string | undefined {
+  return getHeaderValue(request.headers['x-api-key'])?.trim() || undefined;
+}
+
+function createAppMcpServer() {
+  return createMcpServer({
+    logger: app.log,
+    getClientApiKey: () => getMcpRequestContext()?.clientApiKey?.trim() || undefined,
+  });
+}
+
 function getMcpPublicUrls(): string[] {
   const urlsVar = process.env.MCP_PUBLIC_URLS?.trim();
   if (urlsVar) {
@@ -63,6 +75,11 @@ function getMcpPublicUrls(): string[] {
 }
 
 const mcpPublicUrls = getMcpPublicUrls();
+
+/** Max tool calls per default window without a registered client API key. */
+export const MCP_QUOTA_DEFAULT_MAX = parseIntEnv('MCP_QUOTA_DEFAULT_MAX', 100);
+/** Time window for default quota (e.g. 24h, 1h); same format as server-side rate/quota parsers. */
+export const MCP_QUOTA_DEFAULT_WINDOW = process.env.MCP_QUOTA_DEFAULT_WINDOW?.trim() || '24h';
 
 const SMITHERY_HOST = 'server.smithery.ai';
 
@@ -120,24 +137,32 @@ export function resolvePublicBaseUrlForRequest(
 
 /**
  * Session configuration JSON Schema for MCP discovery (e.g. Smithery).
- * All fields optional. Uses x-from (non-reserved header) and x-to so gateway sends Bearer token as Authorization.
+ * All fields optional. Uses x-from / x-to so the gateway maps form fields to upstream headers
+ * (Authorization for bearer, X-Api-Key for per-client quota).
  */
 export const MCP_SESSION_CONFIG_SCHEMA = {
   $schema: 'http://json-schema.org/draft-07/schema#',
   $id: 'https://github.com/samson-art/transcriptor-mcp#mcp-config',
   title: 'Transcriptor MCP configuration',
-  description:
-    'Optional session configuration. No fields are required. When connecting via Smithery, set authToken in config; the gateway forwards it as Authorization to the server.',
+  description: `Optional session configuration. No fields are required. When connecting via Smithery, set authToken if the server uses MCP_AUTH_TOKEN; set apiKey when you have a client API key for quota. Without a registered apiKey, default tool-call limits apply: ${MCP_QUOTA_DEFAULT_MAX} per ${MCP_QUOTA_DEFAULT_WINDOW} (server env MCP_QUOTA_DEFAULT_MAX, MCP_QUOTA_DEFAULT_WINDOW).`,
   type: 'object',
   properties: {
     authToken: {
       type: 'string',
       title: 'Bearer token',
       description:
-        'Auth token for protected servers. Only needed when the server uses MCP_AUTH_TOKEN. Stored locally by your client; never logged or shared.',
+        'Instance auth for protected servers. Only needed when the deployment uses MCP_AUTH_TOKEN. Stored locally by your client; never logged or shared. Distinct from apiKey (per-client quota).',
       secret: true,
       'x-from': { header: 'x-mcp-auth-token' },
       'x-to': { header: 'Authorization' },
+    },
+    apiKey: {
+      type: 'string',
+      title: 'Client API key',
+      description: `Per-client API key for quota tiers. Forwarded as X-Api-Key (not the same as MCP_AUTH_TOKEN). If omitted, the server applies the default tool-call limit: ${MCP_QUOTA_DEFAULT_MAX} calls per ${MCP_QUOTA_DEFAULT_WINDOW}.`,
+      secret: true,
+      'x-from': { header: 'x-api-key' },
+      'x-to': { header: 'X-Api-Key' },
     },
   },
   required: [] as string[],
@@ -145,14 +170,13 @@ export const MCP_SESSION_CONFIG_SCHEMA = {
   documentation: {
     gettingStarted: {
       title: 'Getting started',
-      description:
-        '1. Connect to the server URL (e.g. https://server.smithery.ai/samson-art/transcriptor-mcp) — no config required for public instances.\n2. Use get_transcript, get_video_info, or search_videos to fetch transcripts and metadata.\n3. If your deployment uses MCP_AUTH_TOKEN, set the authToken in the session config; the gateway will send it as Authorization: Bearer <token>.',
+      description: `1. Connect to the server URL (e.g. https://server.smithery.ai/samson-art/transcriptor-mcp) — no session config required for public instances.\n2. Use get_transcript, get_video_info, or search_videos to fetch transcripts and metadata.\n3. If your deployment uses MCP_AUTH_TOKEN, set authToken; the gateway sends Authorization: Bearer.\n4. If you were issued a client API key, set apiKey for quota; the gateway sends X-Api-Key. Without apiKey, default limits apply (${MCP_QUOTA_DEFAULT_MAX} tool calls per ${MCP_QUOTA_DEFAULT_WINDOW} on this server).`,
     },
     apiLink: 'https://github.com/samson-art/transcriptor-mcp#readme',
     security:
-      'Keep your auth token secret when the server requires one. Do not commit or log authToken.',
+      'Keep authToken and apiKey secret. Do not commit or log them. authToken gates access to the instance; apiKey identifies your client quota tier.',
   },
-} as const;
+};
 
 /** Static MCP server card for discovery (e.g. Smithery) at /.well-known/mcp/server-card.json */
 function getServerCard(): {
@@ -472,7 +496,7 @@ async function handleStreamablePost(
   }
 
   if (isInitializeRequest(body)) {
-    const server = createMcpServer({ logger: app.log });
+    const server = createAppMcpServer();
     const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: () => randomUUID(),
       onsessioninitialized: (id) => {
@@ -527,15 +551,20 @@ app.route({
       return;
     }
 
-    reply.hijack();
-    const sessionId = getHeaderValue(request.headers['mcp-session-id']);
+    return runWithMcpRequestContext(
+      { clientApiKey: getClientApiKeyFromRequest(request) },
+      async () => {
+        reply.hijack();
+        const sessionId = getHeaderValue(request.headers['mcp-session-id']);
 
-    if (request.method === 'POST') {
-      await handleStreamablePost(request, reply);
-      return;
-    }
+        if (request.method === 'POST') {
+          await handleStreamablePost(request, reply);
+          return;
+        }
 
-    await handleStreamableGetOrDelete(request, reply, sessionId);
+        await handleStreamableGetOrDelete(request, reply, sessionId);
+      }
+    );
   },
 });
 
@@ -546,8 +575,13 @@ app.post('/sse', async (request, reply) => {
     return;
   }
 
-  reply.hijack();
-  await handleStreamablePost(request, reply);
+  return runWithMcpRequestContext(
+    { clientApiKey: getClientApiKeyFromRequest(request) },
+    async () => {
+      reply.hijack();
+      await handleStreamablePost(request, reply);
+    }
+  );
 });
 
 app.get('/sse', async (request, reply) => {
@@ -556,7 +590,7 @@ app.get('/sse', async (request, reply) => {
   }
 
   reply.hijack();
-  const server = createMcpServer({ logger: app.log });
+  const server = createAppMcpServer();
   const sseOptions = getSseOptions();
   const resolvedUrl = resolvePublicBaseUrlForRequest(request, mcpPublicUrls);
   const transport = createSseTransport('/message', reply.raw, sseOptions, resolvedUrl);
@@ -596,8 +630,13 @@ app.post('/message', async (request, reply) => {
     return;
   }
 
-  reply.hijack();
-  await session.transport.handlePostMessage(request.raw, reply.raw, request.body);
+  return runWithMcpRequestContext(
+    { clientApiKey: getClientApiKeyFromRequest(request) },
+    async () => {
+      reply.hijack();
+      await session.transport.handlePostMessage(request.raw, reply.raw, request.body);
+    }
+  );
 });
 
 /**

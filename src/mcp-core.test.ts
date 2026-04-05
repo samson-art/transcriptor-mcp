@@ -1,5 +1,6 @@
 import { NotFoundError } from './errors.js';
 import { createMcpServer } from './mcp-core.js';
+import { resetMcpQuotaStateForTests } from './mcp-quota.js';
 import * as youtube from './youtube.js';
 import * as validation from './validation.js';
 
@@ -671,6 +672,68 @@ describe('mcp-core tools', () => {
 
       expect(result.structuredContent).toEqual({ results: [] });
       expect(result.content[0].text).toContain('No results found');
+    });
+  });
+
+  describe('MCP quota enforcement', () => {
+    const saved: Record<string, string | undefined> = {};
+
+    beforeEach(() => {
+      resetMcpQuotaStateForTests();
+      saved.MCP_QUOTA_ENABLED = process.env.MCP_QUOTA_ENABLED;
+      saved.MCP_QUOTA_DEFAULT_MAX = process.env.MCP_QUOTA_DEFAULT_MAX;
+      saved.MCP_QUOTA_DEFAULT_WINDOW = process.env.MCP_QUOTA_DEFAULT_WINDOW;
+      saved.MCP_QUOTA_CONTACT_MESSAGE = process.env.MCP_QUOTA_CONTACT_MESSAGE;
+      saved.MCP_CLIENT_API_KEYS_JSON = process.env.MCP_CLIENT_API_KEYS_JSON;
+      saved.MCP_QUOTA_REJECT_UNREGISTERED = process.env.MCP_QUOTA_REJECT_UNREGISTERED;
+
+      process.env.MCP_QUOTA_ENABLED = '1';
+      process.env.MCP_QUOTA_DEFAULT_MAX = '1';
+      process.env.MCP_QUOTA_DEFAULT_WINDOW = '1h';
+      process.env.MCP_QUOTA_CONTACT_MESSAGE = 'Quota exceeded contact TEST.';
+      delete process.env.MCP_CLIENT_API_KEYS_JSON;
+      delete process.env.MCP_QUOTA_REJECT_UNREGISTERED;
+    });
+
+    afterEach(() => {
+      resetMcpQuotaStateForTests();
+      for (const [k, v] of Object.entries(saved)) {
+        if (v === undefined) {
+          delete process.env[k];
+        } else {
+          process.env[k] = v;
+        }
+      }
+    });
+
+    it('blocks the second tool call with isError and the contact message', async () => {
+      const server = createMcpServer() as any;
+      const handler = getTool(server, 'search_videos');
+      searchVideosMock.mockResolvedValue([]);
+
+      const first = await handler({ query: 'q' }, {});
+      expect(first.isError).toBeUndefined();
+
+      const second = await handler({ query: 'q' }, {});
+      expect(second.isError).toBe(true);
+      expect(second.content[0].text).toContain('Quota exceeded contact TEST.');
+      expect(searchVideosMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('applies independent limits per getClientApiKey value', async () => {
+      let apiKey = 'client-alpha';
+      const server = createMcpServer({
+        getClientApiKey: () => apiKey,
+      }) as any;
+      const handler = getTool(server, 'search_videos');
+      searchVideosMock.mockResolvedValue([]);
+
+      await handler({ query: 'q' }, {});
+      expect(await handler({ query: 'q' }, {})).toMatchObject({ isError: true });
+
+      apiKey = 'client-beta';
+      const fresh = await handler({ query: 'q' }, {});
+      expect(fresh.isError).toBeUndefined();
     });
   });
 });

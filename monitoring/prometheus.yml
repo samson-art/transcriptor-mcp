@@ -1,0 +1,13 @@
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  - job_name: transcriptor-mcp-api
+    static_configs:
+      - targets: ['transcriptor-mcp-api:3000']
+    metrics_path: /metrics
+
+  - job_name: transcriptor-mcp
+    static_configs:
+      - targets: ['transcriptor-mcp:4200']
+    metrics_path: /metrics

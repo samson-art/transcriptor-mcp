@@ -147,6 +147,53 @@ in their requests.
 
 The MCP HTTP server also supports **`SHUTDOWN_TIMEOUT`** for graceful shutdown (same as REST API).
 
+### MCP tool call quota (per-client API keys)
+
+Optional limits on MCP `tools/call` volume, keyed by the client’s `X-Api-Key` header (see [`src/mcp-quota.ts`](../src/mcp-quota.ts)). Keep production registry data and pepper **out of the git repository**—load them from a secret manager, mounted file, or CI-injected env (see [`src/api-key-registry.ts`](../src/api-key-registry.ts)).
+
+**Enable and defaults**
+
+- **`MCP_QUOTA_ENABLED`** – set to `1`, `true`, or `yes` to enforce quota. When unset or any other value, quota checks are skipped.
+- **`MCP_QUOTA_DEFAULT_MAX`** – max tool calls per window for clients **without** a matching registry entry (unknown key still allowed) or with **no** key when `MCP_QUOTA_REJECT_UNREGISTERED` is off (default: `100`).
+- **`MCP_QUOTA_DEFAULT_WINDOW`** – duration for that default tier, e.g. `24h`, `1h`, `30m`, `7d` (default: `24h`). Same format as other quota windows in this project.
+
+**Strict mode (optional)**
+
+- **`MCP_QUOTA_REJECT_UNREGISTERED`** – when `1`/`true`/`yes`, requests without a valid `X-Api-Key` or with an unknown key are rejected instead of falling back to the default quota.
+
+**User-facing messages (optional overrides)**
+
+- **`MCP_QUOTA_CONTACT_MESSAGE`** – message when the limit is exceeded (default suggests contacting the operator).
+- **`MCP_QUOTA_MESSAGE_NO_KEY`** – when `MCP_QUOTA_REJECT_UNREGISTERED` is on and no key was sent.
+- **`MCP_QUOTA_MESSAGE_INVALID_KEY`** – when `MCP_QUOTA_REJECT_UNREGISTERED` is on and the key is not in the registry.
+
+**Client API key registry (hashed keys only)**
+
+The registry lists **per-client limits** and **SHA-256 hashes** of key material (never store raw API keys in JSON). Hashing uses a server-side pepper:
+
+- **`MCP_CLIENT_API_KEY_PEPPER`** – long random secret mixed into the hash. Required for consistent lookups when using the registry; treat like a credential.
+
+Supply the registry either as a file path or inline JSON (file takes precedence if both are set):
+
+- **`MCP_CLIENT_API_KEYS_FILE`** – path to a UTF-8 JSON file (array of entries).
+- **`MCP_CLIENT_API_KEYS_JSON`** – same JSON as a string (e.g. Kubernetes/Docker secret env). Prefer a file for large registries.
+
+Each entry must include: `id` (string); `secretHash` (64 hex characters: SHA-256 of the UTF-8 string `pepper + ":" + secretMaterial`, see [`hashPresentedApiKey`](../src/api-key-registry.ts)); `window` (duration string as above); and either **`maxToolCalls`** or **`maxCalls`** (positive integer). Optional: `prefix` (only the substring after the prefix is hashed), `label` (metadata).
+
+Example shape (replace with your own hashes and limits; do not commit real production data):
+
+```json
+[
+  {
+    "id": "client-example",
+    "secretHash": "<64-hex-sha256-of-pepper-and-key-material>",
+    "maxToolCalls": 500,
+    "window": "24h",
+    "label": "Example tier"
+  }
+]
+```
+
 ## Whisper fallback (subtitles not available)
 
 You can enable Whisper fallback to transcribe audio when subtitles are unavailable. When subtitles cannot be obtained (via yt-dlp), the app can optionally use [Whisper](https://github.com/openai/whisper) to transcribe the video audio. Configure via environment variables:
@@ -245,7 +292,7 @@ For local development, you can use an `.env` file:
 Most process managers and tooling (e.g. `npm`, `docker-compose`, or dev environments)
 can load this file automatically or via additional configuration.
 
-For local overrides with sensitive values (e.g. `COOKIES_FILE_PATH`, `WHISPER_API_KEY`, `CACHE_REDIS_URL`, `MCP_AUTH_TOKEN`), copy `.env.local.example` to `.env.local` and fill in the values. The `.env.local` file is gitignored; do not commit real credentials.
+For local overrides with sensitive values (e.g. `COOKIES_FILE_PATH`, `WHISPER_API_KEY`, `CACHE_REDIS_URL`, `MCP_AUTH_TOKEN`, `MCP_CLIENT_API_KEY_PEPPER`, `MCP_CLIENT_API_KEYS_JSON`, or `MCP_CLIENT_API_KEYS_FILE`), copy `.env.local.example` to `.env.local` and fill in the values. The `.env.local` file is gitignored; do not commit real credentials.
 
 ## E2E smoke test
 

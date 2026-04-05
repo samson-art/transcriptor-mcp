@@ -1,6 +1,6 @@
 {
   "name": "transcriptor-mcp",
-  "version": "0.6.9",
+  "version": "0.7.0",
   "description": "API for downloading subtitles from YouTube videos",
   "type": "module",
   "main": "dist/index.js",
@@ -16,7 +16,7 @@
     "lint:fix": "eslint src --ext .ts --fix",
     "format": "prettier --write \"src/**/*.ts\"",
     "format:check": "prettier --check \"src/**/*.ts\"",
-    "test": "jest",
+    "test": "jest --forceExit",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
     "test:e2e:api": "node dist/e2e/api-smoke.js",

@@ -55,6 +55,11 @@ function getSkipMcp(): boolean {
   return v === '1' || v === 'true' || v === 'yes';
 }
 
+function getEnvTruthy(name: string): boolean {
+  const v = process.env[name]?.trim().toLowerCase();
+  return v === '1' || v === 'true' || v === 'yes';
+}
+
 type RunCommandResult = {
   code: number | null;
   signal: NodeJS.Signals | null;
@@ -393,6 +398,40 @@ async function checkMcpStreamableGetTranscript(baseUrl: string): Promise<void> {
   console.log('[smoke] MCP streamable get_transcript OK');
 }
 
+/**
+ * After at least one MCP tools/call with MCP_QUOTA_ENABLED=1, `/metrics` should expose quota series.
+ */
+async function checkMcpQuotaMetricsOnPrometheus(mcpBaseUrl: string): Promise<void> {
+  const fetchImpl: any = (globalThis as any).fetch;
+  if (!fetchImpl) {
+    throw new Error('Global fetch is not available in this Node.js runtime');
+  }
+
+  const metricsUrl = `${mcpBaseUrl.replace(/\/$/, '')}/metrics`;
+  const response = await fetchImpl(metricsUrl, { method: 'GET' });
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`GET /metrics failed with HTTP ${response.status}: ${text.slice(0, 200)}`);
+  }
+
+  const body = await response.text();
+  const required = [
+    'mcp_quota_checks_total',
+    'mcp_quota_check_duration_seconds',
+    'mcp_tool_calls_total',
+  ];
+  for (const name of required) {
+    if (!body.includes(name)) {
+      throw new Error(
+        `MCP /metrics missing expected series "${name}" (quota smoke). Body preview: ${body.slice(0, 400)}`
+      );
+    }
+  }
+
+  // eslint-disable-next-line no-console
+  console.log('[smoke] MCP /metrics OK (quota + tool counters present)');
+}
+
 async function checkMcpSse(baseUrl: string): Promise<void> {
   const fetchImpl: any = (globalThis as any).fetch;
   if (!fetchImpl) {
@@ -659,6 +698,9 @@ async function main(): Promise<void> {
         mcpRunArgs.push('-e', `MCP_AUTH_TOKEN=${authToken}`);
       }
 
+      // Enable quota with a generous default so smoke always exercises quota metrics without blocking.
+      mcpRunArgs.push('-e', 'MCP_QUOTA_ENABLED=1', '-e', 'MCP_QUOTA_DEFAULT_MAX=100000');
+
       mcpRunArgs.push(mcpImage, 'npm', 'run', 'start:mcp:http');
 
       const mcpRunResult = await runCommand('docker', mcpRunArgs);
@@ -671,6 +713,9 @@ async function main(): Promise<void> {
       await waitForMcpReady(mcpBaseUrl, 60000);
       await checkMcpStreamable(mcpBaseUrl);
       await checkMcpStreamableGetTranscript(mcpBaseUrl);
+      if (!getEnvTruthy('SMOKE_SKIP_MCP_QUOTA_METRICS')) {
+        await checkMcpQuotaMetricsOnPrometheus(mcpBaseUrl);
+      }
       await checkMcpSse(mcpBaseUrl);
       await checkMcpStdio(mcpImage);
 

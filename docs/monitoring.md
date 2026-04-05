@@ -50,6 +50,11 @@ The Grafana Prometheus datasource is provisioned automatically.
 | `mcp_tool_errors_total` | Counter | tool | Failed MCP tool calls |
 | `mcp_session_total` | Gauge | type=streamable\|sse | Active MCP sessions |
 | `mcp_request_duration_seconds` | Histogram | endpoint | MCP request latency |
+| `mcp_quota_checks_total` | Counter | result, tier | Quota checks before `tools/call` (`result`: allowed, exceeded, rejected_no_key, rejected_invalid_key; `tier`: registered, default, anonymous) |
+| `mcp_quota_exceeded_total` | Counter | tier, key_id | Limit exceeded (`key_id` from registry, or `none`) |
+| `mcp_quota_tool_calls_blocked_total` | Counter | tool | Tool calls blocked by quota |
+| `mcp_quota_http_429_total` | Counter | route | HTTP 429 returned for quota before MCP session |
+| `mcp_quota_check_duration_seconds` | Histogram | — | Latency of one quota check (Redis or in-memory) |
 | `subtitles_extraction_failures_total` | Counter | — | Same as API |
 | `whisper_requests_total` | Counter | mode | Same as API |
 | `whisper_background_jobs_active` | Gauge | — | Same as API |
@@ -98,7 +103,20 @@ rate(mcp_tool_calls_total{service="mcp"}[5m])
 
 # Active MCP sessions
 mcp_session_total{service="mcp"}
+
+# MCP quota (per-client API keys / default tier)
+sum by (tier) (rate(mcp_quota_exceeded_total{service="mcp"}[5m]))
+histogram_quantile(0.95, sum(rate(mcp_quota_check_duration_seconds_bucket{service="mcp"}[5m])) by (le))
 ```
+
+## Grafana: MCP quota dashboard
+
+Provisioned JSON: [`monitoring/grafana/provisioning/dashboards/files/mcp-quota.json`](../monitoring/grafana/provisioning/dashboards/files/mcp-quota.json). Mount Grafana provisioning so that:
+
+- `monitoring/grafana/provisioning` → `/etc/grafana/provisioning`
+- Datasource URL in `datasources.yml` points at your Prometheus service (e.g. `http://prometheus:9090`).
+
+Panels cover: exceeded rate by `tier`, share of checks with `result=exceeded`, top `key_id` (registered tier), MCP tool call rate vs quota exceeded, p95 quota check latency, HTTP 429 by route, blocked tool call rate.
 
 ## Configuration
 

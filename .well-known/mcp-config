@@ -2,16 +2,24 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://github.com/samson-art/transcriptor-mcp#mcp-config",
   "title": "Transcriptor MCP configuration",
-  "description": "Optional session configuration for the Transcriptor MCP server. No fields are required. When connecting via Smithery, set authToken in config; the gateway forwards it as the Authorization header to your server.",
+  "description": "Optional session configuration for the Transcriptor MCP server. No fields are required. When connecting via Smithery, set authToken if the server uses MCP_AUTH_TOKEN; set apiKey when you have a client API key for quota. Without a registered apiKey, default tool-call limits are set on the server (MCP_QUOTA_DEFAULT_MAX, MCP_QUOTA_DEFAULT_WINDOW).",
   "type": "object",
   "properties": {
     "authToken": {
       "type": "string",
       "title": "Bearer token",
-      "description": "Auth token for protected servers. Only needed when the server uses MCP_AUTH_TOKEN. Stored locally by your client; never logged or shared.",
+      "description": "Instance auth for protected servers. Only needed when the deployment uses MCP_AUTH_TOKEN. Stored locally by your client; never logged or shared. Distinct from apiKey (per-client quota).",
       "secret": true,
       "x-from": { "header": "x-mcp-auth-token" },
       "x-to": { "header": "Authorization" }
+    },
+    "apiKey": {
+      "type": "string",
+      "title": "Client API key",
+      "description": "Per-client API key for quota tiers. Forwarded as X-Api-Key (not the same as MCP_AUTH_TOKEN). If omitted, the server applies default tool-call limits (MCP_QUOTA_DEFAULT_MAX and MCP_QUOTA_DEFAULT_WINDOW).",
+      "secret": true,
+      "x-from": { "header": "x-api-key" },
+      "x-to": { "header": "X-Api-Key" }
     }
   },
   "required": [],
@@ -19,9 +27,9 @@
   "documentation": {
     "gettingStarted": {
       "title": "Getting started",
-      "description": "1. Connect to the server URL (e.g. https://server.smithery.ai/samson-art/transcriptor-mcp) — no config required for public instances.\n2. Use get_transcript, get_video_info, or search_videos to fetch transcripts and metadata.\n3. If your deployment uses MCP_AUTH_TOKEN, set the authToken in the session config; the gateway will send it as Authorization: Bearer <token>."
+      "description": "1. Connect to the server URL (e.g. https://server.smithery.ai/samson-art/transcriptor-mcp) — no session config required for public instances.\n2. Use get_transcript, get_video_info, or search_videos to fetch transcripts and metadata.\n3. If your deployment uses MCP_AUTH_TOKEN, set authToken; the gateway sends Authorization: Bearer.\n4. If you were issued a client API key, set apiKey for quota; the gateway sends X-Api-Key. Without apiKey, default limits are configured on the server (MCP_QUOTA_DEFAULT_MAX, MCP_QUOTA_DEFAULT_WINDOW)."
     },
     "apiLink": "https://github.com/samson-art/transcriptor-mcp#readme",
-    "security": "Keep your auth token secret when the server requires one. Do not commit or log authToken."
+    "security": "Keep authToken and apiKey secret. Do not commit or log them. authToken gates access to the instance; apiKey identifies your client quota tier."
   }
 }
