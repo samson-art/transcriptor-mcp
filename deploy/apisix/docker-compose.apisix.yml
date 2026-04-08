@@ -1,0 +1,45 @@
+# Overlay: Apache APISIX in standalone mode → upstream mcp:4200 (mcp-proxy).
+# apisix.generated.yaml is tracked in git (dev self-signed TLS). Regenerate: deploy/apisix/generate-dev-certs.sh
+# If you ever see mount errors, remove a mistaken *directory* named apisix.generated.yaml and git checkout the file.
+#
+#   docker compose -f docker-compose.yml -f deploy/apisix/docker-compose.apisix.yml up -d
+#
+# HTTP gateway: 9080  HTTPS: 9443  Admin UI: http://localhost:9180/ui/  Prometheus: 9091
+# Point clients at https://<host>:9443/... (or terminate TLS elsewhere and use 9080).
+# Admin API/UI: set APISIX_ADMIN_KEY in the environment; default in config.yaml is dev-only.
+
+services:
+  apisix:
+    image: apache/apisix:3.15.0-debian
+    container_name: transcriptor-apisix
+    restart: unless-stopped
+    depends_on:
+      - mcp
+    environment:
+      APISIX_TLS_SNI: ${APISIX_TLS_SNI:-localhost}
+      APISIX_ADMIN_KEY: ${APISIX_ADMIN_KEY:-dev-admin-key-change-me}
+      TIER_FREE_KEY: ${TIER_FREE_KEY:-change-me-tier-free}
+      TIER_PRO_KEY: ${TIER_PRO_KEY:-change-me-tier-pro}
+      TIER_ENTERPRISE_KEY: ${TIER_ENTERPRISE_KEY:-change-me-tier-enterprise}
+    volumes:
+      # Long-form bind + create_host_path: false avoids Docker creating an empty *directory* when the host
+      # path is missing (which makes /usr/local/apisix/conf/apisix.yaml a dir and breaks entrypoint).
+      - type: bind
+        source: ./deploy/apisix/apisix_conf/config.yaml
+        target: /usr/local/apisix/conf/config.yaml
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./deploy/apisix/apisix_conf/apisix.generated.yaml
+        target: /usr/local/apisix/conf/apisix.yaml
+        read_only: true
+        bind:
+          create_host_path: false
+    ports:
+      - "9080:9080"
+      - "9443:9443"
+      - "9091:9091"
+      - "9180:9180"
+    networks:
+      - default

@@ -11,3 +11,4 @@ docker-hub-description.md
 cookies.txt
 .cursor/
 docker-compose.yml
+deploy/apisix/certs/

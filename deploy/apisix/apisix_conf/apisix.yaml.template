@@ -1,0 +1,126 @@
+#
+# Template: run ../generate-dev-certs.sh to emit apisix.generated.yaml (inline TLS PEM required by APISIX standalone).
+# Tier API keys use env substitution at load time (docker-compose.apisix.yml). File must end with #END.
+#
+plugins:
+  - name: prometheus
+  - name: cors
+  - name: key-auth
+  - name: limit-count
+  - name: limit-req
+  - name: serverless-pre-function
+
+global_rules:
+  - id: 1
+    plugins:
+      prometheus: {}
+
+upstreams:
+  - id: mcp_upstream
+    nodes:
+      # Docker DNS name must match the MCP service in the merged compose file (e.g. mcp or transcriptor-mcp).
+      "mcp:4200": 1
+    type: roundrobin
+    pass_host: pass
+    timeout:
+      connect: 10
+      send: 3600
+      read: 3600
+    keepalive_pool:
+      idle_timeout: 60
+      requests: 1000
+      size: 320
+
+ssls:
+  - cert: |
+      <<<TLS_CERT_PEM>>>
+    key: |
+      <<<TLS_KEY_PEM>>>
+    snis:
+      - "${{APISIX_TLS_SNI}}"
+
+consumers:
+  - username: tier_free
+    plugins:
+      key-auth:
+        key: "${{TIER_FREE_KEY}}"
+      limit-count:
+        count: 100
+        time_window: 86400
+        rejected_code: 429
+        policy: local
+      limit-req:
+        rate: 1
+        burst: 2
+        key: consumer_name
+        rejected_code: 429
+  - username: tier_pro
+    plugins:
+      key-auth:
+        key: "${{TIER_PRO_KEY}}"
+      limit-count:
+        count: 10000
+        time_window: 86400
+        rejected_code: 429
+        policy: local
+      limit-req:
+        rate: 10
+        burst: 30
+        key: consumer_name
+        rejected_code: 429
+  - username: tier_enterprise
+    plugins:
+      key-auth:
+        key: "${{TIER_ENTERPRISE_KEY}}"
+      limit-count:
+        count: 1000000
+        time_window: 86400
+        rejected_code: 429
+        policy: local
+      limit-req:
+        rate: 100
+        burst: 200
+        key: consumer_name
+        rejected_code: 429
+
+routes:
+  - id: well_known_public
+    name: well-known-mcp-discovery
+    priority: 100
+    uri: /.well-known/*
+    upstream_id: mcp_upstream
+    plugins:
+      cors:
+        allow_origins: "*"
+        allow_methods: "GET,HEAD,OPTIONS"
+        allow_headers: "*"
+        max_age: 3600
+
+  - id: mcp_protected
+    name: mcp-sse-status-protected
+    priority: 10
+    uris:
+      - /mcp
+      - /mcp/*
+      - /sse
+      - /sse/*
+      - /status
+    upstream_id: mcp_upstream
+    plugins:
+      serverless-pre-function:
+        phase: rewrite
+        functions:
+          - |
+            return function(conf, ctx)
+              local auth = ngx.var.http_authorization
+              if auth then
+                local token = string.match(auth, "^Bearer%s+(.+)$")
+                if token then
+                  ngx.req.set_header("X-API-Key", token)
+                end
+              end
+            end
+      key-auth:
+        header: X-API-Key
+        hide_credentials: false
+#END

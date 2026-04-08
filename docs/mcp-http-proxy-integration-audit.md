@@ -80,3 +80,5 @@ Application-level limits tied to **session IDs** are harder to replicate at the 
 5. **Auth:** Implement **Bearer (or OAuth)** at the **proxy**; update **docs** (`docs/configuration.md`, `README`) so `MCP_AUTH_TOKEN` refers to the **component that terminates HTTP**, not necessarily the Node stdio process.
 
 This audit is informational for the **stdio + mcp-proxy** plan; it does not change runtime behavior by itself.
+
+For a fixed **public URL, paths, Bearer model, and `/.well-known` policy** (Claude, ChatGPT-style integrations, edge gateways), see [mcp-public-url-contract.md](mcp-public-url-contract.md).

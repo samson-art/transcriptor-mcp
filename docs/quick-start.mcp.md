@@ -1,5 +1,7 @@
 ## MCP quick start
 
+For the **canonical public URL contract** (HTTPS base, `/mcp` / `/sse`, `Authorization: Bearer`, and `/.well-known` policy), see [mcp-public-url-contract.md](mcp-public-url-contract.md).
+
 This project ships an MCP server that exposes tools for fetching video subtitles, metadata, and chapters.
 Supported platforms: YouTube, Twitter/X, Instagram, TikTok, Twitch, Vimeo, Facebook, Bilibili, VK, Dailymotion, Reddit (or YouTube video ID).
 

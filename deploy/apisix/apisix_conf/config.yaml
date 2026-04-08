@@ -1,0 +1,49 @@
+#
+# APISIX with declarative routes (apisix.yaml) and Admin API + embedded UI on :9180.
+# Use `traditional` + yaml (not `data_plane`) so apisix.enable_admin stays enabled; the
+# standalone Docker flag APISIX_STAND_ALONE would force data_plane and hide /ui.
+#
+# Merge with root docker-compose:
+#   docker compose -f docker-compose.yml -f deploy/apisix/docker-compose.apisix.yml up -d
+#
+apisix:
+  node_listen:
+    - port: 9080
+  enable_ipv6: false
+  enable_admin: true
+
+deployment:
+  role: traditional
+  role_traditional:
+    config_provider: yaml
+  # Required by schema; not used when config_provider is yaml (init_etcd skips etcd).
+  etcd:
+    host:
+      - http://127.0.0.1:2379
+    prefix: /apisix
+    timeout: 30
+    watch_timeout: 50
+    startup_retry: 2
+    tls:
+      verify: true
+  admin:
+    admin_key_required: true
+    admin_key:
+      - name: admin
+        key: ${{APISIX_ADMIN_KEY:=dev-admin-key-change-me}}
+        role: admin
+    enable_admin_cors: true
+    enable_admin_ui: true
+    # Docker publishes 9180 to the host; client source IP is usually not 127.0.0.1.
+    allow_admin:
+      - 0.0.0.0/0
+    admin_listen:
+      ip: 0.0.0.0
+      port: 9180
+    admin_api_version: v3
+
+plugin_attr:
+  prometheus:
+    export_addr:
+      ip: "0.0.0.0"
+      port: 9091
