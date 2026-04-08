@@ -62,9 +62,9 @@ If you prefer not to use Smithery:
 
 - **Cursor (Docker stdio):** add an MCP server with command `docker`, args `["run", "--rm", "-i", "artsamsonov/transcriptor-mcp:latest"]`. See [quick-start.mcp.md](quick-start.mcp.md).
 - **Cursor (local Node):** `command: "node"`, `args: ["dist/mcp.js"]` after `npm run build`.
-- **Remote HTTP/SSE:** run the server with `npm run start:mcp:http` (or Docker on port 4200), then in Cursor add an SSE server with URL `http://<host>:4200/sse`. For Claude Code: `claude mcp add --transport http transcriptor http://<host>:4200/mcp`.
+- **Remote HTTP/SSE:** run stdio MCP behind [mcp-proxy](https://github.com/sparfenyuk/mcp-proxy) on port 4200 (see [quick-start.mcp.md](quick-start.mcp.md) and `docker-compose.example.yml`), then in Cursor add an SSE server with URL `http://<host>:4200/sse`. For Claude Code: `claude mcp add --transport http transcriptor http://<host>:4200/mcp`.
 
-If the server uses `MCP_AUTH_TOKEN`, set `authToken` in your client config (e.g. in Smithery) or send `Authorization: Bearer <token>` for HTTP/SSE.
+If you use a reverse proxy in front of mcp-proxy, set `authToken` in your client config (e.g. in Smithery) or send `Authorization: Bearer <token>` for HTTP/SSE as required by your deployment.
 
 ## See also
 

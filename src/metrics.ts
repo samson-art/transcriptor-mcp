@@ -91,13 +91,6 @@ export const mcpToolErrorsTotal = new Counter({
   registers: [register],
 });
 
-export const mcpSessionTotal = new Gauge({
-  name: 'mcp_session_total',
-  help: 'Active MCP sessions',
-  labelNames: ['type'],
-  registers: [register],
-});
-
 export const mcpRequestDurationSeconds = new Histogram({
   name: 'mcp_request_duration_seconds',
   help: 'MCP request duration in seconds',
@@ -176,19 +169,8 @@ export function recordMcpToolError(tool: string): void {
   mcpToolErrorsTotal.inc({ tool });
 }
 
-export function setMcpSessionCount(type: 'streamable' | 'sse', count: number): void {
-  mcpSessionTotal.set({ type }, count);
-}
-
 export function recordMcpRequestDuration(endpoint: string, durationSeconds: number): void {
   mcpRequestDurationSeconds.observe({ endpoint }, durationSeconds);
-}
-
-/**
- * Sets default labels (service=api or service=mcp). Call from mcp-http to override.
- */
-export function setMetricsService(service: 'api' | 'mcp'): void {
-  register.setDefaultLabels({ service });
 }
 
 /**

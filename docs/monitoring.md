@@ -1,6 +1,6 @@
 # Monitoring with Prometheus and Grafana
 
-Transcriptor MCP exposes Prometheus metrics on both the REST API and MCP HTTP server. You can scrape them with Prometheus and visualize in Grafana.
+The **REST API** exposes Prometheus metrics on **GET /metrics** (HTTP traffic, cache, Whisper, subtitle failures, etc.). The **MCP stdio** process (`npm run start:mcp`) still increments **`mcp_*`** counters in memory via `mcp-core`, but **this repository no longer serves `GET /metrics` from the MCP image** after removing the in-process HTTP MCP server—there is nowhere to scrape those series unless you add your own exporter or aggregate via logs/Sentry. Port **4200** in [docker-compose.example.yml](../docker-compose.example.yml) is **mcp-proxy** only. Scrape **`:3000/metrics`** for the API; use **proxy metrics**, **Sentry**, or **logs** for remote MCP traffic.
 
 For error monitoring with stack traces and grouping, see [Sentry](sentry.md) (optional, [sentry.io](https://sentry.io) Cloud).
 
@@ -15,7 +15,7 @@ docker compose up -d
 
 This starts:
 
-- **Prometheus** at `http://localhost:9090` — scrapes `transcriptor-mcp-api:3000/metrics` and `transcriptor-mcp:4200/metrics`
+- **Prometheus** at `http://localhost:9090` — scrapes `transcriptor-mcp-api:3000/metrics`. The MCP compose service on `:4200` is **mcp-proxy** (no Node `/metrics` on that port unless you add a sidecar).
 - **Grafana** at `http://localhost:3001` — login: `admin` / `admin` (change on first login)
 
 The Grafana Prometheus datasource is provisioned automatically.
@@ -25,11 +25,11 @@ The Grafana Prometheus datasource is provisioned automatically.
 | Service | Metrics | Failures list |
 |---------|---------|---------------|
 | REST API (port 3000) | `GET /metrics` | `GET /failures` |
-| MCP HTTP (port 4200) | `GET /metrics` | `GET /failures` |
+| mcp-proxy on 4200 (stdio bridge) | — (use API or proxy metrics) | — |
 
 ## Available metrics
 
-### REST API (`service=api`)
+### REST API (`GET /metrics` on port 3000, `service=api`)
 
 | Metric | Type | Labels | Description |
 |--------|------|--------|-------------|
@@ -42,17 +42,15 @@ The Grafana Prometheus datasource is provisioned automatically.
 | `whisper_requests_total` | Counter | mode | Requests to Whisper (transcription attempts; mode=local or api) |
 | `whisper_background_jobs_active` | Gauge | — | In-flight deduplicated background Whisper jobs |
 
-### MCP HTTP (`service=mcp`)
+### MCP tool metrics (in-process only; not HTTP-exported on the MCP image)
+
+The MCP server updates `mcp_tool_calls_total`, `mcp_tool_errors_total`, and `mcp_request_duration_seconds` in code, but **without** a metrics HTTP endpoint on the MCP container these series are **not** available to Prometheus unless you add an exporter or fork the app. Listed for reference:
 
 | Metric | Type | Labels | Description |
 |--------|------|--------|-------------|
 | `mcp_tool_calls_total` | Counter | tool | Successful MCP tool calls |
 | `mcp_tool_errors_total` | Counter | tool | Failed MCP tool calls |
-| `mcp_session_total` | Gauge | type=streamable\|sse | Active MCP sessions |
-| `mcp_request_duration_seconds` | Histogram | endpoint | MCP request latency |
-| `subtitles_extraction_failures_total` | Counter | — | Same as API |
-| `whisper_requests_total` | Counter | mode | Same as API |
-| `whisper_background_jobs_active` | Gauge | — | Same as API |
+| `mcp_request_duration_seconds` | Histogram | endpoint | Per-tool duration |
 
 ## Failures endpoint
 
@@ -69,7 +67,6 @@ The Grafana Prometheus datasource is provisioned automatically.
 
 - Only records failures when Whisper fallback was enabled and attempted.
 - Stores the last 100 failures per process in memory (reset on restart).
-- API and MCP each maintain their own list.
 
 ## PromQL examples
 
@@ -93,11 +90,8 @@ increase(subtitles_extraction_failures_total[1h])
 rate(whisper_requests_total[5m])
 increase(whisper_requests_total[1h])
 
-# MCP tool calls by tool
-rate(mcp_tool_calls_total{service="mcp"}[5m])
-
-# Active MCP sessions
-mcp_session_total{service="mcp"}
+# MCP tool calls (only if scraped from a process that exposes these series)
+# rate(mcp_tool_calls_total[5m])
 ```
 
 ## Configuration
@@ -112,9 +106,6 @@ scrape_configs:
     static_configs:
       - targets: ['<api-host>:3000']
     metrics_path: /metrics
-
-  - job_name: 'transcriptor-mcp'
-    static_configs:
-      - targets: ['<mcp-host>:4200']
-    metrics_path: /metrics
 ```
+
+If you need HTTP-level metrics for **mcp-proxy**, configure your reverse proxy or run a sidecar; do not expect `/metrics` on port 4200 from this Node image unless you add that service yourself.

@@ -8,14 +8,14 @@
 
 [![transcriptor-mcp MCP server](https://glama.ai/mcp/servers/samson-art/transcriptor-mcp/badges/card.svg)](https://glama.ai/mcp/servers/samson-art/transcriptor-mcp)
 
-An MCP server (stdio + HTTP/SSE) that fetches video transcripts/subtitles via `yt-dlp`, with pagination for large responses. Supports YouTube, Twitter/X, Instagram, TikTok, Twitch, Vimeo, Facebook, Bilibili, VK, Dailymotion, Reddit. **Whisper fallback** — transcribes audio when subtitles are unavailable (local or OpenAI API). Works with Cursor and other MCP hosts.
+An MCP server (stdio; remote HTTP/SSE via [mcp-proxy](https://github.com/sparfenyuk/mcp-proxy)) that fetches video transcripts/subtitles via `yt-dlp`, with pagination for large responses. Supports YouTube, Twitter/X, Instagram, TikTok, Twitch, Vimeo, Facebook, Bilibili, VK, Dailymotion, Reddit. **Whisper fallback** — transcribes audio when subtitles are unavailable (local or OpenAI API). Works with Cursor and other MCP hosts.
 
 ## Overview
 
 This repository primarily ships an **MCP server**:
 
 - **stdio**: for local usage (e.g., Cursor running a local command).
-- **HTTP/SSE**: for remote usage (e.g., VPS + Tailscale).
+- **Remote HTTP/SSE**: run stdio behind **[mcp-proxy](https://github.com/sparfenyuk/mcp-proxy)** (e.g. VPS + Tailscale); see [MCP quick start](#mcp-quick-start-docker-and-self-hosted) and `docker-compose.example.yml`.
 
 It also includes an optional **REST API** (Fastify), but MCP is the primary focus.
 
@@ -33,7 +33,7 @@ Transcriptor MCP is the best choice when you need **transcripts and metadata** f
 
 - **Transcripts and subtitles** — cleaned text or raw SRT/VTT; multi-language; **Whisper fallback** when subtitles are unavailable (local or OpenAI).
 - **Multi-platform** — YouTube, Twitter/X, Instagram, TikTok, Twitch, Vimeo, Facebook, Bilibili, VK, Dailymotion, Reddit.
-- **Remote and production** — MCP over HTTP/SSE, optional auth, Redis cache, Prometheus metrics; **connect in one click** via [Smithery](https://smithery.ai/servers/samson-art/transcriptor-mcp) with no local install.
+- **Remote and production** — stdio + mcp-proxy for HTTP/SSE, optional auth at the edge, Redis cache, Prometheus metrics on the REST API; **connect in one click** via [Smithery](https://smithery.ai/servers/samson-art/transcriptor-mcp) with no local install.
 - **No media downloads** — we focus on text and metadata only. For downloading videos or audio.
 
 See [docs](docs/README.md) for step-by-step use cases: summarize video, search and transcript, [IDE/Cursor/Claude](docs/use-case-ide-cursor-claude.md), [n8n automation](docs/use-case-n8n-automation.md), [researchers and batch](docs/use-case-researchers-batch.md), and [self-hosted/enterprise](docs/use-case-self-hosted.md).
@@ -67,8 +67,8 @@ For one-click install in VS Code: [Install in VS Code](https://insiders.vscode.d
 - **Whisper fallback**: when subtitles are unavailable, transcribes video audio via Whisper (local self-hosted or OpenAI API); configurable (see [Configuration](docs/configuration.md)).
 - **Optional Redis cache**: cache subtitles and metadata to reduce yt-dlp calls; configurable (see [Caching](docs/caching.md)).
 - **Docker-first**: ready for local + remote deployment.
-- **Production-friendly HTTP**: optional auth + allowlists (see `CHANGELOG.md`).
-- **Prometheus**: metrics for API and MCP, list of failed subtitle extractions (see [Monitoring](docs/monitoring.md)).
+- **Production-friendly HTTP**: optional auth + allowlists for the REST API; remote MCP uses **stdio + mcp-proxy** and is usually fronted by your own reverse proxy for Bearer/TLS (see [quick-start.mcp.md](docs/quick-start.mcp.md)).
+- **Prometheus**: metrics on the REST API (`GET /metrics`); MCP tool counters (`mcp_*`) are updated inside the MCP Node process but this repo no longer exposes `GET /metrics` on the MCP image—see [Monitoring](docs/monitoring.md) for scraping and alternatives.
 
 ## Self-configurable: Whisper & caching
 
@@ -114,12 +114,14 @@ Add to Cursor MCP settings (or create `.cursor/mcp.json`):
 
 ### Remote MCP over HTTP/SSE (VPS + Tailscale)
 
-Run the HTTP/SSE MCP server on your VPS (default port `4200`) using docker-compose:
+Run **stdio MCP behind [mcp-proxy](https://github.com/sparfenyuk/mcp-proxy)** on your VPS (default port `4200`) using docker-compose:
 
 ```bash
 cp docker-compose.example.yml docker-compose.yml
 docker compose up -d transcriptor-mcp
 ```
+
+The proxy serves **streamable HTTP** at `/mcp` and **SSE** at `/sse`. Health-style status: `GET /status` on the proxy (see mcp-proxy docs).
 
 **Claude Code (HTTP / streamable HTTP):**
 
@@ -131,9 +133,7 @@ claude mcp add --transport http transcriptor http://<tailscale-host>:4200/mcp
 
 - Add a new MCP server of type **SSE** with URL `http://<tailscale-host>:4200/sse`
 
-If you set `MCP_AUTH_TOKEN`, add `Authorization: Bearer <token>` in the client headers.
-
-For more MCP configuration examples, see `[docs/quick-start.mcp.md](docs/quick-start.mcp.md)`.
+Bearer protection for remote access is not handled by the stdio MCP process alone: use a **reverse proxy** in front of **mcp-proxy**, or a private network. For mcp-proxy flags and client examples, see `[docs/quick-start.mcp.md](docs/quick-start.mcp.md)`.
 
 **n8n MCP Client (streamable HTTP):**
 
@@ -352,7 +352,7 @@ docker run -d -p 3000:3000 --name transcriptor transcriptor-mcp-api
 Before publishing Docker images, you can run a small **e2e smoke test** that:
 
 - Starts a REST API container and checks Swagger + `POST /subtitles` with a stable YouTube video
-- Optionally starts an MCP container and checks **MCP stdio** (initialize over stdin/stdout), **streamable HTTP** (`POST /mcp` with initialize), and **SSE** (`GET /sse`)
+- Optionally starts an MCP container and checks **MCP stdio** (initialize over stdin/stdout), **streamable HTTP** (`POST /mcp` with initialize), and **SSE** (`GET /sse`) against **mcp-proxy** + stdio (same stack as [docker-compose.example.yml](docker-compose.example.yml))
 
 Run the smoke test (requires built images):
 
@@ -376,7 +376,7 @@ npm run test:e2e:api
 | `SMOKE_MCP_IMAGE`                  | —                                             | Full MCP image reference (overrides name/tag).                                          |
 | `DOCKER_MCP_IMAGE` / `TAG`         | `artsamsonov/transcriptor-mcp`, `latest`      | MCP image name and tag.                                                                 |
 | `SMOKE_MCP_URL` / `SMOKE_MCP_PORT` | `http://127.0.0.1:4200`, `4200`               | MCP base URL and port.                                                                  |
-| `SMOKE_MCP_AUTH_TOKEN`             | —                                             | If set, passed to MCP container as `MCP_AUTH_TOKEN` and sent as Bearer in MCP requests. |
+| `SMOKE_MCP_AUTH_TOKEN`             | —                                             | If set, sent as `Authorization: Bearer` on MCP HTTP requests (for smoke against an edge that requires Bearer; the default smoke stack does not enforce it). |
 
 
 Example: skip MCP and use a custom video:
@@ -430,11 +430,12 @@ npm run build
 npm run start:mcp
 ```
 
-### HTTP setup (remote)
+### HTTP setup (remote, stdio + mcp-proxy)
 
 ```bash
 npm run build
-MCP_PORT=4200 MCP_HOST=0.0.0.0 npm run start:mcp:http
+# pip install mcp-proxy  # or uv tool install mcp-proxy
+mcp-proxy --pass-environment --host=0.0.0.0 --port=4200 -- node --import ./dist/instrument.js dist/mcp.js
 ```
 
 ### Cursor MCP configuration (local)
@@ -461,11 +462,13 @@ docker build -f Dockerfile --target mcp -t transcriptor-mcp .
 docker run --rm -i transcriptor-mcp
 ```
 
-Build and run the MCP server in a container (HTTP mode):
+Build and run the MCP server in a container (HTTP/SSE via mcp-proxy):
 
 ```bash
 docker build -f Dockerfile --target mcp -t transcriptor-mcp .
-docker run -p 4200:4200 -e MCP_PORT=4200 -e MCP_HOST=0.0.0.0 transcriptor-mcp npm run start:mcp:http
+docker run -p 4200:4200 transcriptor-mcp \
+  mcp-proxy --pass-environment --host=0.0.0.0 --port=4200 -- \
+  node --import ./dist/instrument.js dist/mcp.js
 ```
 
 Cursor MCP config for Docker:
@@ -512,7 +515,6 @@ The app version is read from `package.json` at runtime (`[src/version.ts](src/ve
 - `npm start` - Run the compiled application
 - `npm run dev` - Run with hot reload using ts-node-dev
 - `npm run start:mcp` - Run the MCP server (stdio)
-- `npm run start:mcp:http` - Run the MCP server (HTTP/SSE)
 - `npm run dev:mcp` - Run the MCP server with hot reload
 - `npm test` - Run tests
 - `npm run test:watch` - Run tests in watch mode
@@ -530,7 +532,6 @@ The app version is read from `package.json` at runtime (`[src/version.ts](src/ve
 │   ├── index.ts          # Main application entry point
 │   ├── mcp.ts            # MCP server entry point (stdio)
 │   ├── mcp-core.ts       # MCP tools registration (shared)
-│   ├── mcp-http.ts       # MCP server entry point (HTTP/SSE)
 │   ├── validation.ts     # Request validation logic
 │   └── youtube.ts        # YouTube subtitle downloading and parsing
 ├── dist/                 # Compiled JavaScript (generated)
@@ -561,7 +562,7 @@ Do not commit or log sensitive values. Use environment variables or a secret man
 
 - `**WHISPER_API_KEY`** – required when using Whisper API; never log or expose in client responses.
 - `**CACHE_REDIS_URL**` – Redis connection string when `CACHE_MODE=redis`; may contain credentials.
-- `**MCP_AUTH_TOKEN**` – Bearer token for MCP HTTP; keep it secret.
+- **MCP Bearer secrets** – if you terminate auth at a reverse proxy in front of mcp-proxy, store tokens only in env/secrets on that edge.
 - `**COOKIES_FILE_PATH**` – path to cookies; ensure the file is not committed and has restricted permissions.
 
 See [docs/cookies.md](docs/cookies.md) for safe handling of cookies.

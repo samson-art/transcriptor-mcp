@@ -43,14 +43,14 @@ When `SENTRY_DSN` is not set, the app runs as before; no events are sent to Sent
 
 The app uses `beforeSend` to skip expected client errors: `NotFoundError` (404) and `ValidationError` (400). These are normal API responses (e.g. subtitles not found) and are monitored via Prometheus instead.
 
-Performance monitoring is active when you run the app via `npm run start`, `start:mcp`, or `start:mcp:http` (instrument is loaded before other modules). It is not loaded in `dev` / `dev:mcp` scripts.
+Performance monitoring is active when you run the app via `npm run start` or `start:mcp` (instrument is loaded before other modules). It is not loaded in `dev` / `dev:mcp` scripts.
 
 ## Performance / Tracing
 
 Sentry Performance sends **transactions** (e.g. HTTP request duration, spans for outbound calls) so you can see slow endpoints and bottlenecks. The Node SDK auto-instruments HTTP and other modules when `instrument.js` is loaded first.
 
 - **tracesSampleRate** — Controls what fraction of transactions are sent (0–1). Default is `0.1` (10%) to stay within quotas in production. Set `SENTRY_TRACES_SAMPLE_RATE=1` temporarily to verify that transactions appear in Sentry (Performance → Transactions).
-- Transactions will appear in Sentry after the first requests to your API (with DSN set and the app started via `start` / `start:mcp` / `start:mcp:http`).
+- Transactions will appear in Sentry after the first requests to your API (with DSN set and the app started via `start` / `start:mcp`).
 
 ## What is captured
 

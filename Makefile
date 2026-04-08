@@ -12,13 +12,17 @@ NO_CACHE ?= 1
 DOCKER_API_IMAGE ?= artsamsonov/transcriptor-mcp-api
 DOCKER_MCP_IMAGE ?= artsamsonov/transcriptor-mcp
 
+# Host ports for Docker smoke tests (override if 33000 / 4200 are already bound, e.g. SMOKE_API_PORT=33101)
+SMOKE_API_PORT ?= 33000
+SMOKE_MCP_PORT ?= 4200
+
 .PHONY: help \
 	install clean \
 	build typecheck lint lint-fix format format-check test test-watch test-coverage check check-no-smoke \
 	load-test load-test-health load-test-subtitles load-test-mixed load-test-10vu-1min load-test-podcast-2h verify-pool \
 	docker-build-api docker-build-mcp docker-run-mcp-stdio \
 	docker-buildx-setup docker-buildx-api docker-buildx-mcp \
-	docker-smoke-api-local smoke \
+	docker-smoke-api-local docker-smoke-mcp-local smoke \
 	publish-docker-api publish-docker-mcp publish
 
 help: ## Show available targets
@@ -57,7 +61,7 @@ test-watch: ## Run Jest in watch mode
 test-coverage: ## Run Jest with coverage
 	npm run test:coverage
 
-smoke: docker-smoke-api-local ## Run all Docker-based smoke tests
+smoke: docker-smoke-api-local docker-smoke-mcp-local ## Run all Docker-based smoke tests
 
 LOAD_BASE_URL ?= http://127.0.0.1:3000
 # Optional: send k6 metrics to InfluxDB (e.g. http://your-vps:8086/k6) for Grafana
@@ -93,8 +97,11 @@ docker-build-mcp: ## Build local MCP image (Dockerfile --target mcp)
 docker-run-mcp-stdio: ## Run MCP image in stdio mode (for Cursor)
 	docker run --rm -i $(DOCKER_MCP_IMAGE):$(TAG)
 
-docker-smoke-api-local: ## Run REST API Docker smoke test against local image (MCP smoke skipped; use full smoke after building MCP image)
-	SMOKE_IMAGE_API=$(DOCKER_API_IMAGE):$(TAG) SMOKE_SKIP_MCP=1 npm run test:e2e:api
+docker-smoke-api-local: ## Build API image (via e2e) and run REST smoke (MCP skipped; full MCP: omit SMOKE_SKIP_MCP and run npm run test:e2e:api)
+	SMOKE_IMAGE_API=$(DOCKER_API_IMAGE):$(TAG) SMOKE_SKIP_MCP=1 SMOKE_API_PORT=$(SMOKE_API_PORT) npm run test:e2e:api
+
+docker-smoke-mcp-local: ## Build MCP image (via e2e) and run MCP-only smoke (mcp-proxy HTTP/SSE + stdio)
+	SMOKE_MCP_IMAGE=$(DOCKER_MCP_IMAGE):$(TAG) SMOKE_MCP_PORT=$(SMOKE_MCP_PORT) npm run test:e2e:mcp
 
 docker-buildx-setup: ## Create/use buildx builder for multi-arch builds
 	@docker buildx inspect multiarch >/dev/null 2>&1 || docker buildx create --name multiarch --use
@@ -114,7 +121,7 @@ docker-buildx-api: docker-buildx-setup ## Multi-arch build & push REST API image
 docker-buildx-mcp: docker-buildx-setup ## Multi-arch build & push MCP image
 	docker buildx build --platform $(PLATFORMS) -f Dockerfile --target mcp -t $(DOCKER_MCP_IMAGE):$(TAG) $(if $(filter-out latest,$(TAG)),-t $(DOCKER_MCP_IMAGE):latest,) $(NO_CACHE_FLAG) --push .
 
-publish-docker-api: check-no-smoke docker-build-api docker-smoke-api-local docker-buildx-api ## Publish REST API image to registry (buildx --push)
+publish-docker-api: check-no-smoke docker-smoke-api-local docker-buildx-api ## Publish REST API image to registry (e2e builds image then smoke-tests; buildx --push)
 
 publish-docker-mcp: check-no-smoke docker-buildx-mcp ## Publish MCP image to registry (buildx --push)
 

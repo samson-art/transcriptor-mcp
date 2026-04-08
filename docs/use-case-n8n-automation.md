@@ -10,13 +10,13 @@ Use Transcriptor MCP from n8n (or other MCP clients) to build workflows that sea
 
 ## Connect n8n to Transcriptor MCP
 
-1. **Run the MCP server over HTTP** (streamable HTTP on port 4200):
-   - Docker: `docker run -p 4200:4200 -e MCP_PORT=4200 -e MCP_HOST=0.0.0.0 artsamsonov/transcriptor-mcp npm run start:mcp:http`
+1. **Run the MCP server over HTTP** (streamable HTTP on port 4200): stdio MCP behind [mcp-proxy](https://github.com/sparfenyuk/mcp-proxy), e.g.
+   - Docker: `docker run -p 4200:4200 artsamsonov/transcriptor-mcp mcp-proxy --pass-environment --host=0.0.0.0 --port=4200 -- node --import ./dist/instrument.js dist/mcp.js`
    - Or use `docker-compose` / your own host; see [quick-start.mcp.md](quick-start.mcp.md).
 
 2. **In n8n**, add the MCP server (MCP Client Tool or equivalent):
    - **MCP Server URL:** `http://<host>:4200/mcp` (streamable HTTP).
-   - If your server uses `MCP_AUTH_TOKEN`, configure the client to send `Authorization: Bearer <token>`.
+   - If you protect the endpoint with a reverse proxy in front of mcp-proxy, configure the client to send `Authorization: Bearer <token>` as needed.
 
 3. **Proxy note:** If n8n runs behind a reverse proxy that sets `X-Forwarded-For`, you may need to set `N8N_PROXY_HOPS` (e.g. `1`) so the server does not reject requests. See the main [README](https://github.com/samson-art/transcriptor-mcp#readme) for details.
 

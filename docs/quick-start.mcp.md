@@ -3,7 +3,7 @@
 This project ships an MCP server that exposes tools for fetching video subtitles, metadata, and chapters.
 Supported platforms: YouTube, Twitter/X, Instagram, TikTok, Twitch, Vimeo, Facebook, Bilibili, VK, Dailymotion, Reddit (or YouTube video ID).
 
-**Connection options** (no install): [Smithery](https://smithery.ai/servers/samson-art/transcriptor-mcp) · [Glama](https://glama.ai/mcp/servers/samson-art/transcriptor-mcp) | **Self-hosted**: Docker · Node.js · HTTP/SSE (remote)
+**Connection options** (no install): [Smithery](https://smithery.ai/servers/samson-art/transcriptor-mcp) · [Glama](https://glama.ai/mcp/servers/samson-art/transcriptor-mcp) | **Self-hosted**: Docker · Node.js · remote HTTP/SSE via [mcp-proxy](https://github.com/sparfenyuk/mcp-proxy)
 
 ### Docker (recommended)
 
@@ -34,25 +34,72 @@ npm run start:mcp
 
 This starts the MCP server on stdio. Point your MCP-capable client to the `node dist/mcp.js` command.
 
-### MCP over HTTP/SSE
+### MCP over HTTP/SSE (stdio + mcp-proxy)
 
-You can also expose the MCP server over HTTP/SSE for remote usage (e.g. VPS + Tailscale).
+For remote usage (e.g. VPS + Tailscale), run the **stdio** MCP server behind **[mcp-proxy](https://github.com/sparfenyuk/mcp-proxy)**, which exposes **streamable HTTP** at `/mcp` and **SSE** at `/sse` (same paths clients already use).
 
-Run via Node:
+Install **mcp-proxy** (version **0.11.0** matches the `mcp` stage in the [Dockerfile](../Dockerfile)):
 
 ```bash
-npm run build
-MCP_PORT=4200 MCP_HOST=0.0.0.0 npm run start:mcp:http
+pip install 'mcp-proxy==0.11.0'
+# or: uv tool install 'mcp-proxy==0.11.0'
+# or: pipx install 'mcp-proxy==0.11.0'
 ```
 
-Run via Docker:
+See [mcp-proxy upstream](https://github.com/sparfenyuk/mcp-proxy) for the full CLI (`mcp-proxy --help`).
+
+After `npm run build`, from the repo root:
+
+```bash
+mcp-proxy --pass-environment --host=0.0.0.0 --port=4200 -- node --import ./dist/instrument.js dist/mcp.js
+```
+
+**Docker** (image includes `mcp-proxy` on `PATH`):
 
 ```bash
 docker build -f Dockerfile --target mcp -t transcriptor-mcp .
-docker run -p 4200:4200 -e MCP_PORT=4200 -e MCP_HOST=0.0.0.0 transcriptor-mcp npm run start:mcp:http
+docker run -p 4200:4200 transcriptor-mcp \
+  mcp-proxy --pass-environment --host=0.0.0.0 --port=4200 -- \
+  node --import ./dist/instrument.js dist/mcp.js
 ```
 
-For ready-made docker-compose setup, see `docker-compose.example.yml` in the repository root.
+For a ready-made compose stack (API + Whisper + MCP over mcp-proxy), see `docker-compose.example.yml` in the repository root.
+
+#### mcp-proxy flags (stdio → HTTP/SSE)
+
+The Node app only speaks **stdio** (`dist/mcp.js`). Remote clients use **[mcp-proxy](https://github.com/sparfenyuk/mcp-proxy)** in **server** mode (SSE → stdio in upstream docs): it listens on `--host` / `--port` and spawns the stdio server after `--`. Defaults in examples use port **4200**. Exposed paths: **`/mcp`** (streamable HTTP), **`/sse`** (SSE), **`/status`** (proxy status JSON).
+
+| Concern | How to configure |
+|--------|------------------|
+| Listen address | `--host=0.0.0.0` `--port=4200` — where remote clients connect for `/mcp` and `/sse` |
+| Env for the Node child | `--pass-environment` and/or repeated `-e KEY VALUE` ([upstream](https://github.com/sparfenyuk/mcp-proxy)) |
+| CORS | `--allow-origin` (repeatable), e.g. `--allow-origin='*'` for wide-open dev |
+| Streamable HTTP stateless mode | `--stateless` / `--no-stateless` (see upstream; default is stateful) |
+
+**`MCP_AUTH_TOKEN` vs mcp-proxy**
+
+This repository’s MCP server is **stdio-only** in Node (`dist/mcp.js`); there is **no** `MCP_PORT` / `MCP_AUTH_TOKEN` handling inside the app (see [.env.example](../.env.example) and [configuration.md](configuration.md)). Catalogs and docs sometimes still use the name **`MCP_AUTH_TOKEN`** for a shared secret clients send as **`Authorization: Bearer …`** — that secret must be enforced at your **edge** (reverse proxy, API gateway, or private network), not in the Node process.
+
+| Layer | Incoming `Authorization: Bearer …` |
+|--------|--------------------------------------|
+| **stdio + mcp-proxy 0.11.0** | Neither Node nor mcp-proxy validates Bearer on `/mcp` or `/sse`. Use **Tailscale**, **VPN**, or a **reverse proxy** (Caddy, nginx, Traefik, cloud LB) that checks the header before traffic reaches mcp-proxy. |
+| **mcp-proxy as HTTP client** (argument is a URL) | `-H Authorization 'Bearer <token>'` and env **`API_ACCESS_TOKEN`** apply to **outbound** requests to a remote MCP server — not to protecting your own stdio server. |
+
+Clients (Cursor, Claude Code, n8n, Smithery) should send **`Authorization: Bearer <token>`** only when **your** deployment requires it at the edge.
+
+When **mcp-proxy** runs in **client** mode (first argument is a URL to a remote MCP server), `-H Authorization 'Bearer <token>'` and env **`API_ACCESS_TOKEN`** apply to **outbound** requests — the opposite direction from publishing your stdio server.
+
+OAuth2 **client** credentials toward a remote authorization server (mcp-proxy as HTTP **client** only): `--client-id`, `--client-secret`, `--token-url` per [upstream](https://github.com/sparfenyuk/mcp-proxy).
+
+#### Remote clients (paths)
+
+| Client | Transport | URL |
+|--------|-----------|-----|
+| **Cursor** | SSE | `http://<host>:4200/sse` |
+| **Claude Code** | Streamable HTTP | `http://<host>:4200/mcp` |
+| **n8n** (MCP Client Tool) | Streamable HTTP | `http://<host>:4200/mcp` |
+
+See also [use-case-n8n-automation.md](use-case-n8n-automation.md).
 
 ### MCP configuration examples
 
@@ -98,5 +145,5 @@ For ready-made docker-compose setup, see `docker-compose.example.yml` in the rep
     http://<host>:4200/sse
     ```
 
-If you set `MCP_AUTH_TOKEN` on the server, add `Authorization: Bearer <token>` in the client headers.
+If your deployment enforces Bearer auth at a reverse proxy, configure the client to send `Authorization: Bearer <token>` (or the catalog’s `authToken` field) as your edge expects.
 

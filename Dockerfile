@@ -71,6 +71,8 @@ RUN /usr/local/bin/npm ci --omit=dev --ignore-scripts && /usr/local/bin/npm cach
 
 COPY --from=builder /app/dist ./dist
 
-EXPOSE 4200
+# mcp-proxy exposes HTTP/SSE (see docker-compose.example.yml, docs/quick-start.mcp.md). Default CMD is stdio-only.
+RUN pip3 install --no-cache-dir --break-system-packages mcp-proxy==0.11.0
 
+# Default: MCP over stdio (e.g. `docker run --rm -i`). No listen port in this mode.
 CMD ["npm", "run", "start:mcp"]

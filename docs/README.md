@@ -10,6 +10,7 @@ The detailed documentation is split into focused guides:
 - **Using cookies for restricted videos**: see [cookies.md](cookies.md)
 - **Redis cache**: see [caching.md](caching.md)
 - **Load testing (k6)**: see `load/load-testing.md`
+- **Migration audit (stdio + mcp-proxy vs in-repo MCP HTTP):** [mcp-http-proxy-integration-audit.md](mcp-http-proxy-integration-audit.md) — Smithery/Glama/E2E impact and where metrics, rate limits, and auth move
 
 **Use cases (MCP):**
 

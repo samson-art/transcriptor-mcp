@@ -6,6 +6,6 @@ config:
   properties:
     authToken:
       type: string
-      description: "Auth token for protected servers. Only needed when the server uses MCP_AUTH_TOKEN. Stored locally by your client; never logged or shared."
+      description: "Auth token for protected self-hosted deployments (e.g. Bearer at a reverse proxy). Stored locally by your client; never logged or shared."
       secret: true
   required: []

@@ -118,34 +118,14 @@ Used by the shutdown logic in `src/index.ts`.
 
 ## MCP server settings
 
-For the MCP HTTP/SSE server (when using `npm run start:mcp:http` or the MCP Docker image):
+**Deployment models:**
 
-- **`MCP_PORT`** – MCP HTTP server port (default often `4200`)
-- **`MCP_HOST`** – MCP HTTP server host (default often `0.0.0.0`)
+1. **stdio** (`npm run start:mcp` / default Docker `CMD`) — use for local Cursor/Claude or as the child process behind [mcp-proxy](https://github.com/sparfenyuk/mcp-proxy).
+2. **Remote HTTP/SSE** — run stdio behind **mcp-proxy**; listen address and CORS come from **mcp-proxy** flags (`--port`, `--host`, `--allow-origin`, …). See [quick-start.mcp.md](quick-start.mcp.md) for install (pinned version), run commands, client URLs (Cursor / Claude / n8n), and how a conceptual **`MCP_AUTH_TOKEN`** maps to Bearer at the **proxy**, not in Node.
 
-If you expose the MCP server remotely (e.g. on a VPS), you may also configure:
+There is **no** in-process HTTP/SSE MCP server in this repository; Bearer protection, rate limits, and canonical public URLs for hosted catalogs are handled at your **reverse proxy**, **cloud edge**, or **mcp-proxy**-compatible tooling—not via `MCP_*` HTTP variables on the Node app.
 
-- **`MCP_AUTH_TOKEN`** – optional bearer token for protecting the MCP HTTP endpoint
-
-Clients should then include:
-
-```text
-Authorization: Bearer <token>
-```
-
-in their requests.
-
-- **`MCP_RATE_LIMIT_MAX`** – maximum requests per time window for MCP endpoints (default: `100`)
-- **`MCP_RATE_LIMIT_TIME_WINDOW`** – time window for MCP rate limiting (default: `1 minute`)
-- **`MCP_SESSION_TTL_MS`** – session TTL in milliseconds; sessions older than this are removed by cleanup (default: `3600000`, 1 hour)
-- **`MCP_SESSION_CLEANUP_INTERVAL_MS`** – interval in milliseconds for cleaning expired MCP sessions (default: `900000`, 15 minutes)
-
-**Public base URL for SSE endpoint:** When the MCP server is used from another origin (e.g. Smithery.ai auth popup), the SSE transport must advertise the full message URL in the `endpoint` event so clients POST to the correct server. Configure one of:
-
-- **`MCP_PUBLIC_URL`** – optional single public base URL. When set, the SSE transport sends the full message URL in the endpoint event.
-- **`MCP_PUBLIC_URLS`** – optional comma-separated list of public base URLs for multi-origin deployments. The server picks the matching URL from the request's `Host` or `X-Forwarded-Host` header. If both are set, `MCP_PUBLIC_URLS` takes precedence.
-
-The MCP HTTP server also supports **`SHUTDOWN_TIMEOUT`** for graceful shutdown (same as REST API).
+The stdio MCP process still honors **`SHUTDOWN_TIMEOUT`** (and other app env vars such as Whisper and cache) the same way as the REST API; pass them to the Node process (e.g. `mcp-proxy --pass-environment` or `-e` per upstream docs).
 
 ## Whisper fallback (subtitles not available)
 
