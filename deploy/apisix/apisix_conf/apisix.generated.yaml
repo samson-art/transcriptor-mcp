@@ -5,10 +5,13 @@
 plugins:
   - name: prometheus
   - name: cors
+  - name: redirect
   - name: key-auth
+  - name: openid-connect
   - name: limit-count
   - name: limit-req
   - name: serverless-pre-function
+  - name: serverless-post-function
 
 global_rules:
   - id: 1
@@ -34,52 +37,52 @@ upstreams:
 ssls:
   - cert: |
       -----BEGIN CERTIFICATE-----
-      MIIDCTCCAfGgAwIBAgIUU+uRRkROisPa+ibXTGEKAsTJYUowDQYJKoZIhvcNAQEL
-      BQAwFDESMBAGA1UEAwwJbG9jYWxob3N0MB4XDTI2MDQwODAyMTQxMVoXDTI4MDcx
-      MTAyMTQxMVowFDESMBAGA1UEAwwJbG9jYWxob3N0MIIBIjANBgkqhkiG9w0BAQEF
-      AAOCAQ8AMIIBCgKCAQEA5cedlzwbEldOXkHME54EhhB4Z4ncXTPys17oeF3x4+uD
-      dXsL8+lJP2LWjzqrLOC+qbuUF9F9X4a5JJlLHHCNeOemtbw85gXHPle8AmoNpZD1
-      NjpvBaYwPpxRTahuGZ039F80HhtrvO/qFLZyuZti0oRoHcQzz4WWVFnUJtciduuM
-      wG0wUntspFdHBx0vm3Hc1a5ajO48Ovua3TaPtBEdUnT+pdo5aHPVXB97uiobMg55
-      9BFfIP610XPB95F4p6FprDKBDHUJgfei0YxwB5PL9bxI6mM2LjZGa6fcC8cSASCr
-      5cdCbYg1y6VvaLR1GgDTYFZHMEg/Ud76En2Y7mtj0QIDAQABo1MwUTAdBgNVHQ4E
-      FgQUfoZfqyodtbvotC7RkGZtQtukYwswHwYDVR0jBBgwFoAUfoZfqyodtbvotC7R
-      kGZtQtukYwswDwYDVR0TAQH/BAUwAwEB/zANBgkqhkiG9w0BAQsFAAOCAQEAqeDX
-      Y9fhyRO7ty5RdW4ypSmEH5Cbtk3s+vLuX9MnfQuPYxiU3Noj80W6RPgPC7gcJXrM
-      MPHefIrSO0iAZWnQAvB+f4E75U131lbkEuLSBg/MsjDauSOY0i30PZfYCZNQFASZ
-      XctSLQHv1dW2nIAHRarBzuaFbwp2pkirFDpW0aOC8IP6vgXoC9Uga65/UglF3FAq
-      9lxpusG5Opjm2Z5IKO9aJSSC9IA3bdEbqE+IxWRiqEAGcLkEwQqcpbmRJliHHSj8
-      j3E3udzOyfeudALSQt10iYpiT3an7aG3rvqUQY9ecXmQ1CKfBx+PnYC1s3wuauw+
-      BaDgLNXePhQod0DK8w==
+      MIIDCTCCAfGgAwIBAgIUcS2t9sshojnqBz/55FFJiPV5on4wDQYJKoZIhvcNAQEL
+      BQAwFDESMBAGA1UEAwwJbG9jYWxob3N0MB4XDTI2MDQwODIzNDcwOVoXDTI4MDcx
+      MTIzNDcwOVowFDESMBAGA1UEAwwJbG9jYWxob3N0MIIBIjANBgkqhkiG9w0BAQEF
+      AAOCAQ8AMIIBCgKCAQEAssL0SE9rglG0F5q1GbpO75UF/XMdIdHkJLi0TuZ1GcG0
+      X7WXGwOr4LJPpV82sdnJNw1lovoDna6IXk6faah/7hly51dJOoakiQhSSkKaLjRI
+      zjUYCuYQO3H1xrdQiIbweqbDtQc5LYaoe2SoB92L2vccUZpfbmY94RNfEmUsYasJ
+      YEYJrLaM4iyyr0mV5/sxfQr3skuyOAn+z3DYmUJMDZD+Yzt3RA5D2D8zE2W2nLUL
+      qaMHDNvjyIL3/BespzAH2E6x+Q9HRb098xUyMiGYRcM7lybcaNgpMKoKBAPrH5mb
+      mHFb4lvUoVVxmcsxY2buGHHCJv5PJDqC8FBO0ZfiFwIDAQABo1MwUTAdBgNVHQ4E
+      FgQUbjI+ZBrrQi/AMZ7Ck54wiSwPQ2MwHwYDVR0jBBgwFoAUbjI+ZBrrQi/AMZ7C
+      k54wiSwPQ2MwDwYDVR0TAQH/BAUwAwEB/zANBgkqhkiG9w0BAQsFAAOCAQEASY5J
+      bSUTmWrpgxo6K+bX37/DpykNC3LoSa8hn5KEDeoTmJI4QNEuQDYT5cVQxv3GKKyU
+      DBjWfk7qwsWX1vNnMJ+k5z3oyZSGbF4xS36IQCDoqjAzhW1U0dfUhVA2Xs9e/GNG
+      XTMfkjBAfrUpWjcaxPjEaNPhlbL0rXu0MFiAJ+pfmR5plXUyjZkqnAZTLyzIVSI2
+      TrJ9r08VKX7Pg4T+WY1YEuypYrBlvsHnyeGhnQ/EgV2CT/BHOTZlgDlU4OVBIyVa
+      hi9e/a7i8R/mYh4ms1P6hcH/x+5+saQsv35dsmEmnp6zIfkxMHjcVgR4WtMvaS1t
+      ZQkC5TVXIQ1H8rTLXA==
       -----END CERTIFICATE-----
     key: |
       -----BEGIN PRIVATE KEY-----
-      MIIEvwIBADANBgkqhkiG9w0BAQEFAASCBKkwggSlAgEAAoIBAQDlx52XPBsSV05e
-      QcwTngSGEHhnidxdM/KzXuh4XfHj64N1ewvz6Uk/YtaPOqss4L6pu5QX0X1fhrkk
-      mUsccI1456a1vDzmBcc+V7wCag2lkPU2Om8FpjA+nFFNqG4ZnTf0XzQeG2u87+oU
-      tnK5m2LShGgdxDPPhZZUWdQm1yJ264zAbTBSe2ykV0cHHS+bcdzVrlqM7jw6+5rd
-      No+0ER1SdP6l2jloc9VcH3u6KhsyDnn0EV8g/rXRc8H3kXinoWmsMoEMdQmB96LR
-      jHAHk8v1vEjqYzYuNkZrp9wLxxIBIKvlx0JtiDXLpW9otHUaANNgVkcwSD9R3voS
-      fZjua2PRAgMBAAECggEADmlvPnGUJxnXvfy1fpN+KCR3UNMqQaRE+DAfN5F43vlC
-      FQfDL6i1oeaim3gsDVQJUV8FAltu2CN8kEmXFvEORoONBsAIN8sr/IKHNcWOFpDZ
-      eG3A0eNjCkJGrS6/vRaJ0Gd6PtssbjzD+0mYN4EB+T85wogwUbdIvwClWExNCpVM
-      Fxu1zVko1wSbyVvQGgQrsMnjfn5dagBmYWG6CMusyVwU2KdVVdC3m4MqgBHdqsG0
-      vkkqwZMN5Da0ejJzb30oUi/yZpSGFt0qz7gJWa1HVYyIKK2+UX9E+WI4juXzciSo
-      pNGT6an8PNX1SfZcnufOTasYNbs4eAXETPX4+bPHKwKBgQD/cZca6h0Dc5gl0Pp5
-      5m1nO2tN44SbBRSDV9lsWcvbEZSmF7908FAhHhL5JLzTBgaB+9xsHg5pzsTSV8UR
-      MCPE7SKucImhwlBIoHaRy34BIM3+sV+CvRPTcrSNWJQICILtEIBofojO5N0FCJNH
-      TjaNwTxycphiRc9ZtDILi3sXFwKBgQDmR7e6WfQWiNAk60zwEtsPzynW+/EX7HSh
-      JCOI5eNho+C852b3l26BsDCxlw3yx3UlB4CF2gBt76akFdKXvLVtO9pxk2xQNsdK
-      cS43ECuG9TMwdP7n1c3QIhLq+6k5XCnbQ98URkH0KaC0Xlhib87OK8P8fHQYArxO
-      tKjpzGStVwKBgQDzzh/R4XdVrwOdvGsE5AixigXtrmUHbH7aqYNspfwrGAmPyYTE
-      AQYJxeGICCdtJggaEiCc1Mce9+nldT4zHIZXU5pRcjn6uTLVTso8d0PJodza5cJq
-      TzrYC1gGvG91h2InECPvGC5NgiTtw/SGD0GEZNXjyjplOYohbRqC6FrQewKBgQCZ
-      ltXs/dg2O3QQW7xKF1lylurCD/IC0dwMKi1lPmdFFWdsty5PDvpOl3QyzpwoBG6W
-      jwViwT8uE/xiTofSWrPrMlOFEx3X9mE/vnNjmG5fqiVFOZNWj5yhKEjT35xDvLvS
-      GdetDxsoPaeJBbAPn6Egk8I5IczQwupT2F0c6w1vKwKBgQCkxZDHZPwlEsMj5vjn
-      gfssJCUqSSvNZ0XSoFBaFRb8BCz1LffpRIR0HKw0ezFABauMSrxFNLWEr28y8DWa
-      uZhx6pgDwMQkDzI3DYkUDDMNuvKh0Xnr1z9JUTqvuGfoPTwscS8WYz/h49Zz8YL+
-      fBS15fYDJqFCTikSzdaxZqqCWQ==
+      MIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQCywvRIT2uCUbQX
+      mrUZuk7vlQX9cx0h0eQkuLRO5nUZwbRftZcbA6vgsk+lXzax2ck3DWWi+gOdrohe
+      Tp9pqH/uGXLnV0k6hqSJCFJKQpouNEjONRgK5hA7cfXGt1CIhvB6psO1Bzkthqh7
+      ZKgH3Yva9xxRml9uZj3hE18SZSxhqwlgRgmstoziLLKvSZXn+zF9CveyS7I4Cf7P
+      cNiZQkwNkP5jO3dEDkPYPzMTZbactQupowcM2+PIgvf8F6ynMAfYTrH5D0dFvT3z
+      FTIyIZhFwzuXJtxo2CkwqgoEA+sfmZuYcVviW9ShVXGZyzFjZu4YccIm/k8kOoLw
+      UE7Rl+IXAgMBAAECggEAGrMUomI+WAIVCHuCdhvGI3GaKe9SGBWN4lA2GhzAu76b
+      TrpEHfRP7SkkzTnp5Ol27MKS/iMifCAv3QoYNENHDEx/xX7bgKLQm2kDRXUqKyGD
+      CE2U0Dfpj79nKq2BmUqyS1dyHq08BIk6y+dOU5JrC6Lh92w7ubUKo/3tMsWqudF+
+      kkvR3dZ7Ps5GnGJ0t7BxB2a5bmIQNpfIF2znoxzDjU6f8hsVGba8rZ3NSMfSctCW
+      7eROrHuT6hHDxXLId7k9lWSKQZQNbc8bGWcgzmCd+ctiK2c/teyWC9tHXGXkBWoe
+      meKCgQP/10oT2d2eroOq02bESzF32f68DDlvM+2iQQKBgQDbQ0wwZQlNpmrxScoc
+      O9RK4o7nKRP6ofelQ/35gw9iZmX6A6Ci6lLv3ISsgngk/FmycCTACBx5lvkcy3jT
+      Ywb2AR4Tk+VyTQteXyEh7Ybkx0YPamscXQ0XlYeaiktTyyuONaO+2K3UxdpbLucW
+      0FS5+P8KyzZqNS4eLQkEqiIc1wKBgQDQtnVg/Ahjdgnf+nboTz0gEOZALyjSBeBh
+      H6v2TBOx08fZ0PcANvPLpp0eeXdCVu5PSXDEgb10vhFVaTpAuldM52oqMZTTACJt
+      ADVWGMK0yn5gZSKAvOUAGRRb//Vi3yfRT+Q9IjK6+bqi0ninA2p2KGCCMLMj/W4t
+      16BHElh8wQKBgQCA0Eqka9dJXSma08T/TU7tJ6jYuVNZfWomF4nP2mVhY9MpTJRE
+      4fETpbP0PTokUHTJ1gRhJOLFtCJp/kffuF/QituGmO7Fdenl6XFno0oKgd/xEo4W
+      vbwBTQG7kt+qPMQ76dtnNZj6Vbpws19kEcSU9Wmwh65SOyf65m5T5TfhRQKBgAKB
+      nmk6vZMMMNQqutDRWseOzGUK6++RuH8SFUuQ4E+rXmQEOWMcRdM1Pf/Gr6LxTk1P
+      cXY6pJ7JRYYEDHoIgtHemYzGKaZbAw7SCNHu3C+1msznigGHwyw8IN119mloip7d
+      2bzOM1PBefdIlcBTryyaEYaetRgCjBcq1rbjxoJBAoGBANXikOUnrYsCAWuIlZCm
+      wq6XLG3x5cW+UKurdxdBGrh5SHVSBvEFBvhYG6+w8j2rVELhgUiY/W/jC/4hBtPK
+      2/DKDk4WzHB6m6vRdRssJt6QDzRsruhpIBw6M9El4hLTZhIotewHW44NzjCq4Kb+
+      FIirg/AU+ggtCKl6vJtxz233
       -----END PRIVATE KEY-----
     snis:
       - "${{APISIX_TLS_SNI}}"
@@ -129,10 +132,213 @@ consumers:
         rejected_code: 429
 
 routes:
+  # RFC 9728 Protected Resource Metadata for OAuth (MCP Authorization). Served on the edge — not proxied to mcp-proxy.
+  # OAUTH_ISSUER + optional OAUTH_RESOURCE (must be listed in nginx_config.envs). If OAUTH_RESOURCE is unset, resource is
+  # scheme://host/ (origin) so clients like Glama match https://<host>/ .
+  - id: well_known_oauth_prm
+    name: oauth-protected-resource-metadata
+    priority: 200
+    uri: /.well-known/oauth-protected-resource
+    methods:
+      - GET
+      - HEAD
+      - OPTIONS
+    upstream_id: mcp_upstream
+    plugins:
+      serverless-pre-function:
+        phase: access
+        functions:
+          - |
+            return function(conf, ctx)
+              ngx.header["Access-Control-Allow-Origin"] = "*"
+              ngx.header["Access-Control-Allow-Methods"] = "GET, HEAD, OPTIONS"
+              ngx.header["Access-Control-Allow-Headers"] = "*"
+              ngx.header["Access-Control-Max-Age"] = "3600"
+              local method = ngx.var.request_method
+              if method == "OPTIONS" then
+                ngx.exit(204)
+              end
+              local json = require("cjson.safe")
+              local resource = os.getenv("OAUTH_RESOURCE")
+              if not resource or resource == "" then
+                resource = ngx.var.scheme .. "://" .. ngx.var.host .. "/"
+              end
+              local issuer = os.getenv("OAUTH_ISSUER")
+              if not issuer or issuer == "" then
+                issuer = "https://example.invalid"
+              end
+              local body = json.encode({ resource = resource, authorization_servers = { issuer } })
+              if not body then
+                ngx.log(ngx.ERR, "oauth PRM: failed to encode JSON")
+                return ngx.exit(500)
+              end
+              ngx.header["Content-Type"] = "application/json; charset=utf-8"
+              ngx.header["Cache-Control"] = "public, max-age=3600"
+              if method == "HEAD" then
+                ngx.header["Content-Length"] = tostring(#body)
+                ngx.exit(200)
+              end
+              ngx.say(body)
+              ngx.exit(200)
+            end
+
+  # RFC 8414 + OIDC discovery on the resource host → 302 to IdP (OAUTH_DISCOVERY) via redirect plugin.
+  # OPTIONS stays on this host (204) so CORS preflight is not redirected to the IdP.
+  # Use singular `uri` per route (not `uris`): some APISIX+yaml loads ignore multi-uri for this path; priority above `/.well-known/*`.
+  - id: well_known_redirect_oauth_as_options
+    name: oauth-as-redirect-options
+    priority: 10001
+    uri: /.well-known/oauth-authorization-server
+    methods:
+      - OPTIONS
+    upstream_id: mcp_upstream
+    plugins:
+      # No cors plugin here: it overrides OPTIONS to 200; headers are set in Lua (204).
+      serverless-pre-function:
+        phase: access
+        functions:
+          - |
+            return function(conf, ctx)
+              ngx.header["Access-Control-Allow-Origin"] = "*"
+              ngx.header["Access-Control-Allow-Methods"] = "GET, HEAD, OPTIONS"
+              ngx.header["Access-Control-Allow-Headers"] = "*"
+              ngx.header["Access-Control-Max-Age"] = "3600"
+              ngx.exit(204)
+            end
+  - id: well_known_redirect_oauth_as
+    name: oauth-as-redirect
+    priority: 10000
+    uri: /.well-known/oauth-authorization-server
+    methods:
+      - GET
+      - HEAD
+    upstream_id: mcp_upstream
+    plugins:
+      cors:
+        allow_origins: "*"
+        allow_methods: "GET,HEAD,OPTIONS"
+        allow_headers: "*"
+        max_age: 3600
+      redirect:
+        uri: "${{OAUTH_DISCOVERY:=https://example.invalid/.well-known/openid-configuration}}"
+        ret_code: 302
+  - id: well_known_redirect_oauth_as_wild_options
+    name: oauth-as-redirect-prefix-options
+    priority: 10001
+    uri: /.well-known/oauth-authorization-server/*
+    methods:
+      - OPTIONS
+    upstream_id: mcp_upstream
+    plugins:
+      serverless-pre-function:
+        phase: access
+        functions:
+          - |
+            return function(conf, ctx)
+              ngx.header["Access-Control-Allow-Origin"] = "*"
+              ngx.header["Access-Control-Allow-Methods"] = "GET, HEAD, OPTIONS"
+              ngx.header["Access-Control-Allow-Headers"] = "*"
+              ngx.header["Access-Control-Max-Age"] = "3600"
+              ngx.exit(204)
+            end
+  - id: well_known_redirect_oauth_as_wild
+    name: oauth-as-redirect-prefix
+    priority: 10000
+    uri: /.well-known/oauth-authorization-server/*
+    methods:
+      - GET
+      - HEAD
+    upstream_id: mcp_upstream
+    plugins:
+      cors:
+        allow_origins: "*"
+        allow_methods: "GET,HEAD,OPTIONS"
+        allow_headers: "*"
+        max_age: 3600
+      redirect:
+        uri: "${{OAUTH_DISCOVERY:=https://example.invalid/.well-known/openid-configuration}}"
+        ret_code: 302
+  - id: well_known_redirect_oidc_options
+    name: oidc-discovery-redirect-options
+    priority: 10001
+    uri: /.well-known/openid-configuration
+    methods:
+      - OPTIONS
+    upstream_id: mcp_upstream
+    plugins:
+      serverless-pre-function:
+        phase: access
+        functions:
+          - |
+            return function(conf, ctx)
+              ngx.header["Access-Control-Allow-Origin"] = "*"
+              ngx.header["Access-Control-Allow-Methods"] = "GET, HEAD, OPTIONS"
+              ngx.header["Access-Control-Allow-Headers"] = "*"
+              ngx.header["Access-Control-Max-Age"] = "3600"
+              ngx.exit(204)
+            end
+  - id: well_known_redirect_oidc
+    name: oidc-discovery-redirect
+    priority: 10000
+    uri: /.well-known/openid-configuration
+    methods:
+      - GET
+      - HEAD
+    upstream_id: mcp_upstream
+    plugins:
+      cors:
+        allow_origins: "*"
+        allow_methods: "GET,HEAD,OPTIONS"
+        allow_headers: "*"
+        max_age: 3600
+      redirect:
+        uri: "${{OAUTH_DISCOVERY:=https://example.invalid/.well-known/openid-configuration}}"
+        ret_code: 302
+  - id: well_known_redirect_oidc_wild_options
+    name: oidc-discovery-redirect-prefix-options
+    priority: 10001
+    uri: /.well-known/openid-configuration/*
+    methods:
+      - OPTIONS
+    upstream_id: mcp_upstream
+    plugins:
+      serverless-pre-function:
+        phase: access
+        functions:
+          - |
+            return function(conf, ctx)
+              ngx.header["Access-Control-Allow-Origin"] = "*"
+              ngx.header["Access-Control-Allow-Methods"] = "GET, HEAD, OPTIONS"
+              ngx.header["Access-Control-Allow-Headers"] = "*"
+              ngx.header["Access-Control-Max-Age"] = "3600"
+              ngx.exit(204)
+            end
+  - id: well_known_redirect_oidc_wild
+    name: oidc-discovery-redirect-prefix
+    priority: 10000
+    uri: /.well-known/openid-configuration/*
+    methods:
+      - GET
+      - HEAD
+    upstream_id: mcp_upstream
+    plugins:
+      cors:
+        allow_origins: "*"
+        allow_methods: "GET,HEAD,OPTIONS"
+        allow_headers: "*"
+        max_age: 3600
+      redirect:
+        uri: "${{OAUTH_DISCOVERY:=https://example.invalid/.well-known/openid-configuration}}"
+        ret_code: 302
+
+  # MCP discovery only (docs/mcp-public-url-contract.md §4). Do NOT use `/.well-known/*` here: APISIX radix + that
+  # wildcard makes `/.well-known/openid-configuration` hit this route instead of the redirect routes → 404/mcp timeout.
   - id: well_known_public
     name: well-known-mcp-discovery
     priority: 100
-    uri: /.well-known/*
+    uris:
+      - /.well-known/mcp
+      - /.well-known/mcp/*
     upstream_id: mcp_upstream
     plugins:
       cors:
@@ -141,6 +347,62 @@ routes:
         allow_headers: "*"
         max_age: 3600
 
+  # OAuth2 / OIDC JWT access tokens: JWKS from OIDC discovery. vars: Authorization Bearer + typical JWT header prefix (eyJ).
+  - id: mcp_protected_oauth_bearer
+    name: mcp-sse-status-oauth-bearer
+    priority: 20
+    uris:
+      - /mcp
+      - /mcp/*
+      - /sse
+      - /sse/*
+      - /status
+    vars:
+      - ["http_authorization", "~~", "^Bearer\\s+eyJ"]
+    upstream_id: mcp_upstream
+    plugins:
+      openid-connect:
+        client_id: "${{OAUTH_CLIENT_ID:=placeholder-oauth-client-id}}"
+        client_secret: "${{OAUTH_CLIENT_SECRET:=placeholder-oauth-client-secret}}"
+        discovery: "${{OAUTH_DISCOVERY:=https://example.invalid/.well-known/openid-configuration}}"
+        bearer_only: true
+        use_jwks: true
+        ssl_verify: true
+        timeout: 10
+        unauth_action: deny
+        realm: mcp
+        token_signing_alg_values_expected: RS256
+        claim_validator:
+          issuer:
+            valid_issuers:
+              - "${{OAUTH_ISSUER:=https://example.invalid}}"
+      limit-req:
+        rate: 100
+        burst: 200
+        key: remote_addr
+        rejected_code: 429
+      # MCP Authorization: 401 must include WWW-Authenticate Bearer + resource_metadata (RFC 9728 PRM URL on this edge).
+      serverless-post-function:
+        phase: header_filter
+        functions:
+          - |
+            return function(conf, ctx)
+              if ngx.status ~= 401 then
+                return
+              end
+              local rm = os.getenv("OAUTH_RESOURCE_METADATA_URL")
+              if not rm or rm == "" then
+                rm = ngx.var.scheme .. "://" .. ngx.var.host .. "/.well-known/oauth-protected-resource"
+              end
+              local scope = os.getenv("OAUTH_WWW_AUTHENTICATE_SCOPE") or ""
+              local w = 'Bearer resource_metadata="' .. rm .. '"'
+              if scope ~= "" then
+                w = w .. ', scope="' .. scope .. '"'
+              end
+              ngx.header["WWW-Authenticate"] = w
+            end
+
+  # Tier API keys: X-API-Key or Bearer <opaque key> (rewritten to X-API-Key). Non-JWT Bearer does not match the route above.
   - id: mcp_protected
     name: mcp-sse-status-protected
     priority: 10
@@ -168,4 +430,24 @@ routes:
       key-auth:
         header: X-API-Key
         hide_credentials: false
+      # MCP Authorization: 401 must include WWW-Authenticate Bearer + resource_metadata (RFC 9728 PRM URL on this edge).
+      serverless-post-function:
+        phase: header_filter
+        functions:
+          - |
+            return function(conf, ctx)
+              if ngx.status ~= 401 then
+                return
+              end
+              local rm = os.getenv("OAUTH_RESOURCE_METADATA_URL")
+              if not rm or rm == "" then
+                rm = ngx.var.scheme .. "://" .. ngx.var.host .. "/.well-known/oauth-protected-resource"
+              end
+              local scope = os.getenv("OAUTH_WWW_AUTHENTICATE_SCOPE") or ""
+              local w = 'Bearer resource_metadata="' .. rm .. '"'
+              if scope ~= "" then
+                w = w .. ', scope="' .. scope .. '"'
+              end
+              ngx.header["WWW-Authenticate"] = w
+            end
 #END

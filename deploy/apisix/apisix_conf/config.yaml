@@ -1,7 +1,9 @@
 #
-# APISIX with declarative routes (apisix.yaml) and Admin API + embedded UI on :9180.
-# Use `traditional` + yaml (not `data_plane`) so apisix.enable_admin stays enabled; the
-# standalone Docker flag APISIX_STAND_ALONE would force data_plane and hide /ui.
+# APISIX: declarative routes from conf/apisix.yaml (file-driven standalone).
+# Per https://apisix.apache.org/docs/apisix/deployment-modes/ — use role `data_plane` +
+# `config_provider: yaml` so routes load from the local file. The combination `traditional` +
+# `config_provider: yaml` is API-driven standalone (empty config until Admin API updates).
+# Admin UI on :9180 is optional in this setup; primary config is the mounted apisix.yaml.
 #
 # Merge with root docker-compose:
 #   docker compose -f docker-compose.yml -f deploy/apisix/docker-compose.apisix.yml up -d
@@ -10,11 +12,12 @@ apisix:
   node_listen:
     - port: 9080
   enable_ipv6: false
-  enable_admin: true
+  # Declarative routes come from apisix.yaml; Admin API is not used for route updates in this setup.
+  enable_admin: false
 
 deployment:
-  role: traditional
-  role_traditional:
+  role: data_plane
+  role_data_plane:
     config_provider: yaml
   # Required by schema; not used when config_provider is yaml (init_etcd skips etcd).
   etcd:
@@ -47,3 +50,11 @@ plugin_attr:
     export_addr:
       ip: "0.0.0.0"
       port: 9091
+
+# OpenResty does not expose arbitrary env vars to Lua unless listed here (see serverless PRM / 401 handlers).
+nginx_config:
+  envs:
+    - OAUTH_RESOURCE
+    - OAUTH_ISSUER
+    - OAUTH_RESOURCE_METADATA_URL
+    - OAUTH_WWW_AUTHENTICATE_SCOPE

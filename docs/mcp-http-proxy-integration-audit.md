@@ -25,8 +25,9 @@ This document records the removal of the in-repo Fastify MCP HTTP layer (`src/mc
 | **Metadata** | `glama.json` at repo root references schema `https://glama.ai/mcp/schemas/server.json` and maintainers. | **Unchanged** — still valid as directory metadata. |
 | **User-facing URL** | README links to [glama.ai/mcp/servers/samson-art/transcriptor-mcp](https://glama.ai/mcp/servers/samson-art/transcriptor-mcp) alongside Smithery. | If the **public MCP URL** or connection method changes (e.g. only self-hosted docs), update **README / quick-start** and coordinate with Glama if the listing points at a **specific URL** that must stay live. |
 | **Scanning / scorecard** | Glama may run checks against the **published** server (see their docs). | **Smoke-test** the same URL after the proxy stack replaces Fastify so **tool discovery and security scorecards** do not regress. |
+| **OAuth / IdP** | N/A in-repo. | **Authorization server** for OAuth clients (e.g. Glama) is **Authentik (VPS)**: issuer = provider base URL; OIDC discovery at `.../application/o/<slug>/.well-known/openid-configuration`; in Glama enter **client_id**, **client_secret**, and **redirect URIs** from the Authentik application. **DCR** is not a standard Authentik feature — use preregistered credentials ([goauthentik/authentik#8751](https://github.com/goauthentik/authentik/issues/8751)). See [mcp-public-url-contract.md](mcp-public-url-contract.md#6-authorization-server-idp-authentik-vps). |
 
-**Summary:** Glama is **low coupling** to repo internals but **high coupling** to a **working public MCP endpoint** and accurate docs. Plan a **post-migration verification** pass on the directory page.
+**Summary:** Glama is **low coupling** to repo internals but **high coupling** to a **working public MCP endpoint** and accurate docs. Plan a **post-migration verification** pass on the directory page. For OAuth, align **Glama** settings with the **Authentik** application as documented in the URL contract.
 
 ---
 

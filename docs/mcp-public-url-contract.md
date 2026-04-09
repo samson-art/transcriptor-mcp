@@ -46,6 +46,8 @@ Smithery для публичного листинга использует св�
 
 Итог: **один тип секрета на пользователя/тариф на edge**, один способ передачи — **Bearer** — для всех перечисленных сценариев, где требуется аутентификация.
 
+Для **OAuth 2.0 / OIDC** (каталоги вроде [Glama](https://glama.ai/mcp), спецификация [MCP Authorization](https://modelcontextprotocol.io/specification/draft/basic/authorization)) токен в `Authorization: Bearer` выдаёт **отдельный authorization server**; для этого деплоя выбран **Authentik** — см. [раздел 6](#6-authorization-server-idp-authentik-vps).
+
 ---
 
 ## 4. Решение по `/.well-known`
@@ -76,8 +78,48 @@ Upstream после TLS-терминации: **`mcp-proxy:4200`** (или эк�
 
 ---
 
+## 6. Authorization Server (IdP): Authentik (VPS)
+
+### Resource server (шлюз) и authorization server (IdP)
+
+По [MCP Authorization](https://modelcontextprotocol.io/specification/draft/basic/authorization) роли разделены так:
+
+| Роль | Где в этом деплое | Ответственность |
+|------|-------------------|-----------------|
+| **Resource server (RS)** | Публичный HTTPS edge (**APISIX** → **mcp-proxy**) | Отдаёт MCP over HTTP; для OAuth — [RFC 9728](https://www.rfc-editor.org/rfc/rfc9728) Protected Resource Metadata (`GET /.well-known/oauth-protected-resource`), приём `Authorization: Bearer <access_token>`, дальнейшая валидация токена на шлюзе (например JWT + JWKS). |
+| **Authorization server (AS)** | **Authentik** на VPS (отдельный хост/приложение) | [RFC 8414](https://datatracker.ietf.org/doc/html/rfc8414) / OIDC discovery, выдача access token, регистрация/настройка OAuth-клиента в админке IdP. |
+
+Клиент каталога (например [Glama](https://glama.ai/mcp)) ходит к **AS** за логином и токеном, а к **RS** — с Bearer на MCP URL. **Issuer URL** и **audience** (`aud` в JWT) настраиваются в Authentik и должны совпадать с тем, что ожидает шлюз при включении проверки JWT.
+
+### Переменные окружения (`deploy/apisix/docker-compose.apisix.yml`)
+
+Подставляются в шаблон APISIX при старте контейнера (см. `apisix_conf/apisix.yaml.template`).
+
+| Переменная | Назначение |
+|------------|------------|
+| **`OAUTH_ISSUER`** | Строка **issuer** authorization server (базовый URL OAuth2/OIDC provider в Authentik). Попадает в PRM как `authorization_servers[]` и задаёт, какой IdP использовать для discovery. |
+| **`OAUTH_RESOURCE`** | Канонический URL защищаемого ресурса в PRM (часто `https://<MCP_PUBLIC_HOST>/mcp`). Должен совпадать с тем URL, который клиент считает «ресурсом» MCP. |
+| **`OAUTH_AUDIENCE`** | Ожидаемое значение claim **`aud`** в JWT access token при настройке **`jwt-auth`** (или аналога) на маршруте; на практике часто совпадает с **client_id** OAuth-приложения в Authentik, если провайдер так заполняет `aud`. Пока JWT-ветка на шлюзе не включена, переменная может быть пустой. |
+
+Для сценариев **OAuth 2.0** с MCP (protected resource на HTTPS edge, discovery клиента по [RFC 9728](https://www.rfc-editor.org/rfc/rfc9728) и метаданным AS) **зафиксирован** [Authentik](https://docs.goauthentik.io/add-secure-apps/providers/oauth2/) на VPS как **OIDC / OAuth2 provider**.
+
+| Тема | Контракт |
+|------|----------|
+| **Issuer** | Базовый URL провайдера в Authentik — тот же URL, который указан как issuer для OAuth2/OIDC Provider (в UI провайдера / приложения). Его используют клиенты и edge как идентификатор authorization server. |
+| **OIDC discovery** | Обычно доступен по виду **`https://<authentik-host>/application/o/<provider-slug>/.well-known/openid-configuration`**. Точный путь зависит от slug провайдера; **канонический URL** брать из UI Authentik (страница провайдера / ссылка «OpenID Configuration»). |
+| **Приложение в Authentik** | Создать **Application** и связанный **OAuth2 / OpenID Provider**: разрешить нужные grant types (для пользовательских клиентов вроде Glama обычно **authorization code + PKCE**). Задать **redirect URI**, которые ожидает клиент каталога. |
+| **Glama** | В интерфейсе Glama указать **client_id** и **client_secret**, а также **redirect URI(s)** из **того же** приложения Authentik. Glama допускает предрегистрацию клиента вместо DCR. |
+| **DCR** | Полноценный **RFC 7591 Dynamic Client Registration** в Authentik **не** считается стандартной возможностью; ориентир — **статическая пара client_id / client_secret** и redirect URIs в UI клиента. См. обсуждение: [goauthentik/authentik#8751](https://github.com/goauthentik/authentik/issues/8751). |
+| **Токены на edge** | Для проверки access token на шлюзе (например APISIX `jwt-auth`) нужны **JWT access tokens** и JWKS из discovery Authentik. **Opaque** токены потребуют **introspection** на стороне AS, а не только проверки подписи на edge. |
+
+Документация Authentik по OAuth2 provider: [OAuth2 Provider](https://docs.goauthentik.io/add-secure-apps/providers/oauth2/).
+
+---
+
 ## См. также
 
+- [MCP Authorization](https://modelcontextprotocol.io/specification/draft/basic/authorization) — OAuth 2.0 для MCP (RS, PRM, Bearer)
+- [Glama MCP](https://glama.ai/mcp) — каталог серверов; OAuth-клиент настраивается в UI каталога
 - [quick-start.mcp.md](quick-start.mcp.md) — пути, клиенты, mcp-proxy 0.11.0
 - [mcp-http-proxy-integration-audit.md](mcp-http-proxy-integration-audit.md) — Smithery, метрики, перенос ответственности на proxy
 - [docs/monitoring.md](monitoring.md) — метрики API vs порт 4200

@@ -5,10 +5,13 @@
 plugins:
   - name: prometheus
   - name: cors
+  - name: redirect
   - name: key-auth
+  - name: openid-connect
   - name: limit-count
   - name: limit-req
   - name: serverless-pre-function
+  - name: serverless-post-function
 
 global_rules:
   - id: 1
@@ -84,10 +87,213 @@ consumers:
         rejected_code: 429
 
 routes:
+  # RFC 9728 Protected Resource Metadata for OAuth (MCP Authorization). Served on the edge — not proxied to mcp-proxy.
+  # OAUTH_ISSUER + optional OAUTH_RESOURCE (must be listed in nginx_config.envs). If OAUTH_RESOURCE is unset, resource is
+  # scheme://host/ (origin) so clients like Glama match https://<host>/ .
+  - id: well_known_oauth_prm
+    name: oauth-protected-resource-metadata
+    priority: 200
+    uri: /.well-known/oauth-protected-resource
+    methods:
+      - GET
+      - HEAD
+      - OPTIONS
+    upstream_id: mcp_upstream
+    plugins:
+      serverless-pre-function:
+        phase: access
+        functions:
+          - |
+            return function(conf, ctx)
+              ngx.header["Access-Control-Allow-Origin"] = "*"
+              ngx.header["Access-Control-Allow-Methods"] = "GET, HEAD, OPTIONS"
+              ngx.header["Access-Control-Allow-Headers"] = "*"
+              ngx.header["Access-Control-Max-Age"] = "3600"
+              local method = ngx.var.request_method
+              if method == "OPTIONS" then
+                ngx.exit(204)
+              end
+              local json = require("cjson.safe")
+              local resource = os.getenv("OAUTH_RESOURCE")
+              if not resource or resource == "" then
+                resource = ngx.var.scheme .. "://" .. ngx.var.host .. "/"
+              end
+              local issuer = os.getenv("OAUTH_ISSUER")
+              if not issuer or issuer == "" then
+                issuer = "https://example.invalid"
+              end
+              local body = json.encode({ resource = resource, authorization_servers = { issuer } })
+              if not body then
+                ngx.log(ngx.ERR, "oauth PRM: failed to encode JSON")
+                return ngx.exit(500)
+              end
+              ngx.header["Content-Type"] = "application/json; charset=utf-8"
+              ngx.header["Cache-Control"] = "public, max-age=3600"
+              if method == "HEAD" then
+                ngx.header["Content-Length"] = tostring(#body)
+                ngx.exit(200)
+              end
+              ngx.say(body)
+              ngx.exit(200)
+            end
+
+  # RFC 8414 + OIDC discovery on the resource host → 302 to IdP (OAUTH_DISCOVERY) via redirect plugin.
+  # OPTIONS stays on this host (204) so CORS preflight is not redirected to the IdP.
+  # Use singular `uri` per route (not `uris`): some APISIX+yaml loads ignore multi-uri for this path; priority above `/.well-known/*`.
+  - id: well_known_redirect_oauth_as_options
+    name: oauth-as-redirect-options
+    priority: 10001
+    uri: /.well-known/oauth-authorization-server
+    methods:
+      - OPTIONS
+    upstream_id: mcp_upstream
+    plugins:
+      # No cors plugin here: it overrides OPTIONS to 200; headers are set in Lua (204).
+      serverless-pre-function:
+        phase: access
+        functions:
+          - |
+            return function(conf, ctx)
+              ngx.header["Access-Control-Allow-Origin"] = "*"
+              ngx.header["Access-Control-Allow-Methods"] = "GET, HEAD, OPTIONS"
+              ngx.header["Access-Control-Allow-Headers"] = "*"
+              ngx.header["Access-Control-Max-Age"] = "3600"
+              ngx.exit(204)
+            end
+  - id: well_known_redirect_oauth_as
+    name: oauth-as-redirect
+    priority: 10000
+    uri: /.well-known/oauth-authorization-server
+    methods:
+      - GET
+      - HEAD
+    upstream_id: mcp_upstream
+    plugins:
+      cors:
+        allow_origins: "*"
+        allow_methods: "GET,HEAD,OPTIONS"
+        allow_headers: "*"
+        max_age: 3600
+      redirect:
+        uri: "${{OAUTH_DISCOVERY:=https://example.invalid/.well-known/openid-configuration}}"
+        ret_code: 302
+  - id: well_known_redirect_oauth_as_wild_options
+    name: oauth-as-redirect-prefix-options
+    priority: 10001
+    uri: /.well-known/oauth-authorization-server/*
+    methods:
+      - OPTIONS
+    upstream_id: mcp_upstream
+    plugins:
+      serverless-pre-function:
+        phase: access
+        functions:
+          - |
+            return function(conf, ctx)
+              ngx.header["Access-Control-Allow-Origin"] = "*"
+              ngx.header["Access-Control-Allow-Methods"] = "GET, HEAD, OPTIONS"
+              ngx.header["Access-Control-Allow-Headers"] = "*"
+              ngx.header["Access-Control-Max-Age"] = "3600"
+              ngx.exit(204)
+            end
+  - id: well_known_redirect_oauth_as_wild
+    name: oauth-as-redirect-prefix
+    priority: 10000
+    uri: /.well-known/oauth-authorization-server/*
+    methods:
+      - GET
+      - HEAD
+    upstream_id: mcp_upstream
+    plugins:
+      cors:
+        allow_origins: "*"
+        allow_methods: "GET,HEAD,OPTIONS"
+        allow_headers: "*"
+        max_age: 3600
+      redirect:
+        uri: "${{OAUTH_DISCOVERY:=https://example.invalid/.well-known/openid-configuration}}"
+        ret_code: 302
+  - id: well_known_redirect_oidc_options
+    name: oidc-discovery-redirect-options
+    priority: 10001
+    uri: /.well-known/openid-configuration
+    methods:
+      - OPTIONS
+    upstream_id: mcp_upstream
+    plugins:
+      serverless-pre-function:
+        phase: access
+        functions:
+          - |
+            return function(conf, ctx)
+              ngx.header["Access-Control-Allow-Origin"] = "*"
+              ngx.header["Access-Control-Allow-Methods"] = "GET, HEAD, OPTIONS"
+              ngx.header["Access-Control-Allow-Headers"] = "*"
+              ngx.header["Access-Control-Max-Age"] = "3600"
+              ngx.exit(204)
+            end
+  - id: well_known_redirect_oidc
+    name: oidc-discovery-redirect
+    priority: 10000
+    uri: /.well-known/openid-configuration
+    methods:
+      - GET
+      - HEAD
+    upstream_id: mcp_upstream
+    plugins:
+      cors:
+        allow_origins: "*"
+        allow_methods: "GET,HEAD,OPTIONS"
+        allow_headers: "*"
+        max_age: 3600
+      redirect:
+        uri: "${{OAUTH_DISCOVERY:=https://example.invalid/.well-known/openid-configuration}}"
+        ret_code: 302
+  - id: well_known_redirect_oidc_wild_options
+    name: oidc-discovery-redirect-prefix-options
+    priority: 10001
+    uri: /.well-known/openid-configuration/*
+    methods:
+      - OPTIONS
+    upstream_id: mcp_upstream
+    plugins:
+      serverless-pre-function:
+        phase: access
+        functions:
+          - |
+            return function(conf, ctx)
+              ngx.header["Access-Control-Allow-Origin"] = "*"
+              ngx.header["Access-Control-Allow-Methods"] = "GET, HEAD, OPTIONS"
+              ngx.header["Access-Control-Allow-Headers"] = "*"
+              ngx.header["Access-Control-Max-Age"] = "3600"
+              ngx.exit(204)
+            end
+  - id: well_known_redirect_oidc_wild
+    name: oidc-discovery-redirect-prefix
+    priority: 10000
+    uri: /.well-known/openid-configuration/*
+    methods:
+      - GET
+      - HEAD
+    upstream_id: mcp_upstream
+    plugins:
+      cors:
+        allow_origins: "*"
+        allow_methods: "GET,HEAD,OPTIONS"
+        allow_headers: "*"
+        max_age: 3600
+      redirect:
+        uri: "${{OAUTH_DISCOVERY:=https://example.invalid/.well-known/openid-configuration}}"
+        ret_code: 302
+
+  # MCP discovery only (docs/mcp-public-url-contract.md §4). Do NOT use `/.well-known/*` here: APISIX radix + that
+  # wildcard makes `/.well-known/openid-configuration` hit this route instead of the redirect routes → 404/mcp timeout.
   - id: well_known_public
     name: well-known-mcp-discovery
     priority: 100
-    uri: /.well-known/*
+    uris:
+      - /.well-known/mcp
+      - /.well-known/mcp/*
     upstream_id: mcp_upstream
     plugins:
       cors:
@@ -96,6 +302,62 @@ routes:
         allow_headers: "*"
         max_age: 3600
 
+  # OAuth2 / OIDC JWT access tokens: JWKS from OIDC discovery. vars: Authorization Bearer + typical JWT header prefix (eyJ).
+  - id: mcp_protected_oauth_bearer
+    name: mcp-sse-status-oauth-bearer
+    priority: 20
+    uris:
+      - /mcp
+      - /mcp/*
+      - /sse
+      - /sse/*
+      - /status
+    vars:
+      - ["http_authorization", "~~", "^Bearer\\s+eyJ"]
+    upstream_id: mcp_upstream
+    plugins:
+      openid-connect:
+        client_id: "${{OAUTH_CLIENT_ID:=placeholder-oauth-client-id}}"
+        client_secret: "${{OAUTH_CLIENT_SECRET:=placeholder-oauth-client-secret}}"
+        discovery: "${{OAUTH_DISCOVERY:=https://example.invalid/.well-known/openid-configuration}}"
+        bearer_only: true
+        use_jwks: true
+        ssl_verify: true
+        timeout: 10
+        unauth_action: deny
+        realm: mcp
+        token_signing_alg_values_expected: RS256
+        claim_validator:
+          issuer:
+            valid_issuers:
+              - "${{OAUTH_ISSUER:=https://example.invalid}}"
+      limit-req:
+        rate: 100
+        burst: 200
+        key: remote_addr
+        rejected_code: 429
+      # MCP Authorization: 401 must include WWW-Authenticate Bearer + resource_metadata (RFC 9728 PRM URL on this edge).
+      serverless-post-function:
+        phase: header_filter
+        functions:
+          - |
+            return function(conf, ctx)
+              if ngx.status ~= 401 then
+                return
+              end
+              local rm = os.getenv("OAUTH_RESOURCE_METADATA_URL")
+              if not rm or rm == "" then
+                rm = ngx.var.scheme .. "://" .. ngx.var.host .. "/.well-known/oauth-protected-resource"
+              end
+              local scope = os.getenv("OAUTH_WWW_AUTHENTICATE_SCOPE") or ""
+              local w = 'Bearer resource_metadata="' .. rm .. '"'
+              if scope ~= "" then
+                w = w .. ', scope="' .. scope .. '"'
+              end
+              ngx.header["WWW-Authenticate"] = w
+            end
+
+  # Tier API keys: X-API-Key or Bearer <opaque key> (rewritten to X-API-Key). Non-JWT Bearer does not match the route above.
   - id: mcp_protected
     name: mcp-sse-status-protected
     priority: 10
@@ -123,4 +385,24 @@ routes:
       key-auth:
         header: X-API-Key
         hide_credentials: false
+      # MCP Authorization: 401 must include WWW-Authenticate Bearer + resource_metadata (RFC 9728 PRM URL on this edge).
+      serverless-post-function:
+        phase: header_filter
+        functions:
+          - |
+            return function(conf, ctx)
+              if ngx.status ~= 401 then
+                return
+              end
+              local rm = os.getenv("OAUTH_RESOURCE_METADATA_URL")
+              if not rm or rm == "" then
+                rm = ngx.var.scheme .. "://" .. ngx.var.host .. "/.well-known/oauth-protected-resource"
+              end
+              local scope = os.getenv("OAUTH_WWW_AUTHENTICATE_SCOPE") or ""
+              local w = 'Bearer resource_metadata="' .. rm .. '"'
+              if scope ~= "" then
+                w = w .. ', scope="' .. scope .. '"'
+              end
+              ngx.header["WWW-Authenticate"] = w
+            end
 #END
