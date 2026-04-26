@@ -1,11 +1,13 @@
 {
   "name": "transcriptor-mcp",
-  "version": "0.6.9",
+  "version": "1.0.0",
   "description": "API for downloading subtitles from YouTube videos",
   "type": "module",
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",
+    "postbuild": "npm run generate:server-card",
+    "generate:server-card": "node scripts/generate-server-card.mjs",
     "start": "node --import ./dist/instrument.js dist/index.js",
     "start:mcp": "node --import ./dist/instrument.js dist/mcp.js",
     "dev": "ts-node-dev --respawn --transpile-only src/index.ts",

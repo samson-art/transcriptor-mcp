@@ -11,3 +11,6 @@ docker-hub-description.md
 cookies.txt
 .cursor/
 docker-compose.yml
+tokens.csv
+apisix/
+docs/

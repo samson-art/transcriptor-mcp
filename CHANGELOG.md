@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-04-26
+
+### Added
+
+- **MCP HTTP edge guidance:** Added documentation and examples for deploying stdio `mcp-proxy` behind an external edge (reverse proxy or API gateway) with token auth and traffic control.
+- **Edge/operator guides:** Added `docs/edge-smithery-gate.md` and `docs/mcp-edge-rate-limit.md` with concrete policies for `X-MCP-Api-Token`, Smithery-shaped traffic gating, and reverse-proxy rate-limit strategies.
+- **Build-time server-card generation:** Added `scripts/generate-server-card.mjs` and npm scripts (`generate:server-card`, `postbuild`) to produce `.well-known/mcp/server-card.json` automatically after build for SEP-1649/Smithery discovery.
+- **MCP config schema support for `apiToken`:** `.well-known/mcp-config` now documents and maps `apiToken` (`X-MCP-Api-Token`) in addition to `authToken`.
+
+### Changed
+
+- **Smithery session config contract:** `smithery.yaml` now separates `authToken` (Authorization/Bearer for self-hosted edge auth) from `apiToken` (`X-MCP-Api-Token` for token pools/quotas), with explicit header mapping metadata.
+- **Docs alignment around MCP architecture:** README and docs now consistently describe this repo’s MCP model as stdio + external `mcp-proxy`, clarify that Node app `RATE_LIMIT_*` applies to REST API only, and move MCP auth/rate-limit responsibilities to infrastructure edge layers.
+- **Monitoring documentation scope:** `docs/monitoring.md` clarifies that `/metrics` is exposed by the REST API only, while MCP-over-HTTP observability belongs to proxy/WAF metrics, logs, or Sentry.
+- **Quick-start and public-url guidance:** MCP quick-start/public URL docs now include stronger guidance for edge auth, `/mcp` and `/sse` protection, and safer `.well-known` behavior for catalog discovery.
+- **Pre-commit checks:** `.husky/pre-commit` now runs `make prepare && make check-no-smoke`.
+
+### Security
+
+- **Safer MCP auth signaling in server card:** Generated server card keeps `authentication.required: false` to avoid advertising unsupported OAuth schemes while relying on edge-enforced `X-MCP-Api-Token`/Bearer policies documented for operators.
+
 ## [0.6.9] - 2026-03-31
 
 ### Added
