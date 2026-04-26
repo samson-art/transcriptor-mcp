@@ -2,10 +2,17 @@
 # Connect by URL — no local install. Server is published by URL.
 # Server page: https://smithery.ai/servers/samson-art/transcriptor-mcp
 # Public URL: https://server.smithery.ai/samson-art/transcriptor-mcp
+#
+# apiToken → X-MCP-Api-Token for pool / quota checks at the edge. See https://smithery.ai/docs/build/session-config
 config:
   properties:
-    authToken:
+    apiToken:
       type: string
-      description: "Auth token for protected servers. Only needed when the server uses MCP_AUTH_TOKEN. Stored locally by your client; never logged or shared."
+      title: Header token (Google Form)
+      description: "Optional. User pastes token issued via Google Form access flow (https://forms.gle/gFUb5X6mTmzNaHUu6). Smithery forwards this value as X-MCP-Api-Token; your edge can require it for fair-use rate limits. Stored only in the client; never logged or shared."
       secret: true
+      x-from:
+        header: x-mcp-api-token
+      x-to:
+        header: X-MCP-Api-Token
   required: []

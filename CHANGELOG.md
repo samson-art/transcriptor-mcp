@@ -7,51 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.7.1] - 2026-04-05
+## [1.0.0] - 2026-04-26
 
 ### Added
 
-- **`MCP_TRUST_PROXY`:** Parsed in **`src/env.ts`** (`parseMcpTrustProxyEnv`) and passed to Fastify **`trustProxy`** in **`src/mcp-http.ts`** so **`request.ip`** reflects the client behind reverse proxies (**`X-Forwarded-For`**). Supports boolean-ish strings, hop counts, or proxy-addr-style strings (unset/empty defaults to **`true`**).
-- **Prometheus `mcp_http_requests_by_client_ip_total`:** Counter with **`route`**, **`method`**, **`client_ip`** (`src/metrics.ts`, **`recordMcpHttpRequestByClientIp`**); incremented on **`onResponse`** with stable route labels (**`routeLabelForMcpHttpMetrics`**). Optional disable via **`MCP_METRICS_HTTP_REQUESTS_BY_CLIENT_IP`** (`isMcpMetricsHttpRequestsByClientIpEnabled`) to avoid high cardinality.
-- **Anonymous MCP quota by client (HTTP):** When there is no **`X-Api-Key`**, **`resolveLimit`** / **`enforceMcpToolQuota`** accept optional anonymous material (hashed as **`anon:<material>`**); HTTP supplies normalized client IP via **`McpRequestContext.anonymousQuotaMaterial`** and **`createMcpServer({ getAnonymousQuotaMaterial })`**. Stdio MCP omits the resolver and keeps the legacy single global anonymous bucket (**`__mcp_quota_anonymous_v1__`**).
-- **IP helpers for quota/metrics:** **`normalizeIpStringForQuota`**, **`normalizeMcpClientIp`** in **`src/mcp-http.ts`** (trim, bracketed IPv6, zone id strip, lowercase).
+- **MCP HTTP edge guidance:** Added documentation and examples for deploying stdio `mcp-proxy` behind an external edge (reverse proxy or API gateway) with token auth and traffic control.
+- **Edge/operator guides:** Added `docs/edge-smithery-gate.md` and `docs/mcp-edge-rate-limit.md` with concrete policies for `X-MCP-Api-Token`, Smithery-shaped traffic gating, and reverse-proxy rate-limit strategies.
+- **Build-time server-card generation:** Added `scripts/generate-server-card.mjs` and npm scripts (`generate:server-card`, `postbuild`) to produce `.well-known/mcp/server-card.json` automatically after build for SEP-1649/Smithery discovery.
+- **MCP config schema support for `apiToken`:** `.well-known/mcp-config` now documents and maps `apiToken` (`X-MCP-Api-Token`) in addition to `authToken`.
 
 ### Changed
 
-- **MCP HTTP:** **`GET /sse`** session setup runs inside **`runWithMcpRequestContext(buildMcpHttpRequestContext(...))`** so SSE tool calls see the same API key and anonymous quota material as streamable **`/mcp`** and **`/message`**.
-
-### Tests
-
-- **`src/env.test.ts`:** **`parseMcpTrustProxyEnv`**, **`isMcpMetricsHttpRequestsByClientIpEnabled`**.
-- **`src/mcp-http.test.ts`:** IP normalization and route label helpers.
-- **`src/mcp-quota.test.ts`:** Distinct anonymous buckets, **`enforceMcpToolQuota`** with anonymous material vs stdio global bucket.
-- **`src/mcp-request-context.test.ts`:** **`anonymousQuotaMaterial`** in context.
-- **`src/metrics.test.ts`:** **`mcp_http_requests_by_client_ip_total`** export.
-- **E2E `src/e2e/api-smoke.ts`:** Asserts **`mcp_http_requests_by_client_ip_total`** on **`GET /metrics`** when MCP quota metrics are checked.
-
-## [0.7.0] - 2026-04-05
-
-### Added
-
-- **MCP tool call quota (optional):** Per-client limits keyed by **`X-Api-Key`** on MCP HTTP (`src/mcp-quota.ts`, `src/mcp-core.ts`). Enable with **`MCP_QUOTA_ENABLED`**; defaults **`MCP_QUOTA_DEFAULT_MAX`** / **`MCP_QUOTA_DEFAULT_WINDOW`**; optional strict mode **`MCP_QUOTA_REJECT_UNREGISTERED`**; customizable messages via **`MCP_QUOTA_CONTACT_MESSAGE`**, **`MCP_QUOTA_MESSAGE_NO_KEY`**, **`MCP_QUOTA_MESSAGE_INVALID_KEY`**.
-- **Client API key registry (hashed secrets only):** JSON file or inline env — **`MCP_CLIENT_API_KEYS_FILE`** (preferred) or **`MCP_CLIENT_API_KEYS_JSON`**, plus **`MCP_CLIENT_API_KEY_PEPPER`**. Validation, prefix keys, and lookup in **`src/api-key-registry.ts`**; map-based registry builder for fast hash lookup; **`src/mcp-quota-registry.ts`** re-exports loader helpers.
-- **HTTP request context for quota:** **`src/mcp-request-context.ts`** (`AsyncLocalStorage`) so streamable **`/mcp`**, POST **`/sse`**, and **`/message`** expose the client key to **`createMcpServer({ getClientApiKey })`** (`src/mcp-http.ts`).
-- **Prometheus metrics (MCP):** `mcp_quota_checks_total`, `mcp_quota_exceeded_total`, `mcp_quota_tool_calls_blocked_total`, `mcp_quota_http_429_total`, `mcp_quota_check_duration_seconds` in **`src/metrics.ts`**; **`resetMetricsRegistryForTests()`** for unit tests.
-- **Quota counter store:** Fixed-window buckets in **`src/mcp-quota-store.ts`** — in-memory (**`MemoryQuotaCounterStore`**) for single-process; **`RedisQuotaCounterStore`** (Lua INCR + PEXPIRE) for shared Redis when wired in.
-- **Duration parsing:** **`parseQuotaWindowMs()`** in **`src/env.ts`** for quota windows (e.g. `24h`, `30m`, `1 minute`).
-- **MCP session config / Smithery:** Optional **`apiKey`** in **`MCP_SESSION_CONFIG_SCHEMA`** and **`.well-known/mcp-config`** — gateway maps form field to **`X-Api-Key`** (distinct from **`MCP_AUTH_TOKEN`** / Bearer).
-- **Monitoring stack (repo):** `monitoring/prometheus.yml`, Grafana provisioning (`monitoring/grafana/provisioning/...`) and **MCP quota** dashboard JSON **`monitoring/grafana/provisioning/dashboards/files/mcp-quota.json`**. **`docs/monitoring.md`** — new quota metrics, PromQL snippets, dashboard mount notes.
-- **Docs and repo hygiene:** **`CONTRIBUTING.md`** (dev setup, `make prepare` / `make check`); **`SECURITY.md`** (supported versions, private reporting via GitHub Security Advisories). **`docs/configuration.md`** and **`.env.example`** — full quota and registry variable list.
-- **Tests:** **`src/api-key-registry.test.ts`**, **`src/mcp-quota.test.ts`**, **`src/mcp-quota-store.test.ts`**, **`src/mcp-request-context.test.ts`**, **`src/metrics.test.ts`**; MCP quota scenarios in **`src/mcp-core.test.ts`**; schema assertions in **`src/mcp-http.test.ts`**. E2E **`src/e2e/api-smoke.ts`** — optional **`MCP_QUOTA_ENABLED`** / high default max, asserts quota-related series on **`GET /metrics`** (skip with **`SMOKE_SKIP_MCP_QUOTA_METRICS`**).
-
-### Changed
-
-- **Dockerfile:** Build stage **`node:20-alpine`**; runtime base **`node:20-bookworm-slim`** (Debian, `apt-get` for yt-dlp/ffmpeg stack); comment clarifying Alpine vs Debian for system packages.
-- **`npm test`:** Jest runs with **`--forceExit`** to avoid hanging on open handles in CI.
+- **Smithery session config contract:** `smithery.yaml` now separates `authToken` (Authorization/Bearer for self-hosted edge auth) from `apiToken` (`X-MCP-Api-Token` for token pools/quotas), with explicit header mapping metadata.
+- **Docs alignment around MCP architecture:** README and docs now consistently describe this repo’s MCP model as stdio + external `mcp-proxy`, clarify that Node app `RATE_LIMIT_*` applies to REST API only, and move MCP auth/rate-limit responsibilities to infrastructure edge layers.
+- **Monitoring documentation scope:** `docs/monitoring.md` clarifies that `/metrics` is exposed by the REST API only, while MCP-over-HTTP observability belongs to proxy/WAF metrics, logs, or Sentry.
+- **Quick-start and public-url guidance:** MCP quick-start/public URL docs now include stronger guidance for edge auth, `/mcp` and `/sse` protection, and safer `.well-known` behavior for catalog discovery.
+- **Pre-commit checks:** `.husky/pre-commit` now runs `make prepare && make check-no-smoke`.
 
 ### Security
 
-- **`.gitignore`:** Ignore **`secrets/`** to reduce risk of committing local key material.
+- **Safer MCP auth signaling in server card:** Generated server card keeps `authentication.required: false` to avoid advertising unsupported OAuth schemes while relying on edge-enforced `X-MCP-Api-Token`/Bearer policies documented for operators.
 
 ## [0.6.9] - 2026-03-31
 

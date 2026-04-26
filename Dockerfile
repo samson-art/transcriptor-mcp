@@ -1,7 +1,7 @@
 # ============================================
 # Stage 1: Build
 # ============================================
-FROM node:20-alpine AS builder
+FROM node:20-slim AS builder
 
 WORKDIR /app
 
@@ -15,9 +15,8 @@ RUN npm run build
 
 # ============================================
 # Stage 2: Base (shared runtime: yt-dlp, ffmpeg, Deno)
-# Debian-based image — has apt-get (Alpine uses apk, not apt).
 # ============================================
-FROM node:20-bookworm-slim AS base
+FROM node:20-slim AS base
 
 # Системные зависимости для yt-dlp и JS runtime (ffmpeg для постобработки аудио)
 RUN apt-get update && apt-get install -y \
@@ -72,6 +71,8 @@ RUN /usr/local/bin/npm ci --omit=dev --ignore-scripts && /usr/local/bin/npm cach
 
 COPY --from=builder /app/dist ./dist
 
-EXPOSE 4200
+# mcp-proxy exposes HTTP/SSE (see docker-compose.example.yml, docs/quick-start.mcp.md). Default CMD is stdio-only.
+RUN pip3 install --no-cache-dir --break-system-packages mcp-proxy==0.11.0
 
+# Default: MCP over stdio (e.g. `docker run --rm -i`). No listen port in this mode.
 CMD ["npm", "run", "start:mcp"]

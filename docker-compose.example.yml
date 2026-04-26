@@ -37,17 +37,23 @@ services:
   transcriptor-mcp:
     image: artsamsonov/transcriptor-mcp:latest
     container_name: transcriptor-mcp
-    command: ["npm", "run", "start:mcp:http"]
-    stdin_open: true
-    tty: true
+    # stdio MCP behind mcp-proxy (HTTP/SSE + streamable HTTP); see https://github.com/sparfenyuk/mcp-proxy
+    command:
+      - mcp-proxy
+      - --pass-environment
+      - --host=0.0.0.0
+      - --port=4200
+      - --
+      - node
+      - --import
+      - ./dist/instrument.js
+      - dist/mcp.js
     environment:
-      MCP_PORT: "4200"
-      MCP_HOST: "0.0.0.0"
       YT_DLP_TIMEOUT: "60000"
       SHUTDOWN_TIMEOUT: "60000"
       YT_DLP_JS_RUNTIMES: "node"
       COOKIES_FILE_PATH: "/cookies.txt"
-      # Optional: MCP_AUTH_TOKEN, MCP_ALLOWED_HOSTS, MCP_ALLOWED_ORIGINS, LOG_LEVEL, CACHE_* (see .env.example and docs/configuration.md)
+      # Optional: LOG_LEVEL, CACHE_* (see .env.example and docs/configuration.md). For Bearer on HTTP/SSE, terminate auth at a reverse proxy in front of mcp-proxy (see docs/quick-start.mcp.md).
       # Optional: SENTRY_DSN, SENTRY_ENVIRONMENT, SENTRY_RELEASE (see docs/sentry.md)
       # Whisper fallback (local container)
       WHISPER_MODE: "local"

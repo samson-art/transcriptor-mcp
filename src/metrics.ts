@@ -91,75 +91,11 @@ export const mcpToolErrorsTotal = new Counter({
   registers: [register],
 });
 
-export const mcpSessionTotal = new Gauge({
-  name: 'mcp_session_total',
-  help: 'Active MCP sessions',
-  labelNames: ['type'],
-  registers: [register],
-});
-
 export const mcpRequestDurationSeconds = new Histogram({
   name: 'mcp_request_duration_seconds',
   help: 'MCP request duration in seconds',
   labelNames: ['endpoint'],
   buckets: [0.01, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10],
-  registers: [register],
-});
-
-/** Outcome of a quota check before `tools/call` (plan: observability / cardinality-safe tiers). */
-export type McpQuotaCheckResult =
-  | 'allowed'
-  | 'exceeded'
-  | 'rejected_no_key'
-  | 'rejected_invalid_key';
-
-/** Quota tier for metrics labels (`anonymous` = unregistered / unknown key bucket). */
-export type McpQuotaTier = 'registered' | 'default' | 'anonymous';
-
-export const mcpQuotaChecksTotal = new Counter({
-  name: 'mcp_quota_checks_total',
-  help: 'MCP quota checks before tools/call',
-  labelNames: ['result', 'tier'],
-  registers: [register],
-});
-
-/** Use `key_id="none"` when the exceed is not tied to a registry entry. */
-export const mcpQuotaExceededTotal = new Counter({
-  name: 'mcp_quota_exceeded_total',
-  help: 'MCP quota limit exceeded (decision before responding to client)',
-  labelNames: ['tier', 'key_id'],
-  registers: [register],
-});
-
-export const mcpQuotaToolCallsBlockedTotal = new Counter({
-  name: 'mcp_quota_tool_calls_blocked_total',
-  help: 'MCP tool calls blocked by quota',
-  labelNames: ['tool'],
-  registers: [register],
-});
-
-export const mcpQuotaHttp429Total = new Counter({
-  name: 'mcp_quota_http_429_total',
-  help: 'HTTP 429 responses emitted for MCP quota before the MCP session',
-  labelNames: ['route'],
-  registers: [register],
-});
-
-export const mcpQuotaCheckDurationSeconds = new Histogram({
-  name: 'mcp_quota_check_duration_seconds',
-  help: 'Duration of a single MCP quota check (Redis / in-memory)',
-  buckets: [0.0001, 0.0005, 0.001, 0.005, 0.01, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10],
-  registers: [register],
-});
-
-/**
- * Per-request HTTP counts for the MCP server, labeled by route pattern, method, and client IP.
- * High cardinality when many unique IPs connect; disable via MCP_METRICS_HTTP_REQUESTS_BY_CLIENT_IP=0.
- */
-export const mcpHttpRequestsByClientIpTotal = new Counter({
-  name: 'mcp_http_requests_by_client_ip_total',
-  help: 'HTTP requests to the MCP server by route, method, and client_ip (disable if cardinality is too high)',
-  labelNames: ['route', 'method', 'client_ip'],
   registers: [register],
 });
 
@@ -233,55 +169,8 @@ export function recordMcpToolError(tool: string): void {
   mcpToolErrorsTotal.inc({ tool });
 }
 
-export function setMcpSessionCount(type: 'streamable' | 'sse', count: number): void {
-  mcpSessionTotal.set({ type }, count);
-}
-
 export function recordMcpRequestDuration(endpoint: string, durationSeconds: number): void {
   mcpRequestDurationSeconds.observe({ endpoint }, durationSeconds);
-}
-
-export function recordMcpQuotaCheck(result: McpQuotaCheckResult, tier: McpQuotaTier): void {
-  mcpQuotaChecksTotal.inc({ result, tier });
-}
-
-/**
- * @param keyId Stable registry id for registered keys; use `none` when not applicable.
- */
-export function recordMcpQuotaExceeded(tier: McpQuotaTier, keyId: string = 'none'): void {
-  mcpQuotaExceededTotal.inc({ tier, key_id: keyId });
-}
-
-export function recordMcpQuotaToolCallsBlocked(tool: string): void {
-  mcpQuotaToolCallsBlockedTotal.inc({ tool });
-}
-
-/** Alias for {@link recordMcpQuotaToolCallsBlocked} (stdio quota module naming). */
-export function recordMcpQuotaToolBlocked(tool: string): void {
-  recordMcpQuotaToolCallsBlocked(tool);
-}
-
-export function recordMcpQuotaHttp429(route: string): void {
-  mcpQuotaHttp429Total.inc({ route });
-}
-
-export function recordMcpQuotaCheckDuration(durationSeconds: number): void {
-  mcpQuotaCheckDurationSeconds.observe(durationSeconds);
-}
-
-export function recordMcpHttpRequestByClientIp(
-  route: string,
-  method: string,
-  clientIp: string
-): void {
-  mcpHttpRequestsByClientIpTotal.inc({ route, method, client_ip: clientIp });
-}
-
-/**
- * Sets default labels (service=api or service=mcp). Call from mcp-http to override.
- */
-export function setMetricsService(service: 'api' | 'mcp'): void {
-  register.setDefaultLabels({ service });
 }
 
 /**
@@ -289,9 +178,4 @@ export function setMetricsService(service: 'api' | 'mcp'): void {
  */
 export async function renderPrometheus(): Promise<string> {
   return register.metrics();
-}
-
-/** Resets all metric values (for tests only). */
-export function resetMetricsRegistryForTests(): void {
-  register.resetMetrics();
 }

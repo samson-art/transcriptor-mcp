@@ -2,24 +2,16 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://github.com/samson-art/transcriptor-mcp#mcp-config",
   "title": "Transcriptor MCP configuration",
-  "description": "Optional session configuration for the Transcriptor MCP server. No fields are required. When connecting via Smithery, set authToken if the server uses MCP_AUTH_TOKEN; set apiKey when you have a client API key for quota. Without a registered apiKey, default tool-call limits are set on the server (MCP_QUOTA_DEFAULT_MAX, MCP_QUOTA_DEFAULT_WINDOW).",
+  "description": "Session configuration for the Transcriptor MCP server. For Smithery installs, paste your token issued via Google Form into apiToken; the gateway forwards it as X-MCP-Api-Token for your edge to validate and rate-limit /mcp (and /sse).",
   "type": "object",
   "properties": {
-    "authToken": {
+    "apiToken": {
       "type": "string",
-      "title": "Bearer token",
-      "description": "Instance auth for protected servers. Only needed when the deployment uses MCP_AUTH_TOKEN. Stored locally by your client; never logged or shared. Distinct from apiKey (per-client quota).",
+      "title": "API token (Smithery)",
+      "description": "Token issued by maintainer via Google Form access flow. User sets this value in session config; Smithery forwards it as X-MCP-Api-Token so your reverse proxy or WAF can reject missing/invalid tokens and apply per-token or per-IP quotas on MCP HTTP traffic. Stored only in your client; never commit or log.",
       "secret": true,
-      "x-from": { "header": "x-mcp-auth-token" },
-      "x-to": { "header": "Authorization" }
-    },
-    "apiKey": {
-      "type": "string",
-      "title": "Client API key",
-      "description": "Per-client API key for quota tiers. Forwarded as X-Api-Key (not the same as MCP_AUTH_TOKEN). If omitted, the server applies default tool-call limits (MCP_QUOTA_DEFAULT_MAX and MCP_QUOTA_DEFAULT_WINDOW).",
-      "secret": true,
-      "x-from": { "header": "x-api-key" },
-      "x-to": { "header": "X-Api-Key" }
+      "x-from": { "header": "x-mcp-api-token" },
+      "x-to": { "header": "x-mcp-api-token" }
     }
   },
   "required": [],
@@ -27,9 +19,9 @@
   "documentation": {
     "gettingStarted": {
       "title": "Getting started",
-      "description": "1. Connect to the server URL (e.g. https://server.smithery.ai/samson-art/transcriptor-mcp) — no session config required for public instances.\n2. Use get_transcript, get_video_info, or search_videos to fetch transcripts and metadata.\n3. If your deployment uses MCP_AUTH_TOKEN, set authToken; the gateway sends Authorization: Bearer.\n4. If you were issued a client API key, set apiKey for quota; the gateway sends X-Api-Key. Without apiKey, default limits are configured on the server (MCP_QUOTA_DEFAULT_MAX, MCP_QUOTA_DEFAULT_WINDOW)."
+      "description": "1. If you connect through Smithery (https://server.smithery.ai/samson-art/transcriptor-mcp), request access via https://forms.gle/gFUb5X6mTmzNaHUu6 and paste the issued token into apiToken in session config so the gateway sends X-MCP-Api-Token.\n2. Configure your edge to require X-MCP-Api-Token and apply rate limits on /mcp (and /sse).\n3. Use get_transcript, get_video_info, or search_videos to fetch transcripts and metadata."
     },
     "apiLink": "https://github.com/samson-art/transcriptor-mcp#readme",
-    "security": "Keep authToken and apiKey secret. Do not commit or log them. authToken gates access to the instance; apiKey identifies your client quota tier."
+    "security": "Treat apiToken as a secret. Do not commit it, paste it into public chats, or log request headers. Quotas for MCP over HTTP belong on your infrastructure (edge before mcp-proxy), typically keyed by X-MCP-Api-Token."
   }
 }
