@@ -3,10 +3,7 @@
 # Transcriptor MCP
 
 [![Dockerhub](https://img.shields.io/badge/Docker-artsamsonov/transcriptor--mcp-blue.svg)](https://hub.docker.com/r/artsamsonov/transcriptor-mcp)
-[![smithery badge](https://smithery.ai/badge/samson-art/transcriptor-mcp)](https://smithery.ai/servers/samson-art/transcriptor-mcp)
 [![GitHub License](https://img.shields.io/github/license/samson-art/transcriptor-mcp)](https://github.com/samson-art/transcriptor-mcp/blob/main/LICENSE)
-
-[![transcriptor-mcp MCP server](https://glama.ai/mcp/servers/samson-art/transcriptor-mcp/badges/card.svg)](https://glama.ai/mcp/servers/samson-art/transcriptor-mcp)
 
 An MCP server (stdio; remote HTTP/SSE via [mcp-proxy](https://github.com/sparfenyuk/mcp-proxy)) that fetches video transcripts/subtitles via `yt-dlp`, with pagination for large responses. Supports YouTube, Twitter/X, Instagram, TikTok, Twitch, Vimeo, Facebook, Bilibili, VK, Dailymotion, Reddit. **Whisper fallback** — transcribes audio when subtitles are unavailable (local or OpenAI API). Works with Cursor and other MCP hosts.
 
@@ -33,7 +30,7 @@ Transcriptor MCP is the best choice when you need **transcripts and metadata** f
 
 - **Transcripts and subtitles** — cleaned text or raw SRT/VTT; multi-language; **Whisper fallback** when subtitles are unavailable (local or OpenAI).
 - **Multi-platform** — YouTube, Twitter/X, Instagram, TikTok, Twitch, Vimeo, Facebook, Bilibili, VK, Dailymotion, Reddit.
-- **Remote and production** — stdio + mcp-proxy for HTTP/SSE, optional auth at the edge, Redis cache, Prometheus metrics on the REST API; **connect without a local install** via [Smithery](https://smithery.ai/servers/samson-art/transcriptor-mcp) using a session **apiToken**.
+- **Remote and production** — stdio + mcp-proxy for HTTP/SSE, optional auth at a reverse proxy, Redis cache, Prometheus metrics on the REST API.
 - **No media downloads** — we focus on text and metadata only. For downloading videos or audio.
 
 Use the sections in this README for setup, tools, and deployment patterns.
@@ -65,25 +62,21 @@ Cursor MCP config:
 
 Detailed local + self-hosted HTTP/SSE instructions are in [How to connect](#how-to-connect) and [MCP quick start](#mcp-quick-start).
 
-### 2) Remote MCP via Smithery (no local install)
+### 2) Remote MCP via HTTP/SSE (mcp-proxy)
 
-- Server listing: [smithery.ai/servers/samson-art/transcriptor-mcp](https://smithery.ai/servers/samson-art/transcriptor-mcp)
-- URL: `https://server.smithery.ai/samson-art/transcriptor-mcp`
-- Requires session **`apiToken`** (header token issued via [Google Form](https://forms.gle/gFUb5X6mTmzNaHUu6))
+Expose stdio over HTTP/SSE with [mcp-proxy](https://github.com/sparfenyuk/mcp-proxy). See [docker-compose.example.yml](docker-compose.example.yml) for a full stack (optional REST API + MCP).
 
-Smithery maps session `apiToken` to upstream `X-MCP-Api-Token`. Keep the token secret (do not commit or log).
+After you deploy mcp-proxy (and optionally TLS or Bearer auth at a reverse proxy), point MCP clients at your endpoint, for example:
 
-Full Smithery setup steps and examples are in [How to connect](#how-to-connect).
+```text
+https://your-host.example/mcp
+```
 
-Other directories and one-click listings:
-- [Glama](https://glama.ai/mcp/servers/samson-art/transcriptor-mcp)
-- [Install in VS Code](https://insiders.vscode.dev/redirect/mcp/install?name=transcriptor&config=%7B%22url%22%3A%22https%3A%2F%2Fserver.smithery.ai%2Fsamson-art%2Ftranscriptor-mcp%22%7D)
-- [Install in VS Code Insiders](https://insiders.vscode.dev/redirect/mcp/install?name=transcriptor&config=%7B%22url%22%3A%22https%3A%2F%2Fserver.smithery.ai%2Fsamson-art%2Ftranscriptor-mcp%22%7D&quality=insiders)
+Streamable HTTP uses `POST /mcp`; SSE uses `GET /sse`. The MCP Node process does not validate Bearer tokens — configure auth on the proxy in front of mcp-proxy if needed.
 
 ## Features
 
 - **Multi-platform** — YouTube, Reddit, Twitter/X, Instagram, TikTok, Twitch, Vimeo, Facebook, Bilibili, VK, Dailymotion.
-- **Connect by URL (Smithery, Glama)** — use the server without installing Docker or Node; [Smithery](https://smithery.ai/servers/samson-art/transcriptor-mcp), [Glama](https://glama.ai/mcp/servers/samson-art/transcriptor-mcp).
 - **Transcripts + raw subtitles**: cleaned text or raw SRT/VTT.
 - **Language support**: official subtitles with auto-generated fallback.
 - **Video metadata**: extended info (title, channel, tags, thumbnails, etc.) and chapter markers.
@@ -103,7 +96,7 @@ You can enable these features independently; both are **off by default**.
 
 ## MCP quick start
 
-For full setup options (Local Docker, Smithery remote, and self-hosted HTTP/SSE with `mcp-proxy`), use:
+For full setup options (local Docker and self-hosted HTTP/SSE with `mcp-proxy`), use:
 
 - [How to connect](#how-to-connect)
 - [MCP Server (stdio)](#mcp-server-stdio)
@@ -384,7 +377,7 @@ The MCP server runs on stdio (`dist/mcp.js`) and can be used via:
 - local Node (`node dist/mcp.js`)
 - remote HTTP/SSE through `mcp-proxy` (`/mcp` and `/sse`)
 
-Use [How to connect](#how-to-connect) as the main guide for MCP setup variants and auth notes (`apiToken`/`X-MCP-Api-Token` for Smithery vs Bearer on your own edge).
+Use [How to connect](#how-to-connect) as the main guide for MCP setup variants; optional Bearer auth is configured on a reverse proxy in front of mcp-proxy.
 
 ## How It Works
 
@@ -456,7 +449,6 @@ The app version is read from `package.json` at runtime (`[src/version.ts](src/ve
 │   └── *.test.ts                   # Unit tests (Jest), co-located
 ├── dist/                           # Compiled JavaScript (npm run build)
 ├── load/                           # Load-test scripts (k6)
-├── scripts/                        # Maintenance scripts (e.g. generate-server-card.mjs)
 ├── .github/workflows/              # CI and Docker Hub publish
 ├── Dockerfile                      # API and MCP images (--target api|mcp)
 ├── docker-compose.example.yml      # Example API + MCP stack
@@ -465,7 +457,6 @@ The app version is read from `package.json` at runtime (`[src/version.ts](src/ve
 ├── tsconfig.json
 ├── eslint.config.mjs
 ├── jest.config.cjs
-├── smithery.yaml
 └── README.md
 ```
 

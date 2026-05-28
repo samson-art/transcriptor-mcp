@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-05-28
+
+### Added
+
+- **Hosted service legal terms:** Added `legal/EULA.md` and `legal/TERMS_OF_SERVICE.md` for the hosted Transcriptor MCP offering (OAuth-protected MCP at operator endpoints). Self-hosted deployments remain under the MIT License.
+
+### Changed
+
+- **README — remote MCP setup:** Quick start and connection docs now describe self-hosted HTTP/SSE via [mcp-proxy](https://github.com/sparfenyuk/mcp-proxy) (optional TLS/Bearer auth at a reverse proxy) instead of Smithery/Glama URL install, session `apiToken`, and one-click registry badges.
+
+### Removed
+
+- **Smithery and Glama artifacts:** Removed `smithery.yaml`, `glama.json`, and README/registry connection docs (badges, remote URL install links, session `apiToken` flow).
+- **Legacy `.well-known` MCP discovery files:** Removed `.well-known/mcp-config` and `.well-known/mcp/server-card.json` (artifacts from the old in-process MCP HTTP server; not served by stdio or `mcp-proxy`). Tool discovery uses live MCP (`tools/list`, etc.).
+- **`scripts/generate-server-card.mjs`:** Removed build-time server-card generator and `postbuild` / `generate:server-card` npm scripts.
+
 ## [1.0.0] - 2026-04-26
 
 ### Added
