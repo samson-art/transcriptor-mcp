@@ -769,6 +769,349 @@ export async function downloadAudio(
   }
 }
 
+/** Supported output image formats for video frame capture. */
+export type VideoFrameFormat = 'png' | 'jpeg';
+
+export type CaptureVideoFrameOptions = {
+  /** Output image format (default: jpeg) */
+  format?: VideoFrameFormat;
+  /** Max output width in pixels; the frame is never upscaled (default: 1280) */
+  width?: number;
+  /** JPEG quality for ffmpeg -q:v, 2 (best) to 31 (worst); ignored for png (default: 4) */
+  quality?: number;
+};
+
+export type CaptureVideoFrameOutcome =
+  | { ok: true; videoId: string; data: Buffer; mimeType: 'image/jpeg' | 'image/png' }
+  | {
+      ok: false;
+      reason: 'timestamp_beyond_duration';
+      videoId: string;
+      durationSeconds: number;
+    }
+  | { ok: false; reason: 'capture_failed'; videoId: string; details: ExecFileErrorDetails };
+
+type VideoStreamInfo = {
+  videoId: string | null;
+  durationSeconds: number | null;
+  streamUrls: string[];
+};
+
+/** Prefers a single mp4 video stream no wider than the requested frame; falls back to best. */
+function buildFrameFormatSelector(width: number): string {
+  return `bv*[width<=?${width}][ext=mp4]/bv*[width<=?${width}]/bv*/b`;
+}
+
+/** ffmpeg scale filter: cap width without upscaling, keep height even (comma escaped for filtergraph). */
+function buildFrameScaleFilter(width: number): string {
+  return `scale=min(iw\\,${width}):-2`;
+}
+
+function getFrameCaptureTimeout(): number {
+  return parseIntEnv('YT_DLP_FRAME_TIMEOUT', parseIntEnv('YT_DLP_TIMEOUT', 60000));
+}
+
+/**
+ * Fetches video id, duration and direct stream URLs in one yt-dlp call
+ * (--print id --print duration --print urls, in that order).
+ */
+async function fetchVideoStreamInfo(
+  url: string,
+  formatSelector: string,
+  envArgs: string[],
+  logger?: FastifyBaseLogger
+): Promise<VideoStreamInfo | null> {
+  const args = [
+    '-f',
+    formatSelector,
+    '--skip-download',
+    '--no-playlist',
+    '--print',
+    'id',
+    '--print',
+    'duration',
+    '--print',
+    'urls',
+    ...envArgs,
+    url,
+  ];
+  try {
+    const { stdout, stderr } = await execFileAsync('yt-dlp', args, {
+      maxBuffer: 10 * 1024 * 1024,
+      timeout: getFrameCaptureTimeout(),
+    });
+    if (stderr) logger?.debug({ stderr }, 'yt-dlp stderr');
+
+    const lines = stdout
+      .split('\n')
+      .map((l) => l.trim())
+      .filter((l) => l.length > 0);
+    if (lines.length < 2) {
+      return null;
+    }
+    const [idLine, durationLine, ...urlLines] = lines;
+    const duration = Number.parseFloat(durationLine);
+    return {
+      videoId: idLine && idLine !== 'NA' ? idLine : null,
+      durationSeconds: Number.isFinite(duration) ? duration : null,
+      streamUrls: urlLines.filter((l) => /^https?:\/\//i.test(l)),
+    };
+  } catch (error: unknown) {
+    const details = collectExecFileErrorDetails(error);
+    logger?.warn(execDetailsToLogFields(details), 'Failed to fetch stream info for frame capture');
+    return null;
+  }
+}
+
+async function runFfmpegFrameCapture(opts: {
+  input: string;
+  /** Seek position in the input; omit to take the first frame */
+  seekSeconds?: number;
+  width: number;
+  format: VideoFrameFormat;
+  quality: number;
+  outputPath: string;
+  proxy?: string;
+}): Promise<void> {
+  const args: string[] = ['-hide_banner', '-loglevel', 'error'];
+  if (opts.proxy) {
+    args.push('-http_proxy', opts.proxy);
+  }
+  if (opts.seekSeconds !== undefined) {
+    args.push('-ss', String(opts.seekSeconds));
+  }
+  args.push('-i', opts.input, '-frames:v', '1', '-vf', buildFrameScaleFilter(opts.width));
+  if (opts.format === 'jpeg') {
+    args.push('-q:v', String(opts.quality));
+  }
+  args.push('-y', opts.outputPath);
+  await execFileAsync('ffmpeg', args, {
+    maxBuffer: 10 * 1024 * 1024,
+    timeout: getFrameCaptureTimeout(),
+  });
+}
+
+/** Reads a captured frame file and removes it; null when missing or empty. */
+async function readFrameFile(path: string): Promise<Buffer | null> {
+  try {
+    const data = await readFile(path);
+    await unlink(path).catch(() => {});
+    return data.length > 0 ? data : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Fallback: downloads a short re-encoded section starting exactly at the timestamp
+ * (--force-keyframes-at-cuts), so the first frame of the clip is the requested frame.
+ * Returns the clip path; caller must unlink it.
+ */
+async function downloadVideoSection(
+  url: string,
+  timestampSeconds: number,
+  formatSelector: string,
+  envArgs: string[],
+  logger?: FastifyBaseLogger
+): Promise<string | null> {
+  const tempDir = tmpdir();
+  const outputBase = join(tempDir, urlToSafeBase(url, 'frame_clip'));
+  const args = [
+    '-f',
+    formatSelector,
+    '--download-sections',
+    `*${timestampSeconds}-${timestampSeconds + 2}`,
+    '--force-keyframes-at-cuts',
+    '--output',
+    `${outputBase}.%(ext)s`,
+    '--no-playlist',
+    ...envArgs,
+    url,
+  ];
+  try {
+    await execFileAsync('yt-dlp', args, {
+      maxBuffer: 10 * 1024 * 1024,
+      timeout: getFrameCaptureTimeout(),
+    });
+  } catch (error: unknown) {
+    const details = collectExecFileErrorDetails(error);
+    logger?.error(execDetailsToLogFields(details), 'Error downloading video section for frame');
+    // The clip may still exist despite the error; fall through to the file search.
+  }
+
+  const { readdir } = await import('node:fs/promises');
+  const baseName = outputBase.split(/[/\\]/).pop() ?? '';
+  try {
+    const files = await readdir(tempDir);
+    const clip = files.find((f) => f.startsWith(baseName));
+    return clip ? join(tempDir, clip) : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Captures a single frame from a video at the given timestamp.
+ * Fast path: yt-dlp resolves a direct stream URL and ffmpeg seeks over HTTP.
+ * Fallback: yt-dlp downloads a ~2s section and ffmpeg takes its first frame.
+ * @param url - Video URL (any supported platform)
+ * @param timestampSeconds - Frame position from the start of the video
+ */
+export async function captureVideoFrame(
+  url: string,
+  timestampSeconds: number,
+  options: CaptureVideoFrameOptions = {},
+  logger?: FastifyBaseLogger
+): Promise<CaptureVideoFrameOutcome> {
+  const format: VideoFrameFormat = options.format ?? 'jpeg';
+  const width = options.width ?? 1280;
+  const quality = options.quality ?? 4;
+  const mimeType = format === 'png' ? 'image/png' : 'image/jpeg';
+  const outputPath = join(
+    tmpdir(),
+    `${urlToSafeBase(url, 'frame')}.${format === 'png' ? 'png' : 'jpg'}`
+  );
+  const formatSelector = buildFrameFormatSelector(width);
+
+  const { jsRuntimes, remoteComponents, cookiesFilePathFromEnv, proxyFromEnv } = getYtDlpEnv();
+  let cookiesPathToUse = cookiesFilePathFromEnv;
+  let cookiesCleanup: (() => Promise<void>) | undefined;
+  if (cookiesFilePathFromEnv) {
+    const resolved = await ensureWritableCookiesFile(cookiesFilePathFromEnv);
+    cookiesPathToUse = resolved.path;
+    cookiesCleanup = resolved.cleanup;
+  }
+  const envArgs: string[] = [];
+  appendYtDlpEnvArgs(envArgs, {
+    jsRuntimes,
+    remoteComponents,
+    cookiesFilePathFromEnv: cookiesPathToUse,
+    proxyFromEnv,
+  });
+
+  let clipPath: string | null = null;
+  try {
+    await logCookiesFileStatus(logger, cookiesFilePathFromEnv);
+    logger?.info({ timestampSeconds, format, width }, 'Capturing video frame');
+
+    const streamInfo = await fetchVideoStreamInfo(url, formatSelector, envArgs, logger);
+    const videoId = streamInfo?.videoId ?? extractYouTubeVideoId(url) ?? 'unknown';
+
+    if (
+      streamInfo?.durationSeconds != null &&
+      streamInfo.durationSeconds > 0 &&
+      timestampSeconds > streamInfo.durationSeconds
+    ) {
+      return {
+        ok: false,
+        reason: 'timestamp_beyond_duration',
+        videoId,
+        durationSeconds: streamInfo.durationSeconds,
+      };
+    }
+
+    let lastError: unknown = null;
+
+    for (const streamUrl of streamInfo?.streamUrls.slice(0, 2) ?? []) {
+      try {
+        await runFfmpegFrameCapture({
+          input: streamUrl,
+          seekSeconds: timestampSeconds,
+          width,
+          format,
+          quality,
+          outputPath,
+          proxy: proxyFromEnv,
+        });
+        const data = await readFrameFile(outputPath);
+        if (data) {
+          return { ok: true, videoId, data, mimeType };
+        }
+      } catch (error: unknown) {
+        lastError = error;
+        logger?.warn(
+          { error: error instanceof Error ? error.message : String(error) },
+          'Direct stream frame capture failed, trying section download fallback'
+        );
+      }
+    }
+
+    clipPath = await downloadVideoSection(url, timestampSeconds, formatSelector, envArgs, logger);
+    if (clipPath) {
+      try {
+        await runFfmpegFrameCapture({
+          input: clipPath,
+          width,
+          format,
+          quality,
+          outputPath,
+        });
+        const data = await readFrameFile(outputPath);
+        if (data) {
+          return { ok: true, videoId, data, mimeType };
+        }
+      } catch (error: unknown) {
+        lastError = error;
+      }
+    }
+
+    const details = collectExecFileErrorDetails(
+      lastError ??
+        new Error(
+          'No frame produced (timestamp may be beyond the end of the video or the stream is not seekable).'
+        )
+    );
+    logger?.error(execDetailsToLogFields(details), 'Error capturing video frame');
+    return { ok: false, reason: 'capture_failed', videoId, details };
+  } finally {
+    await cookiesCleanup?.();
+    await unlink(outputPath).catch(() => {});
+    if (clipPath) {
+      await unlink(clipPath).catch(() => {});
+    }
+  }
+}
+
+/**
+ * Reads image width from PNG IHDR or JPEG SOF header bytes.
+ * Returns null when the buffer is not a recognizable PNG/JPEG.
+ */
+export function getImageWidth(data: Buffer): number | null {
+  // PNG: 8-byte signature, then IHDR chunk: length(4) "IHDR"(4) width(4) height(4)
+  if (data.length >= 24 && data.readUInt32BE(0) === 0x89504e47) {
+    if (data.readUInt32BE(12) !== 0x49484452) {
+      return null;
+    }
+    return data.readUInt32BE(16);
+  }
+  // JPEG: scan segments for SOF0-SOF15 (0xC4 DHT, 0xC8 JPG, 0xCC DAC are not frame headers)
+  if (data.length >= 4 && data[0] === 0xff && data[1] === 0xd8) {
+    let offset = 2;
+    while (offset + 9 <= data.length) {
+      if (data[offset] !== 0xff) {
+        return null;
+      }
+      const marker = data[offset + 1];
+      if (
+        marker >= 0xc0 &&
+        marker <= 0xcf &&
+        marker !== 0xc4 &&
+        marker !== 0xc8 &&
+        marker !== 0xcc
+      ) {
+        // SOF segment: length(2) precision(1) height(2) width(2)
+        return data.readUInt16BE(offset + 7);
+      }
+      const segmentLength = data.readUInt16BE(offset + 2);
+      if (segmentLength < 2) {
+        return null;
+      }
+      offset += 2 + segmentLength;
+    }
+  }
+  return null;
+}
+
 function hasSubtitleExtension(file: string): boolean {
   return SUB_EXTENSIONS.some((ext) => file.endsWith(ext));
 }
@@ -1113,7 +1456,7 @@ function mapSearchEntryToResult(e: YtDlpSearchEntry): SearchVideoResult {
     duration: typeof e.duration === 'number' ? e.duration : null,
     uploader: e.uploader ?? null,
     viewCount: typeof e.view_count === 'number' ? e.view_count : null,
-    thumbnail: e.thumbnail ?? null,
+    thumbnail: e.thumbnail ?? (e.id ? `https://i.ytimg.com/vi/${e.id}/hqdefault.jpg` : null),
   };
 }
 

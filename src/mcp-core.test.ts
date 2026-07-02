@@ -1,7 +1,20 @@
-import { NotFoundError } from './errors.js';
+import { NotFoundError, ValidationError } from './errors.js';
 import { createMcpServer } from './mcp-core.js';
 import * as youtube from './youtube.js';
 import * as validation from './validation.js';
+
+jest.mock('@modelcontextprotocol/ext-apps/server', () => ({
+  registerAppTool: (
+    server: { tools: Map<string, unknown> },
+    name: string,
+    _def: unknown,
+    handler: unknown
+  ) => {
+    server.tools.set(name, handler);
+  },
+  registerAppResource: jest.fn(),
+  RESOURCE_MIME_TYPE: 'text/html;profile=mcp-app',
+}));
 
 jest.mock('@modelcontextprotocol/sdk/server/mcp.js', () => {
   class FakeMcpServer {
@@ -45,6 +58,9 @@ jest.mock('./validation.js', () => ({
   validateAndFetchAvailableSubtitles: jest.fn(),
   validateAndFetchVideoInfo: jest.fn(),
   validateAndFetchVideoChapters: jest.fn(),
+  validateAndCaptureVideoFrame: jest.fn(),
+  FRAME_MIN_WIDTH: 64,
+  FRAME_MAX_WIDTH: 1920,
 }));
 
 const detectSubtitleFormatMock = youtube.detectSubtitleFormat as jest.Mock;
@@ -58,6 +74,7 @@ const validateAndFetchAvailableSubtitlesMock =
   validation.validateAndFetchAvailableSubtitles as jest.Mock;
 const validateAndFetchVideoInfoMock = validation.validateAndFetchVideoInfo as jest.Mock;
 const validateAndFetchVideoChaptersMock = validation.validateAndFetchVideoChapters as jest.Mock;
+const validateAndCaptureVideoFrameMock = validation.validateAndCaptureVideoFrame as jest.Mock;
 
 function getTool(server: any, name: string) {
   const handler = server.tools.get(name);
@@ -536,6 +553,85 @@ describe('mcp-core tools', () => {
         chapters: [],
       });
       expect(result.content[0].text).toContain('No chapters found');
+    });
+  });
+
+  describe('get_video_frame', () => {
+    const testUrl = 'https://www.youtube.com/watch?v=video123';
+
+    it('should return image content and structured metadata on success', async () => {
+      const server = createMcpServer() as any;
+      const handler = getTool(server, 'get_video_frame');
+
+      const frameData = Buffer.from('fake-jpeg-bytes');
+      validateAndCaptureVideoFrameMock.mockResolvedValue({
+        videoId: 'video123',
+        timestampSeconds: 83.5,
+        timestamp: '00:01:23.500',
+        mimeType: 'image/jpeg',
+        sizeBytes: frameData.length,
+        width: 1280,
+        data: frameData,
+      });
+
+      const result = await handler({ url: testUrl, timecode: '01:23.500' }, {});
+
+      expect(validateAndCaptureVideoFrameMock).toHaveBeenCalledWith(
+        {
+          url: testUrl,
+          timecode: '01:23.500',
+          seconds: undefined,
+          format: undefined,
+          width: undefined,
+          quality: undefined,
+        },
+        expect.anything()
+      );
+      expect(result.content[0]).toEqual({
+        type: 'text',
+        text: 'Frame captured at 00:01:23.500',
+      });
+      expect(result.content[1]).toEqual({
+        type: 'image',
+        data: frameData.toString('base64'),
+        mimeType: 'image/jpeg',
+      });
+      expect(result.structuredContent).toEqual({
+        videoId: 'video123',
+        timestampSeconds: 83.5,
+        timestamp: '00:01:23.500',
+        mimeType: 'image/jpeg',
+        sizeBytes: frameData.length,
+        width: 1280,
+      });
+    });
+
+    it('should return validation error message for invalid timestamp input', async () => {
+      const server = createMcpServer() as any;
+      const handler = getTool(server, 'get_video_frame');
+
+      validateAndCaptureVideoFrameMock.mockRejectedValue(
+        new ValidationError('Provide either timecode or seconds, not both', 'Invalid timestamp')
+      );
+
+      const result = await handler({ url: testUrl, timecode: '01:23', seconds: 83 }, {});
+
+      expect(result).toMatchObject({ isError: true });
+      expect(result.content[0].text).toContain('Provide either timecode or seconds');
+    });
+
+    it('should return notFound message when capture fails', async () => {
+      const server = createMcpServer() as any;
+      const handler = getTool(server, 'get_video_frame');
+
+      validateAndCaptureVideoFrameMock.mockRejectedValue(
+        new NotFoundError('Failed to capture frame: boom', 'Frame capture failed')
+      );
+
+      const result = await handler({ url: testUrl }, {});
+
+      expect(result).toMatchObject({ isError: true });
+      expect(result.content[0].text).toContain('Failed to capture a frame for this video.');
     });
   });
 

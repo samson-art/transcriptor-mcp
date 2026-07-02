@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-07-02
+
+### Added
+
+- **`get_video_frame` MCP tool:** Captures a single frame from a video at a given timestamp. Input: `url`, `timecode` (`"MM:SS"` or `"HH:MM:SS(.mmm)"`, e.g. `"01:23"`, `"00:01:23.500"`) or `seconds` (default: `0`, first frame), `format` (`jpeg` default / `png`), `width` (default 1280, max 1920, never upscales), `quality` (ffmpeg `-q:v` 2–31, default 4). Returns an MCP `image` content block (base64) plus `structuredContent` (`videoId`, `timestampSeconds`, `timestamp`, `mimeType`, `sizeBytes`, `width` — actual output width read from PNG/JPEG headers).
+- **`captureVideoFrame()` in `src/youtube.ts`:** Fast path resolves video id, duration, and a direct stream URL in one `yt-dlp --print id --print duration --print urls` call, then ffmpeg seeks over HTTP (`-ss`) and grabs one frame without downloading the video. Fallback: `yt-dlp --download-sections` fetches a ~2s re-encoded clip (`--force-keyframes-at-cuts`, first frame = exact timestamp) and ffmpeg extracts it locally. Honors cookies, `YT_DLP_PROXY` (also passed to ffmpeg via `-http_proxy`), and yt-dlp env args. Returns a discriminated outcome (`ok` / `timestamp_beyond_duration` / `capture_failed`). Requires `ffmpeg` (already included in the Docker image).
+- **`YT_DLP_FRAME_TIMEOUT`:** Timeout for frame-capture yt-dlp/ffmpeg runs; falls back to `YT_DLP_TIMEOUT` (default 60000 ms).
+- **MCP Apps (interactive widgets):** React UIs served as `ui://` resources for hosts supporting [MCP Apps](https://github.com/modelcontextprotocol/ext-apps) (`registerAppTool` / `registerAppResource` with `ui.resourceUri` and `openai/outputTemplate` metadata):
+  - `search_videos` — result carousel with video details and subtitle search;
+  - `get_transcript` — video card with searchable timed subtitles and track picker;
+  - `get_video_info` — video card with metadata and collapsible description;
+  - `get_video_frame` — frame viewer with recapture controls (±1s/±10s steppers, timecode input, watch-at-time link).
+- **Vite single-file UI build:** New `ui/` workspace (React 19, Vite, `vite-plugin-singlefile`) compiled into self-contained `dist/ui/<app>.html` files via `npm run build:ui`; `npm run build` now builds both the server and the UI apps.
+
+### Changed
+
+- **MCP SDK:** `@modelcontextprotocol/sdk` 1.26 → 1.29; added `@modelcontextprotocol/ext-apps` for app tool/resource registration.
+- **`transcriptor://info` resource and usage guide:** Now list `get_video_frame` and the widget resource URIs.
+- **README:** Documents the `get_video_frame` tool (inputs, response shape, timeout).
+
 ## [1.1.0] - 2026-05-28
 
 ### Added

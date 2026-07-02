@@ -7,7 +7,10 @@ import {
   fetchVideoInfo,
   fetchVideoChapters,
   fetchYtDlpJson,
+  captureVideoFrame,
+  getImageWidth,
   type SubtitleFormat,
+  type VideoFrameFormat,
 } from './youtube.js';
 import { getWhisperConfig } from './whisper.js';
 import { startOrReuseWhisperJob } from './whisper-jobs.js';
@@ -749,4 +752,140 @@ export async function validateAndFetchVideoChapters(
   const result = { videoId, chapters };
   await set(cacheKey, JSON.stringify(result), cacheConfig.ttlMetadataSeconds);
   return result;
+}
+
+export const FRAME_MIN_WIDTH = 64;
+export const FRAME_MAX_WIDTH = 1920;
+export const FRAME_DEFAULT_WIDTH = 1280;
+export const FRAME_DEFAULT_JPEG_QUALITY = 4;
+
+export type CaptureFrameRequest = {
+  url: string;
+  /** Timestamp as "MM:SS" or "HH:MM:SS" with optional ".mmm" fraction */
+  timecode?: string;
+  /** Timestamp in seconds (alternative to timecode) */
+  seconds?: number;
+  format?: VideoFrameFormat;
+  width?: number;
+  quality?: number;
+};
+
+export type CaptureFrameResult = {
+  videoId: string;
+  timestampSeconds: number;
+  /** Timestamp formatted as "HH:MM:SS.mmm" */
+  timestamp: string;
+  mimeType: string;
+  sizeBytes: number;
+  /** Actual output image width; null when it could not be read from image headers */
+  width: number | null;
+  data: Buffer;
+};
+
+/**
+ * Parses "MM:SS" or "HH:MM:SS" with optional ".mmm" fraction into seconds.
+ * Returns null for invalid input.
+ */
+export function parseTimecode(timecode: string): number | null {
+  const match = /^(?:(\d{1,4}):)?(\d{1,2}):(\d{1,2})(?:\.(\d{1,3}))?$/.exec(timecode.trim());
+  if (!match) {
+    return null;
+  }
+  const hours = match[1] ? Number.parseInt(match[1], 10) : 0;
+  const minutes = Number.parseInt(match[2], 10);
+  const seconds = Number.parseInt(match[3], 10);
+  if (minutes > 59 || seconds > 59) {
+    return null;
+  }
+  const millis = match[4] ? Number.parseInt(match[4].padEnd(3, '0'), 10) : 0;
+  return hours * 3600 + minutes * 60 + seconds + millis / 1000;
+}
+
+/** Formats seconds as "HH:MM:SS.mmm". */
+export function formatTimestamp(totalSeconds: number): string {
+  const totalMillis = Math.round(totalSeconds * 1000);
+  const hours = Math.floor(totalMillis / 3_600_000);
+  const minutes = Math.floor((totalMillis % 3_600_000) / 60_000);
+  const seconds = Math.floor((totalMillis % 60_000) / 1000);
+  const millis = totalMillis % 1000;
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${pad(hours)}:${pad(minutes)}:${pad(seconds)}.${String(millis).padStart(3, '0')}`;
+}
+
+function resolveFrameTimestamp(request: CaptureFrameRequest): number {
+  if (request.timecode !== undefined && request.seconds !== undefined) {
+    throw new ValidationError('Provide either timecode or seconds, not both', 'Invalid timestamp');
+  }
+  if (request.timecode !== undefined) {
+    const parsed = parseTimecode(request.timecode);
+    if (parsed === null) {
+      throw new ValidationError(
+        'Invalid timecode. Use "MM:SS" or "HH:MM:SS" with optional ".mmm", e.g. "01:23" or "00:01:23.500"',
+        'Invalid timestamp'
+      );
+    }
+    return parsed;
+  }
+  if (request.seconds !== undefined) {
+    if (!Number.isFinite(request.seconds) || request.seconds < 0) {
+      throw new ValidationError(
+        'seconds must be a non-negative finite number',
+        'Invalid timestamp'
+      );
+    }
+    return request.seconds;
+  }
+  return 0;
+}
+
+function clampInt(value: number, min: number, max: number): number {
+  return Math.min(Math.max(Math.trunc(value), min), max);
+}
+
+/**
+ * Validates request and captures a single video frame at the given timestamp.
+ * @throws ValidationError on invalid input or timestamp beyond video duration,
+ *         NotFoundError when the frame could not be captured
+ */
+export async function validateAndCaptureVideoFrame(
+  request: CaptureFrameRequest,
+  logger?: FastifyBaseLogger
+): Promise<CaptureFrameResult> {
+  const validated = validateVideoRequest(request.url);
+  const { url } = validated;
+
+  const timestampSeconds = resolveFrameTimestamp(request);
+  const format: VideoFrameFormat = request.format ?? 'jpeg';
+  const width = clampInt(request.width ?? FRAME_DEFAULT_WIDTH, FRAME_MIN_WIDTH, FRAME_MAX_WIDTH);
+  const quality = clampInt(request.quality ?? FRAME_DEFAULT_JPEG_QUALITY, 2, 31);
+
+  const outcome = await captureVideoFrame(
+    url,
+    timestampSeconds,
+    { format, width, quality },
+    logger
+  );
+
+  if (!outcome.ok) {
+    if (outcome.reason === 'timestamp_beyond_duration') {
+      throw new ValidationError(
+        `Timestamp ${formatTimestamp(timestampSeconds)} is beyond the video duration (${outcome.durationSeconds}s)`,
+        'Invalid timestamp'
+      );
+    }
+    throw new NotFoundError(
+      `Failed to capture frame: ${outcome.details.message}`,
+      'Frame capture failed'
+    );
+  }
+
+  return {
+    videoId: outcome.videoId,
+    timestampSeconds,
+    timestamp: formatTimestamp(timestampSeconds),
+    mimeType: outcome.mimeType,
+    sizeBytes: outcome.data.length,
+    width: getImageWidth(outcome.data),
+    data: outcome.data,
+  };
 }

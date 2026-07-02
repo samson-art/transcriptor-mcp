@@ -22,7 +22,7 @@ Unlike YouTube-only tools, Transcriptor MCP works across **11 major video platfo
 
 YouTube · Twitter/X · Instagram · TikTok · Twitch · Vimeo · Facebook · Bilibili · VK · Dailymotion · Reddit
 
-All URL-based tools (`get_transcript`, `get_raw_subtitles`, `get_available_subtitles`, `get_video_info`, `get_video_chapters`, `get_playlist_transcripts`) accept video URLs from any supported platform. The `search_videos` tool is YouTube-specific (yt-dlp ytsearch).
+All URL-based tools (`get_transcript`, `get_raw_subtitles`, `get_available_subtitles`, `get_video_info`, `get_video_chapters`, `get_video_frame`, `get_playlist_transcripts`) accept video URLs from any supported platform. The `search_videos` tool is YouTube-specific (yt-dlp ytsearch).
 
 ## When to use Transcriptor MCP
 
@@ -111,6 +111,7 @@ For full setup options (local Docker and self-hosted HTTP/SSE with `mcp-proxy`),
 | `get_available_subtitles`  | List official/auto languages     |
 | `get_video_info`           | Extended metadata                |
 | `get_video_chapters`       | Chapter markers                  |
+| `get_video_frame`          | Single frame image at timestamp  |
 | `get_playlist_transcripts` | Batch transcripts from playlist  |
 | `search_videos`            | YouTube search                   |
 
@@ -219,6 +220,32 @@ See `src/mcp-core.ts` and `src/youtube.ts` for the full JSON schema used by the 
 - `chapters` – array of `{ startTime: number; endTime: number; title: string }`.
 
 If the video has no chapters, `chapters` is an empty array; if yt-dlp cannot fetch chapter data at all, the tool returns an MCP error instead of structured chapters.
+
+#### `get_video_frame`
+
+**Purpose**: Capture a single frame from a video at the given timestamp. Fast path resolves a direct stream URL via yt-dlp and seeks over HTTP with ffmpeg; if that fails, yt-dlp downloads a ~2s section and the frame is extracted locally. Requires `ffmpeg` (already included in the Docker image).
+
+**Input**:
+
+- `url` – Video URL or YouTube video ID.
+- `timecode` (string, optional) – Timestamp as `"MM:SS"` or `"HH:MM:SS(.mmm)"`, e.g. `"01:23"` or `"00:01:23.500"`.
+- `seconds` (number, optional) – Timestamp in seconds (alternative to `timecode`; provide at most one). Default: `0` (first frame).
+- `format` (string, optional) – `"jpeg"` (default) or `"png"`.
+- `width` (number, optional) – Output width in pixels, default `1280`, max `1920`. The frame is never upscaled.
+- `quality` (number, optional) – JPEG quality (ffmpeg `-q:v`): `2` (best) to `31` (worst), default `4`. Ignored for png.
+
+**Response `content`**: a text line (`Frame captured at 00:01:23.500`) plus an `image` content block with base64 data.
+
+**Structured response**:
+
+- `videoId` – resolved video ID.
+- `timestampSeconds` – requested timestamp in seconds.
+- `timestamp` – timestamp formatted as `HH:MM:SS.mmm`.
+- `mimeType` – `image/jpeg` or `image/png`.
+- `sizeBytes` – image size in bytes.
+- `width` – actual output image width (may be smaller than requested for low-resolution sources; `null` if it cannot be determined).
+
+Timeout is controlled by `YT_DLP_FRAME_TIMEOUT` (falls back to `YT_DLP_TIMEOUT`, default 60000 ms).
 
 #### `get_playlist_transcripts`
 

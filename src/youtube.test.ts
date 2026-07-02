@@ -31,6 +31,8 @@ const {
   urlToSafeBase,
   collectExecFileErrorDetails,
   formatPlaylistDownloadFailureMessage,
+  captureVideoFrame,
+  getImageWidth,
 } = youtube;
 
 describe('youtube', () => {
@@ -1120,6 +1122,46 @@ today to pay our respects to MCP, which
       ]);
     });
 
+    it('should fall back to i.ytimg.com thumbnail when yt-dlp omits thumbnail', async () => {
+      const searchJson = {
+        entries: [
+          {
+            id: 'vid2',
+            title: 'Video Two',
+            webpage_url: 'https://www.youtube.com/watch?v=vid2',
+            duration: 60,
+            uploader: 'Channel Two',
+            view_count: 500,
+          },
+        ],
+      };
+
+      execFileMock.mockImplementation(
+        (
+          _file: string,
+          _args: string[],
+          _options: unknown,
+          callback: (error: Error | null, result: { stdout: string; stderr: string }) => void
+        ) => {
+          callback(null, { stdout: JSON.stringify(searchJson), stderr: '' });
+        }
+      );
+
+      const result = await searchVideos('query', 10);
+
+      expect(result).toEqual([
+        {
+          videoId: 'vid2',
+          title: 'Video Two',
+          url: 'https://www.youtube.com/watch?v=vid2',
+          duration: 60,
+          uploader: 'Channel Two',
+          viewCount: 500,
+          thumbnail: 'https://i.ytimg.com/vi/vid2/hqdefault.jpg',
+        },
+      ]);
+    });
+
     it('should return empty array when yt-dlp stdout is empty', async () => {
       execFileMock.mockImplementation(
         (
@@ -1336,6 +1378,202 @@ today to pay our respects to MCP, which
         expect(outcome.failure.exitCode).toBe(1);
         expect(outcome.failure.stderr).toBe('private video');
       }
+    });
+  });
+
+  describe('captureVideoFrame', () => {
+    const url = 'https://www.youtube.com/watch?v=frame123';
+    type ExecCallback = (error: Error | null, result?: { stdout: string; stderr: string }) => void;
+
+    beforeEach(() => {
+      jest.clearAllMocks();
+      delete process.env.COOKIES_FILE_PATH;
+      delete process.env.YT_DLP_PROXY;
+      delete process.env.YT_DLP_TIMEOUT;
+      delete process.env.YT_DLP_FRAME_TIMEOUT;
+    });
+
+    it('should capture frame via direct stream URL with -ss seek', async () => {
+      const timestamp = 1700000001000;
+      const dateSpy = jest.spyOn(Date, 'now').mockReturnValue(timestamp);
+      const outputPath = join(tmpdir(), `${urlToSafeBase(url, 'frame')}.jpg`);
+      const frameBytes = Buffer.from('fake-jpeg-bytes');
+      const ffmpegCalls: string[][] = [];
+
+      execFileMock.mockImplementation(
+        (file: string, args: string[], _options: unknown, callback: ExecCallback) => {
+          if (file === 'yt-dlp') {
+            callback(null, {
+              stdout: 'vid123\n212.5\nhttps://cdn.example/stream.mp4\n',
+              stderr: '',
+            });
+            return;
+          }
+          ffmpegCalls.push(args);
+          void writeFile(outputPath, frameBytes).then(() =>
+            callback(null, { stdout: '', stderr: '' })
+          );
+        }
+      );
+
+      const outcome = await captureVideoFrame(url, 83.5, {
+        format: 'jpeg',
+        width: 1280,
+        quality: 4,
+      });
+
+      expect(outcome.ok).toBe(true);
+      if (outcome.ok) {
+        expect(outcome.videoId).toBe('vid123');
+        expect(outcome.mimeType).toBe('image/jpeg');
+        expect(outcome.data.equals(frameBytes)).toBe(true);
+      }
+      expect(ffmpegCalls).toHaveLength(1);
+      const args = ffmpegCalls[0];
+      expect(args[args.indexOf('-ss') + 1]).toBe('83.5');
+      expect(args[args.indexOf('-i') + 1]).toBe('https://cdn.example/stream.mp4');
+      expect(args[args.indexOf('-q:v') + 1]).toBe('4');
+      expect(args).toContain('scale=min(iw\\,1280):-2');
+      // output file is consumed and removed
+      await expect(access(outputPath, constants.F_OK)).rejects.toThrow();
+      dateSpy.mockRestore();
+    });
+
+    it('should return timestamp_beyond_duration without running ffmpeg', async () => {
+      execFileMock.mockImplementation(
+        (_file: string, _args: string[], _options: unknown, callback: ExecCallback) => {
+          callback(null, {
+            stdout: 'vid123\n100\nhttps://cdn.example/stream.mp4\n',
+            stderr: '',
+          });
+        }
+      );
+
+      const outcome = await captureVideoFrame(url, 500);
+
+      expect(outcome).toMatchObject({
+        ok: false,
+        reason: 'timestamp_beyond_duration',
+        videoId: 'vid123',
+        durationSeconds: 100,
+      });
+      expect(execFileMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('should fall back to section download when direct capture fails', async () => {
+      const timestamp = 1700000002000;
+      const dateSpy = jest.spyOn(Date, 'now').mockReturnValue(timestamp);
+      const outputPath = join(tmpdir(), `${urlToSafeBase(url, 'frame')}.png`);
+      const clipPath = join(tmpdir(), `${urlToSafeBase(url, 'frame_clip')}.mp4`);
+      const frameBytes = Buffer.from('fake-png-bytes');
+      let ffmpegCallCount = 0;
+      let sectionArgs: string[] = [];
+
+      execFileMock.mockImplementation(
+        (file: string, args: string[], _options: unknown, callback: ExecCallback) => {
+          if (file === 'yt-dlp') {
+            if (args.includes('--download-sections')) {
+              sectionArgs = args;
+              void writeFile(clipPath, 'fake clip').then(() =>
+                callback(null, { stdout: '', stderr: '' })
+              );
+              return;
+            }
+            callback(null, {
+              stdout: 'vid123\n212\nhttps://cdn.example/stream.mp4\n',
+              stderr: '',
+            });
+            return;
+          }
+          ffmpegCallCount += 1;
+          if (ffmpegCallCount === 1) {
+            callback(new Error('ffmpeg: connection refused'));
+            return;
+          }
+          void writeFile(outputPath, frameBytes).then(() =>
+            callback(null, { stdout: '', stderr: '' })
+          );
+        }
+      );
+
+      const outcome = await captureVideoFrame(url, 10, { format: 'png' });
+
+      expect(outcome.ok).toBe(true);
+      if (outcome.ok) {
+        expect(outcome.mimeType).toBe('image/png');
+        expect(outcome.data.equals(frameBytes)).toBe(true);
+      }
+      expect(sectionArgs).toContain('--force-keyframes-at-cuts');
+      expect(sectionArgs[sectionArgs.indexOf('--download-sections') + 1]).toBe('*10-12');
+      // clip is cleaned up
+      await expect(access(clipPath, constants.F_OK)).rejects.toThrow();
+      dateSpy.mockRestore();
+    });
+
+    it('should return capture_failed when all attempts fail', async () => {
+      execFileMock.mockImplementation(
+        (file: string, args: string[], _options: unknown, callback: ExecCallback) => {
+          if (file === 'yt-dlp' && !args.includes('--download-sections')) {
+            callback(null, {
+              stdout: 'vid123\nNA\nhttps://cdn.example/stream.mp4\n',
+              stderr: '',
+            });
+            return;
+          }
+          callback(Object.assign(new Error('boom'), { code: 1 }));
+        }
+      );
+
+      const outcome = await captureVideoFrame(url, 10);
+
+      expect(outcome.ok).toBe(false);
+      if (!outcome.ok && outcome.reason === 'capture_failed') {
+        expect(outcome.videoId).toBe('vid123');
+        expect(outcome.details.message).toContain('boom');
+      } else {
+        throw new Error(`Expected capture_failed outcome, got ${JSON.stringify(outcome)}`);
+      }
+    });
+  });
+
+  describe('getImageWidth', () => {
+    function makePngHeader(width: number, height: number): Buffer {
+      const buf = Buffer.alloc(24);
+      buf.writeUInt32BE(0x89504e47, 0);
+      buf.writeUInt32BE(0x0d0a1a0a, 4);
+      buf.writeUInt32BE(13, 8);
+      buf.write('IHDR', 12, 'ascii');
+      buf.writeUInt32BE(width, 16);
+      buf.writeUInt32BE(height, 20);
+      return buf;
+    }
+
+    function makeJpegHeader(width: number, height: number): Buffer {
+      const soi = Buffer.from([0xff, 0xd8]);
+      // Minimal APP0 segment (length 4 = length bytes + 2 payload bytes)
+      const app0 = Buffer.from([0xff, 0xe0, 0x00, 0x04, 0x00, 0x00]);
+      const sof = Buffer.alloc(9);
+      sof[0] = 0xff;
+      sof[1] = 0xc0;
+      sof.writeUInt16BE(0x0011, 2);
+      sof[4] = 8;
+      sof.writeUInt16BE(height, 5);
+      sof.writeUInt16BE(width, 7);
+      return Buffer.concat([soi, app0, sof]);
+    }
+
+    it('should read width from PNG IHDR', () => {
+      expect(getImageWidth(makePngHeader(1280, 720))).toBe(1280);
+      expect(getImageWidth(makePngHeader(640, 360))).toBe(640);
+    });
+
+    it('should read width from JPEG SOF0 after skipping other segments', () => {
+      expect(getImageWidth(makeJpegHeader(1920, 1080))).toBe(1920);
+    });
+
+    it('should return null for unrecognized data', () => {
+      expect(getImageWidth(Buffer.from('not an image at all, padding'))).toBeNull();
+      expect(getImageWidth(Buffer.alloc(0))).toBeNull();
     });
   });
 });

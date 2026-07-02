@@ -4,6 +4,8 @@ import {
   isValidYouTubeUrl,
   isValidSupportedUrl,
   normalizeVideoInput,
+  parseTimecode,
+  formatTimestamp,
   sanitizeVideoId,
   sanitizeLang,
   shouldAutoDiscoverSubtitles,
@@ -11,6 +13,7 @@ import {
   validateAndFetchAvailableSubtitles,
   validateAndFetchVideoInfo,
   validateAndFetchVideoChapters,
+  validateAndCaptureVideoFrame,
 } from './validation.js';
 import * as youtube from './youtube.js';
 import { set as cacheSet } from './cache.js';
@@ -977,6 +980,138 @@ describe('validation', () => {
       expect(fetchJsonSpy).toHaveBeenCalledTimes(1);
       expect(fetchChaptersSpy).toHaveBeenCalledTimes(1);
       expect(fetchChaptersSpy).toHaveBeenCalledWith(url, undefined, mockData);
+    });
+  });
+
+  describe('parseTimecode', () => {
+    it('should parse MM:SS', () => {
+      expect(parseTimecode('01:23')).toBe(83);
+      expect(parseTimecode('0:05')).toBe(5);
+    });
+
+    it('should parse HH:MM:SS with optional millis', () => {
+      expect(parseTimecode('00:01:23.500')).toBe(83.5);
+      expect(parseTimecode('1:02:03')).toBe(3723);
+      expect(parseTimecode('01:23.5')).toBe(83.5);
+    });
+
+    it('should return null for invalid input', () => {
+      expect(parseTimecode('abc')).toBeNull();
+      expect(parseTimecode('99')).toBeNull();
+      expect(parseTimecode('1:60')).toBeNull();
+      expect(parseTimecode('61:30')).toBeNull();
+      expect(parseTimecode('-1:00')).toBeNull();
+      expect(parseTimecode('')).toBeNull();
+    });
+  });
+
+  describe('formatTimestamp', () => {
+    it('should format seconds as HH:MM:SS.mmm', () => {
+      expect(formatTimestamp(0)).toBe('00:00:00.000');
+      expect(formatTimestamp(83.5)).toBe('00:01:23.500');
+      expect(formatTimestamp(3723.042)).toBe('01:02:03.042');
+    });
+  });
+
+  describe('validateAndCaptureVideoFrame', () => {
+    const url = 'https://www.youtube.com/watch?v=dQw4w9WgXcQ';
+
+    it('should reject invalid URL', async () => {
+      await expect(
+        validateAndCaptureVideoFrame({ url: 'https://example.com/video' })
+      ).rejects.toThrow(ValidationError);
+    });
+
+    it('should reject when both timecode and seconds are provided', async () => {
+      await expect(
+        validateAndCaptureVideoFrame({ url, timecode: '01:23', seconds: 83 })
+      ).rejects.toThrow('Provide either timecode or seconds');
+    });
+
+    it('should reject invalid timecode and negative seconds', async () => {
+      await expect(validateAndCaptureVideoFrame({ url, timecode: 'abc' })).rejects.toThrow(
+        'Invalid timecode'
+      );
+      await expect(validateAndCaptureVideoFrame({ url, seconds: -5 })).rejects.toThrow(
+        ValidationError
+      );
+    });
+
+    it('should capture with defaults (timestamp 0, jpeg, width 1280, quality 4)', async () => {
+      const captureSpy = jest.spyOn(youtube, 'captureVideoFrame').mockResolvedValue({
+        ok: true,
+        videoId: 'dQw4w9WgXcQ',
+        data: Buffer.from('img'),
+        mimeType: 'image/jpeg',
+      });
+
+      const result = await validateAndCaptureVideoFrame({ url });
+
+      expect(captureSpy).toHaveBeenCalledWith(
+        url,
+        0,
+        { format: 'jpeg', width: 1280, quality: 4 },
+        undefined
+      );
+      expect(result).toMatchObject({
+        videoId: 'dQw4w9WgXcQ',
+        timestampSeconds: 0,
+        timestamp: '00:00:00.000',
+        mimeType: 'image/jpeg',
+        sizeBytes: 3,
+        width: null,
+      });
+      expect(result.data.equals(Buffer.from('img'))).toBe(true);
+    });
+
+    it('should resolve timecode and clamp width/quality', async () => {
+      const captureSpy = jest.spyOn(youtube, 'captureVideoFrame').mockResolvedValue({
+        ok: true,
+        videoId: 'dQw4w9WgXcQ',
+        data: Buffer.from('img'),
+        mimeType: 'image/png',
+      });
+
+      await validateAndCaptureVideoFrame({
+        url,
+        timecode: '00:01:23.500',
+        format: 'png',
+        width: 5000,
+        quality: 100,
+      });
+
+      expect(captureSpy).toHaveBeenCalledWith(
+        url,
+        83.5,
+        { format: 'png', width: 1920, quality: 31 },
+        undefined
+      );
+    });
+
+    it('should map timestamp_beyond_duration to ValidationError', async () => {
+      jest.spyOn(youtube, 'captureVideoFrame').mockResolvedValue({
+        ok: false,
+        reason: 'timestamp_beyond_duration',
+        videoId: 'dQw4w9WgXcQ',
+        durationSeconds: 100,
+      });
+
+      await expect(validateAndCaptureVideoFrame({ url, seconds: 200 })).rejects.toThrow(
+        /beyond the video duration/
+      );
+    });
+
+    it('should map capture_failed to NotFoundError', async () => {
+      jest.spyOn(youtube, 'captureVideoFrame').mockResolvedValue({
+        ok: false,
+        reason: 'capture_failed',
+        videoId: 'dQw4w9WgXcQ',
+        details: { message: 'boom' },
+      });
+
+      await expect(validateAndCaptureVideoFrame({ url, seconds: 10 })).rejects.toThrow(
+        NotFoundError
+      );
     });
   });
 });

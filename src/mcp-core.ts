@@ -1,4 +1,11 @@
+import {
+  registerAppResource,
+  registerAppTool,
+  RESOURCE_MIME_TYPE,
+} from '@modelcontextprotocol/ext-apps/server';
 import { McpServer, ResourceTemplate } from '@modelcontextprotocol/sdk/server/mcp.js';
+import fs from 'node:fs/promises';
+import path from 'node:path';
 // IMPORTANT: use Zod v3 schemas for MCP JSON Schema compatibility.
 // Some MCP clients (e.g. n8n) are strict about JSON Schema shapes and can fail
 // on Zod v4 JSON schema output ($ref-heavy / missing "type" in some branches).
@@ -22,6 +29,9 @@ import {
   validateAndFetchAvailableSubtitles,
   validateAndFetchVideoInfo,
   validateAndFetchVideoChapters,
+  validateAndCaptureVideoFrame,
+  FRAME_MIN_WIDTH,
+  FRAME_MAX_WIDTH,
 } from './validation.js';
 import { recordMcpRequestDuration, recordMcpToolCall, recordMcpToolError } from './metrics.js';
 import { version } from './version.js';
@@ -31,11 +41,35 @@ const TOOL_GET_RAW_SUBTITLES = 'get_raw_subtitles';
 const TOOL_GET_AVAILABLE_SUBTITLES = 'get_available_subtitles';
 const TOOL_GET_VIDEO_INFO = 'get_video_info';
 const TOOL_GET_VIDEO_CHAPTERS = 'get_video_chapters';
+const TOOL_GET_VIDEO_FRAME = 'get_video_frame';
 const TOOL_GET_PLAYLIST_TRANSCRIPTS = 'get_playlist_transcripts';
 const TOOL_SEARCH_VIDEOS = 'search_videos';
 
+const SEARCH_UI_URI = 'ui://search-videos/app.html';
+const TRANSCRIPT_UI_URI = 'ui://get-transcript/app.html';
+const VIDEO_INFO_UI_URI = 'ui://get-video-info/app.html';
+const VIDEO_FRAME_UI_URI = 'ui://get-video-frame/app.html';
+
+const uiHtmlCache = new Map<string, string>();
+
+function resolveUiHtmlPath(filename: string): string {
+  return path.join(process.cwd(), 'dist', 'ui', filename);
+}
+
+async function readCachedUiHtml(filename: string): Promise<string> {
+  const cached = uiHtmlCache.get(filename);
+  if (cached) return cached;
+  const html = await fs.readFile(resolveUiHtmlPath(filename), 'utf-8');
+  uiHtmlCache.set(filename, html);
+  return html;
+}
+
 function createDefaultLogger(): FastifyBaseLogger {
-  return pino({ level: process.env.LOG_LEVEL || 'info' }) as unknown as FastifyBaseLogger;
+  // MCP stdio uses stdout for JSON-RPC; pino must write to stderr (see mcp-proxy logs).
+  return pino(
+    { level: process.env.LOG_LEVEL || 'info' },
+    pino.destination(2)
+  ) as unknown as FastifyBaseLogger;
 }
 
 const MIN_RESPONSE_LIMIT = 1000;
@@ -156,6 +190,48 @@ const videoChaptersOutputSchema = z.object({
   ),
 });
 
+const videoFrameInputSchema = z.object({
+  url: z
+    .string()
+    .min(1)
+    .describe(
+      'Video URL (supported: YouTube, Twitter/X, Instagram, TikTok, Twitch, Vimeo, Facebook, Bilibili, VK, Dailymotion, Reddit) or YouTube video ID'
+    ),
+  timecode: z
+    .string()
+    .optional()
+    .describe('Timestamp as "MM:SS" or "HH:MM:SS(.mmm)", e.g. "01:23" or "00:01:23.500"'),
+  seconds: z
+    .number()
+    .min(0)
+    .optional()
+    .describe('Timestamp in seconds (alternative to timecode). Default: 0 (first frame)'),
+  format: z.enum(['png', 'jpeg']).optional().describe('Image format (default: jpeg)'),
+  width: z
+    .number()
+    .int()
+    .min(FRAME_MIN_WIDTH)
+    .max(FRAME_MAX_WIDTH)
+    .optional()
+    .describe('Output image width in pixels (default: 1280, max: 1920). Never upscales.'),
+  quality: z
+    .number()
+    .int()
+    .min(2)
+    .max(31)
+    .optional()
+    .describe('JPEG quality (ffmpeg -q:v): 2 (best) to 31 (worst). Default: 4. Ignored for png.'),
+});
+
+const videoFrameOutputSchema = z.object({
+  videoId: z.string(),
+  timestampSeconds: z.number(),
+  timestamp: z.string(),
+  mimeType: z.string(),
+  sizeBytes: z.number(),
+  width: z.number().nullable(),
+});
+
 const UPLOAD_DATE_FILTER_TO_YTDLP: Record<string, string> = {
   hour: 'now-1hour',
   today: 'today',
@@ -239,7 +315,9 @@ const searchVideosOutputSchema = z.object({
 });
 
 type TextContent = { type: 'text'; text: string };
-type ToolSuccessResult = { content: TextContent[]; structuredContent: Record<string, unknown> };
+type ImageContent = { type: 'image'; data: string; mimeType: string };
+type ToolContent = TextContent | ImageContent;
+type ToolSuccessResult = { content: ToolContent[]; structuredContent: Record<string, unknown> };
 type ToolErrorResult = { content: TextContent[]; isError: true };
 type ToolResult = ToolSuccessResult | ToolErrorResult;
 
@@ -301,17 +379,24 @@ export function createMcpServer(opts?: CreateMcpServerOptions) {
    * @param args - Arguments for the tool
    * @returns Transcript
    */
-  server.registerTool(
+  registerAppTool(
+    server,
     'get_transcript',
     {
       title: 'Get video transcript',
       description:
         'Fetch cleaned subtitles as plain text for a video (YouTube, Twitter/X, Instagram, TikTok, Twitch, Vimeo, Facebook, Bilibili, VK, Dailymotion, Reddit). Uses auto-discovery for type/language when omitted. Optional: type, lang, response_limit (when omitted returns full transcript), next_cursor for pagination.',
-      inputSchema: subtitleInputSchema,
-      outputSchema: transcriptOutputSchema,
+      inputSchema: subtitleInputSchema.shape,
+      outputSchema: transcriptOutputSchema.shape,
       annotations: { readOnlyHint: true, idempotentHint: true },
+      _meta: {
+        ui: { resourceUri: TRANSCRIPT_UI_URI },
+        'openai/outputTemplate': TRANSCRIPT_UI_URI,
+        'openai/toolInvocation/invoking': 'Fetching transcript…',
+        'openai/toolInvocation/invoked': 'Transcript ready',
+      },
     },
-    async (args, _extra) =>
+    async (args: z.infer<typeof subtitleInputSchema>, _extra) =>
       withToolErrorHandling(TOOL_GET_TRANSCRIPT, log, async () => {
         const resolved = resolveSubtitleArgs(args);
         const result = await validateAndDownloadSubtitles(
@@ -451,17 +536,24 @@ export function createMcpServer(opts?: CreateMcpServerOptions) {
    * @param args - Arguments for the tool
    * @returns Video info
    */
-  server.registerTool(
+  registerAppTool(
+    server,
     'get_video_info',
     {
       title: 'Get video info',
       description:
         'Fetch extended metadata for a video (title, channel, duration, tags, thumbnails, etc.).',
-      inputSchema: baseInputSchema,
-      outputSchema: videoInfoOutputSchema,
+      inputSchema: baseInputSchema.shape,
+      outputSchema: videoInfoOutputSchema.shape,
       annotations: { readOnlyHint: true, idempotentHint: true },
+      _meta: {
+        ui: { resourceUri: VIDEO_INFO_UI_URI },
+        'openai/outputTemplate': VIDEO_INFO_UI_URI,
+        'openai/toolInvocation/invoking': 'Fetching video info…',
+        'openai/toolInvocation/invoked': 'Video info ready',
+      },
     },
-    async (args, _extra) =>
+    async (args: z.infer<typeof baseInputSchema>, _extra) =>
       withToolErrorHandling(
         TOOL_GET_VIDEO_INFO,
         log,
@@ -564,6 +656,67 @@ export function createMcpServer(opts?: CreateMcpServerOptions) {
   );
 
   /**
+   * Get video frame
+   * @param args - Arguments for the tool
+   * @returns Single frame image at the given timestamp
+   */
+  registerAppTool(
+    server,
+    'get_video_frame',
+    {
+      title: 'Get video frame',
+      description:
+        'Capture a single frame from a video at the given timestamp. Provide timecode ("01:23", "00:01:23.500") or seconds; defaults to the first frame. Optional: format (png|jpeg), width (max 1920), quality (jpeg, 2-31). Returns the image plus metadata.',
+      inputSchema: videoFrameInputSchema.shape,
+      outputSchema: videoFrameOutputSchema.shape,
+      annotations: { readOnlyHint: true, idempotentHint: true },
+      _meta: {
+        ui: { resourceUri: VIDEO_FRAME_UI_URI },
+        'openai/outputTemplate': VIDEO_FRAME_UI_URI,
+        'openai/toolInvocation/invoking': 'Capturing frame…',
+        'openai/toolInvocation/invoked': 'Frame captured',
+      },
+    },
+    async (args: z.infer<typeof videoFrameInputSchema>, _extra) =>
+      withToolErrorHandling(
+        TOOL_GET_VIDEO_FRAME,
+        log,
+        async () => {
+          const result = await validateAndCaptureVideoFrame(
+            {
+              url: args.url,
+              timecode: args.timecode,
+              seconds: args.seconds,
+              format: args.format,
+              width: args.width,
+              quality: args.quality,
+            },
+            log
+          );
+          return {
+            content: [
+              textContent(`Frame captured at ${result.timestamp}`),
+              {
+                type: 'image',
+                data: result.data.toString('base64'),
+                mimeType: result.mimeType,
+              },
+            ],
+            structuredContent: {
+              videoId: result.videoId,
+              timestampSeconds: result.timestampSeconds,
+              timestamp: result.timestamp,
+              mimeType: result.mimeType,
+              sizeBytes: result.sizeBytes,
+              width: result.width,
+            },
+          };
+        },
+        { notFoundMessage: 'Failed to capture a frame for this video.' }
+      )
+  );
+
+  /**
    * Get transcripts for multiple videos from a playlist
    */
   server.registerTool(
@@ -632,17 +785,24 @@ export function createMcpServer(opts?: CreateMcpServerOptions) {
    * @param args - Arguments for the tool
    * @returns Search results
    */
-  server.registerTool(
+  registerAppTool(
+    server,
     'search_videos',
     {
       title: 'Search videos',
       description:
         'Search videos on YouTube via yt-dlp (ytsearch). Returns list of matching videos with metadata. Optional: limit, offset (pagination), uploadDateFilter (hour|today|week|month|year), dateBefore, date, matchFilter (e.g. "!is_live"), response_format (json|markdown).',
-      inputSchema: searchInputSchema,
-      outputSchema: searchVideosOutputSchema,
+      inputSchema: searchInputSchema.shape,
+      outputSchema: searchVideosOutputSchema.shape,
       annotations: { readOnlyHint: true, idempotentHint: false },
+      _meta: {
+        ui: { resourceUri: SEARCH_UI_URI },
+        'openai/outputTemplate': SEARCH_UI_URI,
+        'openai/toolInvocation/invoking': 'Searching videos…',
+        'openai/toolInvocation/invoked': 'Videos found',
+      },
     },
-    async (args, _extra) =>
+    async (args: z.infer<typeof searchInputSchema>, _extra) =>
       withToolErrorHandling(TOOL_SEARCH_VIDEOS, log, async () => {
         const query = typeof args.query === 'string' ? args.query.trim() : '';
         if (!query) {
@@ -767,6 +927,132 @@ export function createMcpServer(opts?: CreateMcpServerOptions) {
     }
   );
 
+  registerAppResource(
+    server,
+    'search-videos-ui',
+    SEARCH_UI_URI,
+    {
+      title: 'Search Videos UI',
+      description:
+        'Interactive carousel for YouTube search results with video details and subtitle search',
+      mimeType: RESOURCE_MIME_TYPE,
+    },
+    async () => {
+      const html = await readCachedUiHtml('search.html');
+      return {
+        contents: [
+          {
+            uri: SEARCH_UI_URI,
+            mimeType: RESOURCE_MIME_TYPE,
+            text: html,
+            _meta: {
+              ui: {
+                csp: {
+                  resourceDomains: ['https://i.ytimg.com', 'https://*.ytimg.com'],
+                },
+              },
+              'openai/widgetDescription':
+                'Interactive carousel for YouTube search results with video details and subtitle search',
+            },
+          },
+        ],
+      };
+    }
+  );
+
+  registerAppResource(
+    server,
+    'get-video-info-ui',
+    VIDEO_INFO_UI_URI,
+    {
+      title: 'Video Info UI',
+      description: 'Video card with metadata and description',
+      mimeType: RESOURCE_MIME_TYPE,
+    },
+    async () => {
+      const html = await readCachedUiHtml('video-info.html');
+      return {
+        contents: [
+          {
+            uri: VIDEO_INFO_UI_URI,
+            mimeType: RESOURCE_MIME_TYPE,
+            text: html,
+            _meta: {
+              ui: {
+                csp: {
+                  resourceDomains: ['https://i.ytimg.com', 'https://*.ytimg.com'],
+                },
+              },
+              'openai/widgetDescription': 'Video card with metadata and description',
+            },
+          },
+        ],
+      };
+    }
+  );
+
+  registerAppResource(
+    server,
+    'get-transcript-ui',
+    TRANSCRIPT_UI_URI,
+    {
+      title: 'Transcript Reader UI',
+      description: 'Video card with searchable timed subtitles',
+      mimeType: RESOURCE_MIME_TYPE,
+    },
+    async () => {
+      const html = await readCachedUiHtml('transcript.html');
+      return {
+        contents: [
+          {
+            uri: TRANSCRIPT_UI_URI,
+            mimeType: RESOURCE_MIME_TYPE,
+            text: html,
+            _meta: {
+              ui: {
+                csp: {
+                  resourceDomains: ['https://i.ytimg.com', 'https://*.ytimg.com'],
+                },
+              },
+              'openai/widgetDescription': 'Video card with searchable timed subtitles',
+            },
+          },
+        ],
+      };
+    }
+  );
+
+  registerAppResource(
+    server,
+    'get-video-frame-ui',
+    VIDEO_FRAME_UI_URI,
+    {
+      title: 'Video Frame UI',
+      description: 'Captured video frame with timestamp controls',
+      mimeType: RESOURCE_MIME_TYPE,
+    },
+    async () => {
+      const html = await readCachedUiHtml('video-frame.html');
+      return {
+        contents: [
+          {
+            uri: VIDEO_FRAME_UI_URI,
+            mimeType: RESOURCE_MIME_TYPE,
+            text: html,
+            _meta: {
+              ui: {
+                csp: {
+                  resourceDomains: ['https://i.ytimg.com', 'https://*.ytimg.com'],
+                },
+              },
+              'openai/widgetDescription': 'Captured video frame with timestamp controls',
+            },
+          },
+        ],
+      };
+    }
+  );
+
   const INFO_URI = 'transcriptor://info';
   server.registerResource(
     'info',
@@ -802,6 +1088,22 @@ export function createMcpServer(opts?: CreateMcpServerOptions) {
                   description: 'Brief usage guide for tools',
                   uri: 'transcriptor://docs/usage',
                 },
+                searchVideosUi: {
+                  description: 'Interactive UI for search_videos results',
+                  uri: SEARCH_UI_URI,
+                },
+                transcriptUi: {
+                  description: 'Interactive UI for get_transcript results',
+                  uri: TRANSCRIPT_UI_URI,
+                },
+                videoInfoUi: {
+                  description: 'Interactive UI for get_video_info results',
+                  uri: VIDEO_INFO_UI_URI,
+                },
+                videoFrameUi: {
+                  description: 'Interactive UI for get_video_frame results',
+                  uri: VIDEO_FRAME_UI_URI,
+                },
               },
               tools: [
                 'get_transcript',
@@ -809,6 +1111,7 @@ export function createMcpServer(opts?: CreateMcpServerOptions) {
                 'get_available_subtitles',
                 'get_video_info',
                 'get_video_chapters',
+                'get_video_frame',
                 'get_playlist_transcripts',
                 'search_videos',
               ],
@@ -855,7 +1158,7 @@ export function createMcpServer(opts?: CreateMcpServerOptions) {
         {
           uri: USAGE_URI,
           mimeType: 'text/plain',
-          text: 'Use get_transcript for plain-text subtitles, get_raw_subtitles for SRT/VTT, get_available_subtitles to list languages, get_video_info for metadata, get_video_chapters for chapter markers, get_playlist_transcripts for multiple videos from a playlist, search_videos to search YouTube. URL-based tools accept a video URL or YouTube video ID.',
+          text: 'Use get_transcript for plain-text subtitles, get_raw_subtitles for SRT/VTT, get_available_subtitles to list languages, get_video_info for metadata, get_video_chapters for chapter markers, get_video_frame for a single frame image at a timestamp, get_playlist_transcripts for multiple videos from a playlist, search_videos to search YouTube. URL-based tools accept a video URL or YouTube video ID.',
         },
       ],
     })
