@@ -5,14 +5,14 @@
 [![Dockerhub](https://img.shields.io/badge/Docker-artsamsonov/transcriptor--mcp-blue.svg)](https://hub.docker.com/r/artsamsonov/transcriptor-mcp)
 [![GitHub License](https://img.shields.io/github/license/samson-art/transcriptor-mcp)](https://github.com/samson-art/transcriptor-mcp/blob/main/LICENSE)
 
-An MCP server (stdio; remote HTTP/SSE via [mcp-proxy](https://github.com/sparfenyuk/mcp-proxy)) that fetches video transcripts/subtitles via `yt-dlp`, with pagination for large responses. Supports YouTube, Twitter/X, Instagram, TikTok, Twitch, Vimeo, Facebook, Bilibili, VK, Dailymotion, Reddit. **Whisper fallback** — transcribes audio when subtitles are unavailable (local or OpenAI API). Works with Cursor and other MCP hosts.
+An MCP server (stdio and remote Streamable HTTP) that fetches video transcripts/subtitles via `yt-dlp`, with pagination for large responses. Supports YouTube, Twitter/X, Instagram, TikTok, Twitch, Vimeo, Facebook, Bilibili, VK, Dailymotion, Reddit. **Whisper fallback** — transcribes audio when subtitles are unavailable (local or OpenAI API). Works with Cursor and other MCP hosts.
 
 ## Overview
 
-This repository primarily ships a **stdio MCP server** (`node dist/mcp.js`):
+This repository ships the MCP server in two transports, both served by the same Node process:
 
-- **stdio**: for local usage (e.g., Cursor running a local command).
-- **Remote HTTP/SSE**: expose stdio through **[mcp-proxy](https://github.com/sparfenyuk/mcp-proxy)** (e.g. VPS + Tailscale); see [MCP quick start](#mcp-quick-start) and `docker-compose.example.yml`.
+- **stdio** (`node dist/mcp.js`): for local usage (e.g., Cursor running a local command).
+- **Streamable HTTP** (`node dist/mcp-http-entry.js`): `POST /mcp` on port 4200 for remote usage (e.g. VPS + Tailscale); see [MCP quick start](#mcp-quick-start) and `docker-compose.example.yml`.
 
 It also includes an optional **REST API** (Fastify), but MCP is the primary focus.
 
@@ -30,7 +30,7 @@ Transcriptor MCP is the best choice when you need **transcripts and metadata** f
 
 - **Transcripts and subtitles** — cleaned text or raw SRT/VTT; multi-language; **Whisper fallback** when subtitles are unavailable (local or OpenAI).
 - **Multi-platform** — YouTube, Twitter/X, Instagram, TikTok, Twitch, Vimeo, Facebook, Bilibili, VK, Dailymotion, Reddit.
-- **Remote and production** — stdio + mcp-proxy for HTTP/SSE, optional auth at a reverse proxy, Redis cache, Prometheus metrics on the REST API.
+- **Remote and production** — native Streamable HTTP, auth terminated at your reverse proxy or gateway, Redis cache, Prometheus metrics.
 - **No media downloads** — we focus on text and metadata only. For downloading videos or audio.
 
 Use the sections in this README for setup, tools, and deployment patterns.
@@ -43,8 +43,10 @@ Choose one of these two main paths:
 
 Best when you want a fast local setup without Node on host.
 
+The image serves Streamable HTTP by default, so ask for stdio explicitly:
+
 ```bash
-docker run --rm -i artsamsonov/transcriptor-mcp:latest
+docker run --rm -i artsamsonov/transcriptor-mcp:latest npm run start:mcp
 ```
 
 Cursor MCP config:
@@ -54,25 +56,33 @@ Cursor MCP config:
   "mcpServers": {
     "transcriptor": {
       "command": "docker",
-      "args": ["run", "--rm", "-i", "artsamsonov/transcriptor-mcp:latest"]
+      "args": [
+        "run",
+        "--rm",
+        "-i",
+        "artsamsonov/transcriptor-mcp:latest",
+        "npm",
+        "run",
+        "start:mcp"
+      ]
     }
   }
 }
 ```
 
-Detailed local + self-hosted HTTP/SSE instructions are in [How to connect](#how-to-connect) and [MCP quick start](#mcp-quick-start).
+Detailed local + self-hosted HTTP instructions are in [How to connect](#how-to-connect) and [MCP quick start](#mcp-quick-start).
 
-### 2) Remote MCP via HTTP/SSE (mcp-proxy)
+### 2) Remote MCP via Streamable HTTP
 
-Expose stdio over HTTP/SSE with [mcp-proxy](https://github.com/sparfenyuk/mcp-proxy). See [docker-compose.example.yml](docker-compose.example.yml) for a full stack (optional REST API + MCP).
+The MCP image serves Streamable HTTP itself on port 4200 — no sidecar. See [docker-compose.example.yml](docker-compose.example.yml) for a full stack (optional REST API + MCP).
 
-After you deploy mcp-proxy (and optionally TLS or Bearer auth at a reverse proxy), point MCP clients at your endpoint, for example:
+After you deploy it (and optionally TLS or Bearer auth at a reverse proxy), point MCP clients at your endpoint, for example:
 
 ```text
 https://your-host.example/mcp
 ```
 
-Streamable HTTP uses `POST /mcp`; SSE uses `GET /sse`. The MCP Node process does not validate Bearer tokens — configure auth on the proxy in front of mcp-proxy if needed.
+Transport details: `POST /mcp` only — `GET`/`DELETE` return 405, and the server is stateless, so it issues no `Mcp-Session-Id`. The Node process does not validate Bearer tokens; configure auth on the reverse proxy or gateway in front of it. `GET /health` and `GET /metrics` are served on the same port for probes and Prometheus.
 
 ## Features
 
@@ -84,8 +94,8 @@ Streamable HTTP uses `POST /mcp`; SSE uses `GET /sse`. The MCP Node process does
 - **Whisper fallback**: when subtitles are unavailable, transcribes video audio via Whisper (local self-hosted or OpenAI API); configurable via environment variables.
 - **Optional Redis cache**: cache subtitles and metadata to reduce yt-dlp calls; configurable via environment variables.
 - **Docker-first**: ready for local + remote deployment.
-- **Production-friendly HTTP**: optional auth + allowlists for the REST API; remote MCP uses **stdio + mcp-proxy** and is usually fronted by your own reverse proxy for Bearer/TLS.
-- **Prometheus**: metrics on the REST API (`GET /metrics`); MCP tool counters (`mcp_*`) are updated inside the MCP Node process but this repo no longer exposes `GET /metrics` on the MCP image.
+- **Production-friendly HTTP**: optional auth + allowlists for the REST API; remote MCP speaks **Streamable HTTP** directly and is usually fronted by your own reverse proxy for Bearer/TLS.
+- **Prometheus**: `GET /metrics` on both the REST API and the MCP HTTP server (on `MCP_PORT`, default 4200), the latter exposing the MCP tool counters (`mcp_*`).
 
 ## Self-configurable: Whisper & caching
 
@@ -96,10 +106,10 @@ You can enable these features independently; both are **off by default**.
 
 ## MCP quick start
 
-For full setup options (local Docker and self-hosted HTTP/SSE with `mcp-proxy`), use:
+For full setup options (local Docker and self-hosted Streamable HTTP), use:
 
 - [How to connect](#how-to-connect)
-- [MCP Server (stdio)](#mcp-server-stdio)
+- [MCP Server (stdio and HTTP)](#mcp-server-stdio-and-http)
 
 ## MCP tools
 
@@ -339,7 +349,7 @@ docker run -d -p 3000:3000 --name transcriptor transcriptor-mcp-api
 Before publishing Docker images, you can run a small **e2e smoke test** that:
 
 - Starts a REST API container and checks Swagger + `POST /subtitles` with a stable YouTube video
-- Optionally starts an MCP container and checks **MCP stdio** (initialize over stdin/stdout), **streamable HTTP** (`POST /mcp` with initialize), and **SSE** (`GET /sse`) against **mcp-proxy** + stdio (same stack as [docker-compose.example.yml](docker-compose.example.yml))
+- Optionally starts an MCP container and checks **streamable HTTP** (`POST /mcp`: initialize without a session id, `tools/list`, a real `get_transcript` call, and `GET /mcp` → 405) plus **MCP stdio** (initialize over stdin/stdout), same stack as [docker-compose.example.yml](docker-compose.example.yml)
 
 Run the smoke test (requires built images):
 
@@ -396,15 +406,15 @@ http://localhost:3000/docs
 
 or use [REST API (optional)](#rest-api-optional).
 
-## MCP Server (stdio)
+## MCP Server (stdio and HTTP)
 
-The MCP server runs on stdio (`dist/mcp.js`) and can be used via:
+The MCP server ships two transports and can be used via:
 
-- local Docker (`docker run --rm -i artsamsonov/transcriptor-mcp:latest`)
-- local Node (`node dist/mcp.js`)
-- remote HTTP/SSE through `mcp-proxy` (`/mcp` and `/sse`)
+- remote Streamable HTTP — the image default (`docker run --rm -p 4200:4200 artsamsonov/transcriptor-mcp:latest`), or `npm run start:mcp:http`
+- local Docker over stdio (`docker run --rm -i artsamsonov/transcriptor-mcp:latest npm run start:mcp`)
+- local Node over stdio (`node dist/mcp.js`)
 
-Use [How to connect](#how-to-connect) as the main guide for MCP setup variants; optional Bearer auth is configured on a reverse proxy in front of mcp-proxy.
+Use [How to connect](#how-to-connect) as the main guide for MCP setup variants; optional Bearer auth is configured on a reverse proxy or gateway in front of the HTTP transport.
 
 ## How It Works
 
@@ -437,7 +447,9 @@ The app version is read from `package.json` at runtime (`[src/version.ts](src/ve
 - `npm start` - Run the compiled application
 - `npm run dev` - Run with hot reload using ts-node-dev
 - `npm run start:mcp` - Run the MCP server (stdio)
-- `npm run dev:mcp` - Run the MCP server with hot reload
+- `npm run start:mcp:http` - Run the MCP server (Streamable HTTP on `MCP_PORT`, default 4200)
+- `npm run dev:mcp` - Run the MCP server with hot reload (stdio)
+- `npm run dev:mcp:http` - Run the MCP HTTP server with hot reload
 - `npm test` - Run tests
 - `npm run test:watch` - Run tests in watch mode
 - `npm run test:coverage` - Run tests with coverage report
@@ -452,7 +464,9 @@ The app version is read from `package.json` at runtime (`[src/version.ts](src/ve
 ```
 ├── src/
 │   ├── index.ts                    # HTTP API (Fastify)
-│   ├── mcp.ts                      # MCP server (stdio)
+│   ├── mcp.ts                      # MCP server entry (stdio)
+│   ├── mcp-http.ts                 # MCP server over Streamable HTTP (Fastify)
+│   ├── mcp-http-entry.ts           # MCP HTTP entry point
 │   ├── mcp-core.ts                 # MCP tools registration
 │   ├── validation.ts               # Request validation
 │   ├── youtube.ts                  # Subtitle download and parsing (yt-dlp)
@@ -506,7 +520,7 @@ Do not commit or log sensitive values. Use environment variables or a secret man
 
 - `**WHISPER_API_KEY`** – required when using Whisper API; never log or expose in client responses.
 - `**CACHE_REDIS_URL**` – Redis connection string when `CACHE_MODE=redis`; may contain credentials.
-- **MCP Bearer secrets** – if you terminate auth at a reverse proxy in front of mcp-proxy, store tokens only in env/secrets on that edge.
+- **MCP Bearer secrets** – if you terminate auth at a reverse proxy or gateway in front of the MCP HTTP server, store tokens only in env/secrets on that edge.
 - `**COOKIES_FILE_PATH**` – path to cookies; ensure the file is not committed and has restricted permissions.
 
 Use `cookies.example.txt` as a format template and keep real cookies outside git.

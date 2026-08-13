@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Native Streamable HTTP transport (`src/mcp-http.ts`, `src/mcp-http-entry.ts`):** The MCP server now speaks HTTP itself at `POST /mcp` — the `mcp-proxy` Python sidecar is gone. Runs in the SDK's **stateless** mode: no `Mcp-Session-Id` is issued and no state is kept between requests, so any instance can serve any request. A fresh `McpServer` and transport are built per request (required by the SDK, which throws when a stateless transport is reused). Started with `npm run start:mcp:http`; port and bind address come from `MCP_PORT` (default 4200) and `MCP_HOST` (default 0.0.0.0).
+- **`GET /health` and `GET /metrics` on the MCP port:** liveness for the new Docker `HEALTHCHECK`, and Prometheus exposition that restores visibility of the `mcp_tool_calls_total` / `mcp_tool_errors_total` / `mcp_request_duration_seconds` series, which have been recorded in-process but unexposed since the HTTP layer was removed.
+- **`MCP_PORT` / `MCP_HOST` in `.env.example`:** previously set in compose files but read by nothing.
+
+### Changed
+
+- **MCP image default command is now HTTP** (`npm run start:mcp:http`), matching the port mapping deployments already use. **Breaking for stdio users:** `docker run --rm -i <image>` must become `docker run --rm -i <image> npm run start:mcp`. README, `Makefile`, and the e2e smoke test were updated accordingly.
+- **MCP SDK bumped to `^1.30.0`:** adds SSE keep-alive frames (default every 15 s) and `X-Accel-Buffering: no`, both of which matter for long-running tool calls behind a buffering proxy or an idle-timeout gateway.
+- **E2E MCP smoke rewritten for the new transport:** readiness now probes `GET /health` instead of `GET /sse`; `initialize` asserts that **no** session header comes back; `tools/call` no longer sends one; added a `tools/list` check covering all eight tools and a `GET /mcp` → 405 check; the stdio check passes an explicit `npm run start:mcp` command.
+
+### Removed
+
+- **`mcp-proxy` sidecar and its Python dependency chain:** the `pip3 install mcp-proxy` layer is dropped from the MCP image. This also removes the `mcp`-package pinning problem (mcp 2.x renamed `streamablehttp_client`, which mcp-proxy 0.11.0 still imports).
+- **Legacy SSE transport (`GET /sse`, `POST /message`) and mcp-proxy's `/status`:** the MCP spec removes the 2024-11-05 HTTP+SSE transport, and clients are expected to drop it. Streamable HTTP clients are unaffected; SSE-configured clients must switch to `POST /mcp`.
+
 ## [1.2.0] - 2026-07-02
 
 ### Added

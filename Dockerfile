@@ -71,8 +71,11 @@ RUN /usr/local/bin/npm ci --omit=dev --ignore-scripts && /usr/local/bin/npm cach
 
 COPY --from=builder /app/dist ./dist
 
-# mcp-proxy exposes HTTP/SSE (see docker-compose.example.yml, docs/quick-start.mcp.md). Default CMD is stdio-only.
-RUN pip3 install --no-cache-dir --break-system-packages mcp-proxy==0.11.0
+EXPOSE 4200
 
-# Default: MCP over stdio (e.g. `docker run --rm -i`). No listen port in this mode.
-CMD ["npm", "run", "start:mcp"]
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+    CMD node -e "fetch('http://127.0.0.1:'+(process.env.MCP_PORT||4200)+'/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+
+# Default: MCP over Streamable HTTP on MCP_PORT (4200), served by this process — no sidecar.
+# For stdio (e.g. `docker run --rm -i`), override the command with: npm run start:mcp
+CMD ["npm", "run", "start:mcp:http"]
