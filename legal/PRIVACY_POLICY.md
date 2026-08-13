@@ -8,7 +8,7 @@ Companion document: [Terms of Service](./TERMS_OF_SERVICE.md). "Output" has the 
 
 ## 1. Who is responsible
 
-{{OPERATOR_LEGAL_NAME}}, a natural person established in Spain, operates the hosted Transcriptor MCP service at `https://gateway.mcpal.io/mcp/transcriptor` (the "Service") and is the controller for the processing described here. Our postal address in Spain and our tax identification number (NIF) are in section 1 of the [Terms of Service](./TERMS_OF_SERVICE.md). Email: legal@transcriptor-mcp.org. We have not appointed a data protection officer and are not required to.
+A natural person resident in Spain operates the hosted Transcriptor MCP service at `https://gateway.mcpal.io/mcp/transcriptor` (the "Service") and is the controller for the processing described here. Our postal address and tax identification number (NIF) are available on request. Email: legal@transcriptor-mcp.org. We have not appointed a data protection officer and are not required to.
 
 This policy covers only the hosted Service. If you run the software yourself from <https://github.com/samson-art/transcriptor-mcp>, we are not the controller and we process nothing about you.
 
@@ -98,4 +98,4 @@ This policy carries a version number, and the acceptance record stores the versi
 
 The current version is published at <https://github.com/samson-art/transcriptor-mcp/blob/main/legal/PRIVACY_POLICY.md>. Every version stays in that repository's history. This policy and the Terms are published in English.
 
-Controller: {{OPERATOR_LEGAL_NAME}}, Spain. Email: legal@transcriptor-mcp.org. You may also write to us by post at the address in section 1 of the [Terms of Service](./TERMS_OF_SERVICE.md). If a message to legal@transcriptor-mcp.org comes back undelivered, use that address.
+Controller: the Service operator, Spain. Email: legal@transcriptor-mcp.org. If a message to legal@transcriptor-mcp.org comes back undelivered, ask us for our postal address and write to us there.
