@@ -169,21 +169,21 @@ Four tools have an interactive interface: `get_transcript`, `get_video_info`, `g
   <tr>
     <td width="50%" valign="top">
       <img src="assets/widget-search.webp" alt="The search_videos widget: a carousel of result cards with thumbnails, durations, and view counts" />
-      <p align="center"><sub><code>search_videos</code> · <i>"charlie bit my finger"</i></sub></p>
+      <p align="center"><sub><code>search_videos</code> · <i>"model context protocol MCP server production"</i></sub></p>
     </td>
     <td width="50%" valign="top">
       <img src="assets/widget-video-frame.webp" alt="The get_video_frame widget: one captured frame with step controls and a timecode field" />
-      <p align="center"><sub><code>get_video_frame</code> · <i>Double Rainbow</i> at 0:34</sub></p>
+      <p align="center"><sub><code>get_video_frame</code> · an architecture slide at 3:30</sub></p>
     </td>
   </tr>
   <tr>
     <td width="50%" valign="top">
       <img src="assets/widget-transcript.webp" alt="The get_transcript widget: a video card above a searchable list of timed captions" />
-      <p align="center"><sub><code>get_transcript</code> · <i>Me at the zoo</i>, the first video on YouTube</sub></p>
+      <p align="center"><sub><code>get_transcript</code> · a 3-minute MCP explainer, official captions</sub></p>
     </td>
     <td width="50%" valign="top">
       <img src="assets/widget-video-info.webp" alt="The get_video_info widget: thumbnail, channel, views, likes, description, and a subtitle language picker" />
-      <p align="center"><sub><code>get_video_info</code> · <i>Gangnam Style</i>, 6.0B views</sub></p>
+      <p align="center"><sub><code>get_video_info</code> · channel, views, likes, and 169 caption languages</sub></p>
     </td>
   </tr>
 </table>
