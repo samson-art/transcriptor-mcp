@@ -8,10 +8,10 @@ These Terms replace the End User Licence Agreement published earlier. The licenc
 
 ## 1. Provider identity
 
-The Service is provided by **{{OPERATOR_LEGAL_NAME}}**, a natural person (persona física) resident in Spain ("we", "us").
+The Service is provided by **Artem Samsonov**, a natural person (persona física) resident in Spain ("we", "us").
 
-- Address: **{{OPERATOR_POSTAL_ADDRESS}}**, Spain
-- Tax identification number (NIF/NIE): **{{OPERATOR_NIF}}**
+- Address: **Carrer de Jordà 9, 2-2, Barcelona**, Spain
+- Tax identification number (NIF/NIE): **Z2082404N**
 - Contact e-mail, for direct and effective communication: **legal@transcriptor-mcp.org**
 
 ## 2. What these Terms cover
@@ -142,4 +142,4 @@ We give at least **30 days' notice** by e-mail, and additionally in the sign-in 
 
 If a court finds a provision unenforceable, that provision is removed and the rest stays in force.
 
-{{OPERATOR_LEGAL_NAME}}, Spain. E-mail: legal@transcriptor-mcp.org.
+Artem Samsonov, Spain. E-mail: legal@transcriptor-mcp.org.
