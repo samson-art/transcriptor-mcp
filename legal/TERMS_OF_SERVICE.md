@@ -6,19 +6,19 @@
 
 These Terms replace the End User Licence Agreement published earlier. The licence to use the Service is section 6.
 
-## 1. Provider identity (Article 10, Ley 34/2002, LSSI-CE)
+## 1. Provider identity
 
-The Service is provided by **{{OPERATOR_LEGAL_NAME}}**, a natural person (persona física) established in Spain ("we", "us").
+The Service is provided by **{{OPERATOR_LEGAL_NAME}}**, a natural person (persona física) resident in Spain ("we", "us").
 
 - Address: **{{OPERATOR_POSTAL_ADDRESS}}**, Spain
-- Tax identification number (NIF): **{{OPERATOR_NIF}}**
+- Tax identification number (NIF/NIE): **{{OPERATOR_NIF}}**
 - Contact e-mail, for direct and effective communication: **legal@transcriptor-mcp.org**
 
 ## 2. What these Terms cover
 
-These Terms are a contract between you and us for the hosted Transcriptor MCP service at `https://gateway.mcpal.io/mcp/transcriptor` (the "Service"). These Terms bind you from the moment you accept them by an affirmative act — ticking the acceptance box shown with these Terms and the [Privacy Policy](./PRIVACY_POLICY.md) on the sign-in and consent screen — before your first tool call. We record the version number, the date and time, and that you ticked it.
+These Terms are a contract between you and us for the hosted Transcriptor MCP service at `https://gateway.mcpal.io/mcp/transcriptor` (the "Service"). They bind you from the moment you accept them by an affirmative act — ticking the acceptance box shown with these Terms and the [Privacy Policy](./PRIVACY_POLICY.md) on the sign-in and consent screen — before your first tool call. We record the version number, the date and time, and that you ticked it.
 
-Sign-in, the gateway, quota metering and billing run on the MCPal platform, which we do not operate. You accept MCPal's terms separately when you sign in.
+Sign-in, the gateway and quota metering run on the MCPal platform, which we do not operate. You accept MCPal's terms separately when you sign in.
 
 **Self-hosting is not covered by these Terms.** The source and documentation at <https://github.com/samson-art/transcriptor-mcp> are under the MIT Licence. An instance you run yourself is governed by that licence alone, needs no account and costs nothing. The container image also contains third-party software under other licences, including ffmpeg and yt-dlp, which the MIT Licence does not govern.
 
@@ -63,7 +63,7 @@ For each URL you send, you confirm that:
 - **(c)** submitting it breaks no agreement that binds you; and
 - **(d)** you are entitled to give us the instruction in section 9 and to authorise the technical copies we must make to carry it out.
 
-**Never send us credentials, cookies, tokens or session data for any platform, and never ask us to use them.** If you do, we may suspend or end your access under section 15.
+**Never send us credentials, cookies, tokens or session data for any platform, and never ask us to use them.** If you do, we may suspend or end your access under section 13.
 
 ## 8. Prohibited use
 
@@ -94,90 +94,52 @@ If you believe the Service has been used to infringe your rights or to reach ill
 
 Output is produced automatically, from captions and metadata we do not write and do not check. It contains errors, omissions, wrong timings and wrong speaker attribution. Check Output against the source before you rely on it or publish it. Section 8 forbids the high-risk uses listed there.
 
-## 12. Quotas, availability and changes to the Service
+## 12. The Service is free. Quotas, availability and changes
 
-Each signed-in user has a free allowance of tool calls per UTC day, shown at sign-in. Only tool calls count against the allowance. When it is used up, further calls are refused until the next UTC day unless your plan includes a higher allowance. Every plan has an allowance and a rate limit, both shown at sign-in.
+**The Service is supplied free of charge.** There is no subscription, no price and nothing to pay. Each signed-in user has an allowance of tool calls per UTC day, shown at sign-in; only tool calls count against it. When it is used up, further calls are refused until the next UTC day. We may change the allowance, and we may introduce paid plans in a future version of these Terms, which would take effect under section 18 and would never apply to a period already used.
 
-Source platforms change and block access without warning, so a tool may stop working for a platform at any time. We may change, restrict or discontinue the Service or a tool only for a reason listed in section 20. Where that materially reduces the Service for a consumer, we give 30 days' notice, you may terminate free of charge, and we refund any prepaid unused period pro rata.
+Source platforms change and block access without warning, so a tool may stop working for a platform at any time. We may change, restrict or discontinue the Service or a tool only for a reason listed in section 18. Because the Service is free, you have no claim to continued availability, and we owe no refund of anything.
 
-## 13. How a contract is formed, prices and payment
-
-**We are the seller.** MCPal collects payment for us through Stripe and issues the receipt in our name; MCPal is not a party to this contract. Refunds under sections 12, 14, 15 and 20 are paid by us through the same channel.
-
-You conclude a paid contract in the MCPal dashboard: you choose a plan, you see the price and these Terms, you correct any input error on the confirmation screen, and you confirm. We then send confirmation by e-mail, which you should keep. These Terms and the contract are in English, and we file the accepted version of these Terms with its number and date.
-
-All prices are in euro. **Consumers:** the price shown at checkout is the total price and includes any VAT that applies. If you are a business and give a VAT identification number that we verify in VIES, we invoice without Spanish IVA under the reverse charge and you account for VAT in your Member State.
-
-A subscription renews automatically for the same period until you cancel. **Consumers:** on a plan that renews for a year or more, we send you an e-mail reminder at least one month before each renewal, stating the renewal date, the price, and that you may choose not to renew; on shorter plans we state the renewal date and price when you subscribe. You may cancel at any time in your MCPal account, by the same electronic means you used to subscribe, or by e-mail to legal@transcriptor-mcp.org — without penalty, reason or formality. Cancellation takes effect at the end of the period you have paid for, and you keep access until then.
-
-## 14. Right of withdrawal (Consumers)
-
-If you are a consumer, you have **14 days** from the day the paid contract is concluded to withdraw, without giving a reason. To withdraw, send an unequivocal statement to legal@transcriptor-mcp.org, or use the model form in the Annex. We refund all payments received, by the same means of payment you used, within 14 days of being informed.
-
-If you want us to begin supply during those 14 days, you must ask us expressly at checkout, by a separate box that is not pre-ticked, and acknowledge there what that means for your right of withdrawal. We then confirm the contract, your request and your acknowledgement by e-mail on a durable medium.
-
-A subscription is supplied continuously and is not fully performed before the paid period ends, so using the Service does not by itself end your right of withdrawal. If you withdraw before the Service has been fully performed, you pay an amount in proportion to what was supplied up to the moment you told us, calculated on the total contract price, and we refund the rest. You pay nothing at all if we did not obtain your express request and your acknowledgement at checkout in the way described above.
-
-The 14 days run from the first paid contract. Automatic renewal of the same subscription does not start a new period.
-
-## 15. Suspension and termination
+## 13. Suspension and termination
 
 We may suspend, rate-limit or end access where the Service is used unlawfully or in breach of sections 7 or 8, where a request would infringe a third party's rights, where a complaint under section 10 is upheld, or where use threatens the security or availability of the Service. A person, not an automated rule, takes that decision. We tell you the reason unless the law prevents us, and you may reply to legal@transcriptor-mcp.org.
 
-If we end a paid subscription, we refund the unused part of the period you have paid for in every case, less any amount you owe us.
-
 You may stop at any time by disconnecting the server in your MCP client, and delete your account in your MCPal account page.
 
-## 16. Warranties
+## 14. Warranties
 
 **Business users: THE SERVICE IS PROVIDED "AS IS" AND "AS AVAILABLE". ALL WARRANTIES, EXPRESS OR IMPLIED, INCLUDING AVAILABILITY, ACCURACY, NON-INFRINGEMENT, MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE, ARE EXCLUDED TO THE FULLEST EXTENT THE LAW ALLOWS.**
 
-**Consumers, including on the free tier, keep their conformity rights under Royal Legislative Decree 1/2007**, including having the Service brought into conformity, a proportionate price reduction, or termination. We do not promise error-free Output, support for any particular video, or uninterrupted operation. Sections 3, 11 and 12 describe these limits. Where such a limit departs from what you could objectively expect, we set it out separately at checkout and you accept it there expressly and separately; a limit not accepted in that way does not restrict your conformity rights.
+**Consumers:** we do not promise error-free Output, support for any particular video, or uninterrupted operation, and sections 3, 11 and 12 describe those limits. Where mandatory Spanish or EU law gives you rights in a digital service supplied without payment of a price, those rights are unaffected by this section.
 
-## 17. Limitation of liability
+## 15. Limitation of liability
 
 **Nothing in these Terms excludes or limits our liability for death or personal injury caused by our negligence, for fraud or fraudulent misrepresentation, for wilful misconduct (dolo) or gross negligence (culpa grave), or for any other liability that cannot lawfully be excluded.**
 
-Except for that paragraph, our total liability for all claims relating to one event is limited to the greater of EUR 100 and the amount you paid for the Service in the 12 months before that event. **This financial cap applies to business users only.**
+Except for that paragraph, and because the Service is supplied free of charge, our total liability for all claims relating to one event is limited to **EUR 100**. **This financial cap applies to business users only.**
 
 **Business users:** we are not liable for loss of profit, loss of business, loss of data, or indirect or consequential loss. **Consumers:** no monetary cap applies to you, and we are liable for foreseeable loss caused by our failure to perform this contract or by our lack of reasonable care and skill.
 
-## 18. Indemnity (business users only)
+## 16. Indemnity (business users only)
 
 If you are not a consumer, you will defend us against any third-party claim arising from a URL you submitted or the Output you received, and you will pay the resulting costs, losses, settlements and awards, including legal fees. We will tell you about the claim promptly and let you take over its defence with counsel we approve, and we will not settle without your consent, which you will not unreasonably withhold.
 
-## 19. Complaints, governing law and courts
+## 17. Complaints, governing law and courts
 
-Write to legal@transcriptor-mcp.org and we will reply within one month. We are not committed to, and are not obliged to take part in, any alternative dispute resolution scheme. A consumer may also complain to the consumer authority of their place of residence, or in Spain through the Sistema Arbitral de Consumo if we agree to it in the individual case.
+Write to legal@transcriptor-mcp.org and we will reply within one month. We are not committed to, and are not obliged to take part in, any alternative dispute resolution scheme. A consumer may also complain to the consumer authority of their place of residence.
 
 These Terms are governed by Spanish law. **If you are a consumer habitually resident in another EU or EEA State, this choice does not deprive you of the protection of the mandatory rules of the law of your country of residence, which continue to apply.**
 
 **Consumers:** you may sue us in the courts of the State where you are domiciled or in the Spanish courts, and we may sue you only in the courts of the State where you are domiciled. **Business users:** the courts of Spain have exclusive jurisdiction.
 
-## 20. Changes to these Terms and to prices
+## 18. Changes to these Terms
 
-We may amend these Terms only for one of these reasons: a change in the law or in a supervisory authority's guidance; a change imposed by the MCPal platform or another supplier we depend on; a change in the technical features of the Service; or a documented change in our costs.
+We may amend these Terms only for one of these reasons: a change in the law or in a supervisory authority's guidance; a change imposed by the MCPal platform or another supplier we depend on; a change in the technical features of the Service; or the introduction of a paid plan.
 
-We give at least **30 days' notice** by e-mail, and additionally in the sign-in flow, with the new version number and the date it takes effect. Changes are not retroactive. Before that date you may terminate free of charge, and if you are a consumer we refund any prepaid unused period pro rata. A price change applies only to periods beginning after that notice.
+We give at least **30 days' notice** by e-mail, and additionally in the sign-in flow, with the new version number and the date it takes effect. Changes are not retroactive. Before that date you may stop using the Service, which costs you nothing.
 
-## 21. General and contact
+## 19. General and contact
 
 If a court finds a provision unenforceable, that provision is removed and the rest stays in force.
 
 {{OPERATOR_LEGAL_NAME}}, Spain. E-mail: legal@transcriptor-mcp.org.
-
----
-
-## Annex — Model withdrawal form
-
-*Complete and return this form only if you wish to withdraw from the contract.*
-
-To {{OPERATOR_LEGAL_NAME}}, Spain, legal@transcriptor-mcp.org:
-
-I hereby give notice that I withdraw from my contract for the supply of the Transcriptor MCP service.
-
-- Ordered on: ____________________
-- Name of consumer: ____________________
-- Address of consumer: ____________________
-- Signature (only if sent on paper): ____________________
-- Date: ____________________
