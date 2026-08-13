@@ -121,3 +121,34 @@ jobs:
           IMG="artsamsonov/transcriptor-mcp-api:${{ steps.tag.outputs.latest_only == 'true' && 'latest' || steps.tag.outputs.version }}"
           docker pull "$IMG"
           echo "::notice::yt-dlp in image $IMG: $(docker run --rm $IMG yt-dlp --version 2>/dev/null | head -1)"
+
+  # Publish the server entry to registry.modelcontextprotocol.io.
+  # Runs after `publish` because the registry validates ownership by pulling the
+  # image and reading its io.modelcontextprotocol.server.name label.
+  publish-registry:
+    needs: publish
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write # required for `mcp-publisher login github-oidc`
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Sync server.json to the released version
+        run: |
+          jq --arg v "${{ needs.publish.outputs.version }}" \
+            '.version = $v
+             | .packages[0].identifier = "docker.io/artsamsonov/transcriptor-mcp:" + $v' \
+            server.json > server.tmp && mv server.tmp server.json
+          cat server.json
+
+      - name: Install mcp-publisher
+        run: |
+          curl -fsSL "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_linux_amd64.tar.gz" \
+            | tar xz mcp-publisher
+
+      - name: Publish to the MCP Registry
+        run: |
+          ./mcp-publisher login github-oidc
+          ./mcp-publisher publish

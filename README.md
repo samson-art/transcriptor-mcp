@@ -1,539 +1,298 @@
+<div align="center">
 
+<img src="logo.webp" alt="Transcriptor MCP" width="120" />
 
-# Transcriptor MCP
+# 🎬 Your assistant cannot watch videos. Give it the transcript.
 
-[![Dockerhub](https://img.shields.io/badge/Docker-artsamsonov/transcriptor--mcp-blue.svg)](https://hub.docker.com/r/artsamsonov/transcriptor-mcp)
-[![GitHub License](https://img.shields.io/github/license/samson-art/transcriptor-mcp)](https://github.com/samson-art/transcriptor-mcp/blob/main/LICENSE)
+**Connect one server. Then ask Claude, ChatGPT, or Cursor about any video:** the transcript, the chapters, the metadata, or a single frame. It works with 11 platforms, not only YouTube.
 
-An MCP server (stdio; remote HTTP/SSE via [mcp-proxy](https://github.com/sparfenyuk/mcp-proxy)) that fetches video transcripts/subtitles via `yt-dlp`, with pagination for large responses. Supports YouTube, Twitter/X, Instagram, TikTok, Twitch, Vimeo, Facebook, Bilibili, VK, Dailymotion, Reddit. **Whisper fallback** — transcribes audio when subtitles are unavailable (local or OpenAI API). Works with Cursor and other MCP hosts.
+[![MCP Registry](https://img.shields.io/badge/MCP%20Registry-transcriptor--mcp-6E56CF)](https://registry.modelcontextprotocol.io/v0/servers?search=transcriptor)
+[![Docker](https://img.shields.io/badge/Docker-artsamsonov/transcriptor--mcp-2496ED?logo=docker&logoColor=white)](https://hub.docker.com/r/artsamsonov/transcriptor-mcp)
+[![MCP Apps](https://img.shields.io/badge/MCP%20Apps-4%20interactive%20widgets-8A63D2)](#-widgets)
+[![License](https://img.shields.io/github/license/samson-art/transcriptor-mcp)](LICENSE)
 
-## Overview
+**[Connect](#-connect-in-30-seconds) · [What to ask](#-what-you-can-ask) · [Widgets](#-widgets) · [Platforms](#-platforms) · [Self-host](#-self-host) · [FAQ](#-faq)**
 
-This repository primarily ships a **stdio MCP server** (`node dist/mcp.js`):
+</div>
 
-- **stdio**: for local usage (e.g., Cursor running a local command).
-- **Remote HTTP/SSE**: expose stdio through **[mcp-proxy](https://github.com/sparfenyuk/mcp-proxy)** (e.g. VPS + Tailscale); see [MCP quick start](#mcp-quick-start) and `docker-compose.example.yml`.
+---
 
-It also includes an optional **REST API** (Fastify), but MCP is the primary focus.
+## ⚡ Connect in 30 seconds
 
-## Supported platforms
+The hosted endpoint is:
 
-Unlike YouTube-only tools, Transcriptor MCP works across **11 major video platforms**:
-
-YouTube · Twitter/X · Instagram · TikTok · Twitch · Vimeo · Facebook · Bilibili · VK · Dailymotion · Reddit
-
-All URL-based tools (`get_transcript`, `get_raw_subtitles`, `get_available_subtitles`, `get_video_info`, `get_video_chapters`, `get_video_frame`, `get_playlist_transcripts`) accept video URLs from any supported platform. The `search_videos` tool is YouTube-specific (yt-dlp ytsearch).
-
-## When to use Transcriptor MCP
-
-Transcriptor MCP is the best choice when you need **transcripts and metadata** for AI, summarization, or content analysis — without downloading video or audio files:
-
-- **Transcripts and subtitles** — cleaned text or raw SRT/VTT; multi-language; **Whisper fallback** when subtitles are unavailable (local or OpenAI).
-- **Multi-platform** — YouTube, Twitter/X, Instagram, TikTok, Twitch, Vimeo, Facebook, Bilibili, VK, Dailymotion, Reddit.
-- **Remote and production** — stdio + mcp-proxy for HTTP/SSE, optional auth at a reverse proxy, Redis cache, Prometheus metrics on the REST API.
-- **No media downloads** — we focus on text and metadata only. For downloading videos or audio.
-
-Use the sections in this README for setup, tools, and deployment patterns.
-
-## How to connect
-
-Choose one of these two main paths:
-
-### 1) Local MCP (Docker)
-
-Best when you want a fast local setup without Node on host.
-
-```bash
-docker run --rm -i artsamsonov/transcriptor-mcp:latest
+```text
+https://gateway.mcpal.io/mcp/transcriptor
 ```
 
-Cursor MCP config:
+Your client opens a browser and you sign in there. There is no API key to copy.
+
+### 🖱️ One click
+
+[![Add to Cursor](https://img.shields.io/badge/Add%20to-Cursor-000000?style=for-the-badge&logo=cursor&logoColor=white)](https://cursor.com/en/install-mcp?name=transcriptor&config=eyJ1cmwiOiJodHRwczovL2dhdGV3YXkubWNwYWwuaW8vbWNwL3RyYW5zY3JpcHRvciJ9)
+[![Install in VS Code](https://img.shields.io/badge/Install%20in-VS%20Code-0098FF?style=for-the-badge&logo=visualstudiocode&logoColor=white)](https://insiders.vscode.dev/redirect/mcp/install?name=transcriptor&config=%7B%22type%22%3A%22http%22%2C%22url%22%3A%22https%3A%2F%2Fgateway.mcpal.io%2Fmcp%2Ftranscriptor%22%7D)
+
+Each link opens the client and fills in the address of the server. Then the client starts the sign-in.
+
+### ⌨️ One command, for Claude Code
+
+```bash
+claude mcp add --transport http transcriptor https://gateway.mcpal.io/mcp/transcriptor
+```
+
+Then run `/mcp` and approve the sign-in in the browser. After this, `claude mcp list` shows `✔ Connected`.
+
+### 🧭 No terminal
+
+| Client | What to do |
+| --- | --- |
+| **Claude** (web and desktop) | Open [Settings → Connectors](https://claude.ai/settings/connectors). Select **Add custom connector**, paste the URL, then select **Add**. |
+| **ChatGPT** | Open Settings → **Security and login** and turn on **Developer mode**. Then open Plugins, select **+**, and paste the URL. |
+
+> **Note:** ChatGPT developer mode is available on the web, for paid plans. Some releases show this control as Settings → Apps & Connectors → Advanced.
+
+### 🧩 Any other MCP client
+
+If your client is not in the list above, add the server with this configuration:
+
+```json
+{
+  "mcpServers": {
+    "transcriptor": {
+      "url": "https://gateway.mcpal.io/mcp/transcriptor"
+    }
+  }
+}
+```
+
+If you want to run the server yourself, read [Self-host](#-self-host). The tools are the same and you need no account.
+
+---
+
+## 🧰 What you can ask
+
+The server has eight tools. You do not name them. You ask for the result, and the client selects the tool.
+
+| Ask for this | Tool |
+| --- | --- |
+| *"Summarize this video for me"* | `get_transcript` |
+| *"Give me the subtitles as an SRT file"* | `get_raw_subtitles` |
+| *"Is there a German track for this video?"* | `get_available_subtitles` |
+| *"Who published this and how many views?"* | `get_video_info` |
+| *"Go to the part about pricing"* | `get_video_chapters` |
+| *"Show me the screen at 4:12"* | `get_video_frame` |
+| *"Get transcripts for the first 5 videos in this playlist"* | `get_playlist_transcripts` |
+| *"Find recent videos about X"* | `search_videos` (YouTube) |
+
+The server also has three prompts: `get_transcript_for_video`, `summarize_video`, and `search_and_summarize`.
+
+Long transcripts come in parts. Each response gives a cursor for the next part, so no text is lost.
+
+<details>
+<summary><b>Full tool reference</b> (input and structured response)</summary>
+
+Each tool that takes a video accepts `url`. This is a link from a [supported platform](#-platforms) or a plain YouTube ID. Each tool returns `content` (text for the chat) and `structuredContent` (typed JSON for your code).
+
+#### `get_transcript`
+
+Clean plain text, without timestamps, HTML, or speaker names. The tool finds the type and the language for you.
+
+Response: `videoId`, `type`, `lang`, `text`, `is_truncated`, `total_length`, `start_offset`, `end_offset`. When more text is available, the response also has `next_cursor`.
+
+#### `get_raw_subtitles`
+
+Raw SRT or VTT content, in parts.
+
+Input:
+
+- `type` — `official` or `auto`
+- `lang` — a language code
+- `response_limit` — default `50000`, minimum `1000`, maximum `200000`
+- `next_cursor` — the cursor of the previous response
+
+Response: the fields of `get_transcript`, plus `format` (`srt` or `vtt`) and `content`.
+
+#### `get_available_subtitles`
+
+Response: `official` and `auto`. Each field is a sorted list of language codes. Use this tool first, then give `type` and `lang` to the tools above.
+
+#### `get_video_info`
+
+Extended metadata from yt-dlp:
+
+- identity — `videoId`, `title`, `description`, `webpageUrl`
+- author — `uploader`, `uploaderId`, `channel`, `channelId`, `channelUrl`
+- numbers — `duration`, `uploadDate`, `viewCount`, `likeCount`, `commentCount`
+- classification — `tags`, `categories`, `liveStatus`, `isLive`, `wasLive`, `availability`
+- images — `thumbnail` and `thumbnails`
+
+#### `get_video_chapters`
+
+Response: `chapters`. Each item has `startTime`, `endTime`, and `title`. When the video has no chapters, the list is empty.
+
+#### `get_video_frame`
+
+Input:
+
+- `timecode` — `"MM:SS"` or `"HH:MM:SS.mmm"`
+- `seconds` — an alternative to `timecode`. Give one of the two, not both
+- `format` — `jpeg` (default) or `png`
+- `width` — default `1280`, maximum `1920`, never larger than the source
+- `quality` — `2` to `31`, for jpeg only
+
+Response: an image block, plus `timestampSeconds`, `timestamp`, `mimeType`, `sizeBytes`, and `width`. This tool needs `ffmpeg`. The Docker image includes it.
+
+#### `get_playlist_transcripts`
+
+Input:
+
+- `url` — a playlist URL, or a watch URL with `list=`
+- `type`, `lang`, `format` — the same as `get_raw_subtitles`
+- `playlistItems` — a yt-dlp `-I` value such as `1:5`, `1,3,7`, or `-1`
+- `maxItems` — the maximum number of videos
+
+Response: `results`. Each item has `videoId` and `text`.
+
+#### `search_videos`
+
+Input:
+
+- `query` — the search text
+- `limit` — default 10, maximum 50
+- `offset` — the number of results to skip
+- `uploadDateFilter` — `hour`, `today`, `week`, `month`, or `year`
+- `response_format` — `json` (default) or `markdown`
+
+Response: `results`. Each item has `videoId`, `title`, `url`, `duration`, `uploader`, `viewCount`, and `thumbnail`.
+
+</details>
+
+---
+
+## 🖼️ Widgets
+
+Four tools have an interactive interface: `get_transcript`, `get_video_info`, `get_video_frame`, and `search_videos`. Clients that support [MCP Apps](https://github.com/modelcontextprotocol/ext-apps) and the ChatGPT Apps SDK show this interface in the chat. Other clients get the same data as text and JSON.
+
+![Transcriptor MCP in action](example-usage.webp)
+
+---
+
+## 🌍 Platforms
+
+**YouTube · Twitter/X · Instagram · TikTok · Twitch · Vimeo · Facebook · Bilibili · VK · Dailymotion · Reddit**
+
+Each tool that takes a video accepts a link from these 11 platforms. The tool `search_videos` works with YouTube only, through yt-dlp `ytsearch`.
+
+The server does not download video or audio files for you. It returns text, metadata, and single frames.
+
+---
+
+## 🐳 Self-host
+
+The tools are the same as on the hosted endpoint. You need no account.
+
+Run the server with Docker. The image serves Streamable HTTP on port 4200:
+
+```bash
+docker run --rm -p 4200:4200 artsamsonov/transcriptor-mcp:latest
+```
+
+Then point your client at `http://localhost:4200/mcp`.
+
+For stdio, give the image an explicit command:
+
+```bash
+docker run --rm -i artsamsonov/transcriptor-mcp:latest npm run start:mcp
+```
 
 ```json
 {
   "mcpServers": {
     "transcriptor": {
       "command": "docker",
-      "args": ["run", "--rm", "-i", "artsamsonov/transcriptor-mcp:latest"]
+      "args": ["run", "--rm", "-i", "artsamsonov/transcriptor-mcp:latest", "npm", "run", "start:mcp"]
     }
   }
 }
 ```
 
-Detailed local + self-hosted HTTP/SSE instructions are in [How to connect](#how-to-connect) and [MCP quick start](#mcp-quick-start).
+The server starts with no environment variables. Each variable below is optional.
 
-### 2) Remote MCP via HTTP/SSE (mcp-proxy)
+| Variable | Default | Function |
+| --- | --- | --- |
+| `MCP_PORT` and `MCP_HOST` | `4200` and `0.0.0.0` | The HTTP listener |
+| `COOKIES_FILE_PATH` | — | A Netscape cookies file for videos that need an account. See [cookies.example.txt](cookies.example.txt) |
+| `WHISPER_MODE` | `off` | Set `local` or `api` to transcribe the audio when a video has no subtitles. Then set `WHISPER_BASE_URL` or `WHISPER_API_KEY` |
+| `CACHE_MODE` | `off` | Set `redis` and `CACHE_REDIS_URL` to cache subtitles and metadata |
+| `YT_DLP_*` | — | Timeouts, proxy, and JS runtimes. See [.env.example](.env.example) |
 
-Expose stdio over HTTP/SSE with [mcp-proxy](https://github.com/sparfenyuk/mcp-proxy). See [docker-compose.example.yml](docker-compose.example.yml) for a full stack (optional REST API + MCP).
+The same port serves `GET /health` and `GET /metrics`. The metrics are in Prometheus format and include the `mcp_*` counters.
 
-After you deploy mcp-proxy (and optionally TLS or Bearer auth at a reverse proxy), point MCP clients at your endpoint, for example:
+<details>
+<summary><b>Transport, REST API, and development</b></summary>
 
-```text
-https://your-host.example/mcp
-```
+**Transport.** The server accepts `POST /mcp` only. `GET` and `DELETE` return `405`. The server is stateless and sends no `Mcp-Session-Id`.
 
-Streamable HTTP uses `POST /mcp`; SSE uses `GET /sse`. The MCP Node process does not validate Bearer tokens — configure auth on the proxy in front of mcp-proxy if needed.
+The Node process does not check bearer tokens. Put a reverse proxy or a gateway in front of it for authentication and TLS. The hosted endpoint works this way.
 
-## Features
-
-- **Multi-platform** — YouTube, Reddit, Twitter/X, Instagram, TikTok, Twitch, Vimeo, Facebook, Bilibili, VK, Dailymotion.
-- **Transcripts + raw subtitles**: cleaned text or raw SRT/VTT.
-- **Language support**: official subtitles with auto-generated fallback.
-- **Video metadata**: extended info (title, channel, tags, thumbnails, etc.) and chapter markers.
-- **Pagination**: safe for large transcripts.
-- **Whisper fallback**: when subtitles are unavailable, transcribes video audio via Whisper (local self-hosted or OpenAI API); configurable via environment variables.
-- **Optional Redis cache**: cache subtitles and metadata to reduce yt-dlp calls; configurable via environment variables.
-- **Docker-first**: ready for local + remote deployment.
-- **Production-friendly HTTP**: optional auth + allowlists for the REST API; remote MCP uses **stdio + mcp-proxy** and is usually fronted by your own reverse proxy for Bearer/TLS.
-- **Prometheus**: metrics on the REST API (`GET /metrics`); MCP tool counters (`mcp_*`) are updated inside the MCP Node process but this repo no longer exposes `GET /metrics` on the MCP image.
-
-## Self-configurable: Whisper & caching
-
-You can enable these features independently; both are **off by default**.
-
-- **Whisper fallback** — When native subtitles are unavailable, transcribe video audio via Whisper (local self-hosted or OpenAI API). Configure via `WHISPER_MODE`, `WHISPER_BASE_URL`, `WHISPER_API_KEY`, etc.
-- **Redis caching** — Cache subtitles and metadata to reduce yt-dlp calls. Configure via `CACHE_MODE=redis` and `CACHE_REDIS_URL`.
-
-## MCP quick start
-
-For full setup options (local Docker and self-hosted HTTP/SSE with `mcp-proxy`), use:
-
-- [How to connect](#how-to-connect)
-- [MCP Server (stdio)](#mcp-server-stdio)
-
-## MCP tools
-
-
-| Tool                       | Purpose                          |
-| -------------------------- | -------------------------------- |
-| `get_transcript`           | Cleaned plain text (first chunk) |
-| `get_raw_subtitles`        | Raw SRT/VTT, paginated           |
-| `get_available_subtitles`  | List official/auto languages     |
-| `get_video_info`           | Extended metadata                |
-| `get_video_chapters`       | Chapter markers                  |
-| `get_video_frame`          | Single frame image at timestamp  |
-| `get_playlist_transcripts` | Batch transcripts from playlist  |
-| `search_videos`            | YouTube search                   |
-
-
-### MCP tool reference
-
-All URL-based tools share the same base input:
-
-- `url` (string, required) – Video URL from a supported platform or YouTube video ID. Supported: YouTube, Twitter/X, Instagram, TikTok, Twitch, Vimeo, Facebook, Bilibili, VK, Dailymotion, Reddit.
-
-`get_raw_subtitles` supports pagination; `get_transcript` returns the first chunk only (no pagination input). Pagination parameters for `get_raw_subtitles`:
-
-- `response_limit` (number, optional) – max characters per response, default `50000`, min `1000`, max `200000`.
-- `next_cursor` (string, optional) – opaque offset returned from the previous page; pass it to fetch the next chunk.
-
-Each tool returns:
-
-- `content` – human-readable text (for MCP chat UIs).
-- `structuredContent` – strongly typed JSON payload you can consume from automations or code.
-
-#### `get_transcript`
-
-**Purpose**: Fetch cleaned subtitles as plain text (no timestamps, HTML, or speaker metadata).
-
-**Input**: Only `url` (video URL or ID). Type and language are auto-discovered; the tool returns the first chunk with default size (no pagination parameters).
-
-**Structured response**:
-
-- `videoId` – resolved YouTube ID.
-- `type`, `lang` – effective subtitle type and language.
-- `text` – current text chunk.
-- `is_truncated` – `true` if more text is available.
-- `total_length` – total length of the full transcript.
-- `start_offset`, `end_offset` – character offsets of this chunk.
-- `next_cursor` – present in response when truncated (omitted on the last page). Not accepted as input for this tool.
-
-#### `get_raw_subtitles`
-
-**Purpose**: Fetch raw subtitle file content (SRT or VTT) with pagination support.
-
-**Extra input fields**:
-
-- `type` – `"official"` or `"auto"`, optional.
-- `lang` – subtitle language code, optional.
-- `response_limit`, `next_cursor` – pagination (optional).
-
-**Structured response**:
-
-- `videoId`, `type`, `lang` – same semantics as above.
-- `format` – `"srt"` or `"vtt"` (auto-detected from content).
-- `content` – raw subtitle text for this page.
-- `is_truncated`, `total_length`, `start_offset`, `end_offset`, `next_cursor` – same pagination fields as `get_transcript`.
-
-#### `get_available_subtitles`
-
-**Purpose**: Inspect which languages are available for a video, split into official vs auto-generated tracks.
-
-**Input**:
-
-- `url` – YouTube URL or video ID.
-
-**Structured response**:
-
-- `videoId` – resolved YouTube ID.
-- `official` – sorted list of language codes with official subtitles.
-- `auto` – sorted list of language codes with auto-generated subtitles.
-
-This is useful to first discover languages and then pick `type`/`lang` for `get_raw_subtitles` (or other tools).
-
-#### `get_video_info`
-
-**Purpose**: Fetch extended metadata about a video (based on yt-dlp JSON output).
-
-**Input**:
-
-- `url` – YouTube URL or video ID.
-
-**Structured response (key fields)**:
-
-- `videoId` – resolved YouTube ID.
-- `title`, `description`.
-- `uploader`, `uploaderId`.
-- `channel`, `channelId`, `channelUrl`.
-- `duration` – in seconds.
-- `uploadDate` – `YYYYMMDD` string if available.
-- `webpageUrl`.
-- `viewCount`, `likeCount`, `commentCount`.
-- `tags`, `categories`.
-- `liveStatus`, `isLive`, `wasLive`, `availability`.
-- `thumbnail` – primary thumbnail URL.
-- `thumbnails` – list of thumbnail variants `{ url, width?, height?, id? }`.
-
-See `src/mcp-core.ts` and `src/youtube.ts` for the full JSON schema used by the MCP SDK.
-
-#### `get_video_chapters`
-
-**Purpose**: Get chapter markers extracted by yt-dlp.
-
-**Input**:
-
-- `url` – YouTube URL or video ID.
-
-**Structured response**:
-
-- `videoId` – resolved YouTube ID.
-- `chapters` – array of `{ startTime: number; endTime: number; title: string }`.
-
-If the video has no chapters, `chapters` is an empty array; if yt-dlp cannot fetch chapter data at all, the tool returns an MCP error instead of structured chapters.
-
-#### `get_video_frame`
-
-**Purpose**: Capture a single frame from a video at the given timestamp. Fast path resolves a direct stream URL via yt-dlp and seeks over HTTP with ffmpeg; if that fails, yt-dlp downloads a ~2s section and the frame is extracted locally. Requires `ffmpeg` (already included in the Docker image).
-
-**Input**:
-
-- `url` – Video URL or YouTube video ID.
-- `timecode` (string, optional) – Timestamp as `"MM:SS"` or `"HH:MM:SS(.mmm)"`, e.g. `"01:23"` or `"00:01:23.500"`.
-- `seconds` (number, optional) – Timestamp in seconds (alternative to `timecode`; provide at most one). Default: `0` (first frame).
-- `format` (string, optional) – `"jpeg"` (default) or `"png"`.
-- `width` (number, optional) – Output width in pixels, default `1280`, max `1920`. The frame is never upscaled.
-- `quality` (number, optional) – JPEG quality (ffmpeg `-q:v`): `2` (best) to `31` (worst), default `4`. Ignored for png.
-
-**Response `content`**: a text line (`Frame captured at 00:01:23.500`) plus an `image` content block with base64 data.
-
-**Structured response**:
-
-- `videoId` – resolved video ID.
-- `timestampSeconds` – requested timestamp in seconds.
-- `timestamp` – timestamp formatted as `HH:MM:SS.mmm`.
-- `mimeType` – `image/jpeg` or `image/png`.
-- `sizeBytes` – image size in bytes.
-- `width` – actual output image width (may be smaller than requested for low-resolution sources; `null` if it cannot be determined).
-
-Timeout is controlled by `YT_DLP_FRAME_TIMEOUT` (falls back to `YT_DLP_TIMEOUT`, default 60000 ms).
-
-#### `get_playlist_transcripts`
-
-**Purpose**: Fetch cleaned transcripts for multiple videos from a playlist in one call.
-
-**Input**:
-
-- `url` (string, required) – Playlist URL or watch URL with `list=` (e.g. `https://www.youtube.com/playlist?list=XXX`).
-- `type` – `"official"` or `"auto"`, optional.
-- `lang` – Subtitle language code, optional.
-- `format` – Subtitle format (`srt`, `vtt`, `ass`, `lrc`), optional.
-- `playlistItems` – yt-dlp `-I` spec (e.g. `1:5`, `1,3,7`, `-1`), optional.
-- `maxItems` – Max videos to process, optional.
-
-**Structured response**:
-
-- `results` – array of `{ videoId, text }` for each video in the playlist.
-
-#### `search_videos`
-
-**Purpose**: Search videos on YouTube via yt-dlp (ytsearch). Returns a list of videos with metadata.
-
-**Input**:
-
-- `query` (string, required) – Search query.
-- `limit` (number, optional) – Max results (default 10, max 50).
-- `offset` (number, optional) – Skip first N results (pagination).
-- `uploadDateFilter` (string, optional) – Filter by upload date: `hour`, `today`, `week`, `month`, or `year`.
-- `response_format` (string, optional) – Human-readable format: `json` (default) or `markdown`.
-
-**Structured response**:
-
-- `results` – array of `{ videoId, title, url, duration, uploader, viewCount, thumbnail }`.
-
-## Requirements
-
-- **Docker** (recommended for production)
-- **Node.js** >= 20.0.0 (for local development)
-- **yt-dlp** (included in Docker image)
-
-## REST API (optional)
-
-The repository also ships an HTTP API (Fastify).
-
-#### Quick Docker usage
-
-- Build the image:
-  ```bash
-  docker build -t transcriptor-mcp-api -f Dockerfile --target api .
-  ```
-- Run on the default port:
-  ```bash
-  docker run -p 3000:3000 transcriptor-mcp-api
-  ```
-
-For a more complete REST quick start (including docker-compose and local Node.js),
-use [REST API (optional)](#rest-api-optional) and [API Documentation](#api-documentation).
-
-#### Swagger / OpenAPI
-
-Once the REST API is running, interactive API docs are available at:
-
-```text
-http://localhost:3000/docs
-```
-
-If you change `PORT` / `HOST`, adjust the URL accordingly, e.g. `http://<HOST>:<PORT>/docs`.
-
-#### Troubleshooting: restricted / sign-in required videos
-
-If yt-dlp is blocked by age gate, sign-in, or region restrictions, you will likely need
-an authenticated `cookies.txt` file and the `COOKIES_FILE_PATH` environment variable.
-
-The root of this repository includes a sample `[cookies.example.txt](cookies.example.txt)`
-showing the expected Netscape cookies format. For a full guide on:
-
-- exporting real cookies
-- wiring them into Docker / docker-compose / local Node.js
-- and keeping them secure
-
-keep credentials local and use `COOKIES_FILE_PATH` with a non-committed cookie file.
-
-#### Run in background
+**REST API.** A second image gives the same extraction over plain HTTP:
 
 ```bash
-docker run -d -p 3000:3000 --name transcriptor transcriptor-mcp-api
+docker run --rm -p 3000:3000 artsamsonov/transcriptor-mcp-api:latest
 ```
 
-### E2E smoke tests (REST API + MCP, Docker)
+The Swagger interface is at `http://localhost:3000/docs`. For a full stack with the API and the MCP server, read [docker-compose.example.yml](docker-compose.example.yml).
 
-Before publishing Docker images, you can run a small **e2e smoke test** that:
-
-- Starts a REST API container and checks Swagger + `POST /subtitles` with a stable YouTube video
-- Optionally starts an MCP container and checks **MCP stdio** (initialize over stdin/stdout), **streamable HTTP** (`POST /mcp` with initialize), and **SSE** (`GET /sse`) against **mcp-proxy** + stdio (same stack as [docker-compose.example.yml](docker-compose.example.yml))
-
-Run the smoke test (requires built images):
+**Development.**
 
 ```bash
+npm ci
 npm run build
-docker build -t artsamsonov/transcriptor-mcp-api:latest -f Dockerfile --target api .
-docker build -t artsamsonov/transcriptor-mcp:latest -f Dockerfile --target mcp .
-npm run test:e2e:api
+npm run dev:mcp        # stdio, hot reload
+npm run dev:mcp:http   # Streamable HTTP, hot reload
+npm test
 ```
 
-**Environment variables:**
+You need Node.js 20 or later, and `yt-dlp` in your PATH. Frame capture also needs `ffmpeg`. Other scripts: `lint`, `type-check`, `format`, `test:coverage`, `test:e2e:api`, and `test:e2e:mcp`.
 
+**Releases.** The version comes from `package.json` at runtime, through [src/version.ts](src/version.ts). Change this version, move the `[Unreleased]` entries of the changelog into the new version, then push a `v*` tag. CI builds both images and publishes the [MCP Registry](https://registry.modelcontextprotocol.io) entry from [server.json](server.json).
 
-| Variable                           | Default                                       | Description                                                                             |
-| ---------------------------------- | --------------------------------------------- | --------------------------------------------------------------------------------------- |
-| `SMOKE_IMAGE_API`                  | —                                             | Full API image reference (overrides name/tag).                                          |
-| `DOCKER_API_IMAGE` / `TAG`         | `artsamsonov/transcriptor-mcp-api`, `latest`  | API image name and tag.                                                                 |
-| `SMOKE_API_URL` / `SMOKE_API_PORT` | `http://127.0.0.1:33000`, `33000`             | API base URL and port.                                                                  |
-| `SMOKE_VIDEO_URL`                  | `https://www.youtube.com/watch?v=dQw4w9WgXcQ` | Video used for `/subtitles` check.                                                      |
-| `SMOKE_SKIP_MCP`                   | —                                             | Set to `1` (or `true`/`yes`) to skip MCP checks.                                        |
-| `SMOKE_MCP_IMAGE`                  | —                                             | Full MCP image reference (overrides name/tag).                                          |
-| `DOCKER_MCP_IMAGE` / `TAG`         | `artsamsonov/transcriptor-mcp`, `latest`      | MCP image name and tag.                                                                 |
-| `SMOKE_MCP_URL` / `SMOKE_MCP_PORT` | `http://127.0.0.1:4200`, `4200`               | MCP base URL and port.                                                                  |
-| `SMOKE_MCP_AUTH_TOKEN`             | —                                             | If set, sent as `Authorization: Bearer` on MCP HTTP requests (for smoke against an edge that requires Bearer; the default smoke stack does not enforce it). |
+**Layout.** `src/mcp.ts` (stdio entry), `src/mcp-http.ts` (Streamable HTTP), `src/mcp-core.ts` (tools, prompts, widgets), `src/youtube.ts` (yt-dlp), `src/whisper.ts`, `src/cache.ts`, `src/index.ts` (REST API), `load/` (k6), and `src/e2e/` (Docker smoke tests).
 
+</details>
 
-Example: skip MCP and use a custom video:
+---
 
-```bash
-SMOKE_SKIP_MCP=1 SMOKE_VIDEO_URL="https://www.youtube.com/watch?v=YOUR_ID" npm run test:e2e:api
-```
+## ❓ FAQ
 
-#### View logs
+**Do I need an API key?**
+No. The hosted endpoint uses OAuth. Your client opens a browser, and you sign in. There is nothing to paste into a configuration file. A self-hosted server needs no account.
 
-```bash
-docker logs -f transcriptor
-```
+**What happens when a video has no subtitles?**
+On a self-hosted server, you can turn on the Whisper fallback with `WHISPER_MODE=local` or `WHISPER_MODE=api`. Whisper then transcribes the audio.
 
-#### Stop the container
+**Some videos return "sign-in required".**
+This is a restriction of the platform, not an error of the server. On a self-hosted server, export your cookies and set `COOKIES_FILE_PATH`. The file [cookies.example.txt](cookies.example.txt) shows the format. Keep real cookies out of git.
 
-```bash
-docker stop transcriptor
-docker rm transcriptor
-```
+**Does the server download videos?**
+No. It returns transcripts, subtitles, metadata, chapters, and single frames.
 
-## API Documentation
+**Can I use this server in production?**
+Yes. The Docker images are made for this. Put your own authentication and TLS in front of `POST /mcp`, because the server trusts its edge.
 
-For detailed REST API endpoint documentation (request/response schemas, examples, etc.),
-use the built-in Swagger UI at:
+**Where do secrets stay?**
+In your environment only. The server does not log `WHISPER_API_KEY`, `CACHE_REDIS_URL`, or cookie files, and does not return them in a response. The terms for the hosted service are in [legal/](legal).
 
-```text
-http://localhost:3000/docs
-```
+---
 
-or use [REST API (optional)](#rest-api-optional).
+## 🤝 Contributing
 
-## MCP Server (stdio)
+Pull requests are welcome. Fork the repository, make a branch, and make sure that `npm test` and `npm run lint` pass. Then open a pull request.
 
-The MCP server runs on stdio (`dist/mcp.js`) and can be used via:
+## 📄 License
 
-- local Docker (`docker run --rm -i artsamsonov/transcriptor-mcp:latest`)
-- local Node (`node dist/mcp.js`)
-- remote HTTP/SSE through `mcp-proxy` (`/mcp` and `/sse`)
+MIT © 2025 samson-art. Read [LICENSE](LICENSE).
 
-Use [How to connect](#how-to-connect) as the main guide for MCP setup variants; optional Bearer auth is configured on a reverse proxy in front of mcp-proxy.
+## 💬 Support
 
-## How It Works
-
-1. The API receives a video URL (YouTube or other supported platform) and parameters (subtitle type and language) from the client
-2. Extracts the video ID from the URL
-3. Uses `yt-dlp` to download subtitles with the specified parameters:
-  - Single `yt-dlp` command call with explicit type (`--write-subs` or `--write-auto-subs`) and language (`--sub-lang`)
-4. Parses the subtitle file (SRT/VTT) and removes:
-  - Timestamps
-  - Subtitle numbers
-  - HTML tags
-  - Formatting
-5. Returns clean plain text (for `/subtitles`) or raw content (for `/subtitles/raw`)
-
-## Development
-
-### Prerequisites
-
-- Node.js >= 20.0.0
-- npm or yarn
-- yt-dlp installed and available in PATH
-
-### Versioning
-
-The app version is read from `package.json` at runtime (`[src/version.ts](src/version.ts)`). When cutting a release, update the `version` field in `package.json`, then create a git tag (e.g. `v0.4.7`). Changelog entries under `[Unreleased]` should be moved to the new version before tagging.
-
-### Scripts
-
-- `npm run build` - Build the TypeScript project
-- `npm start` - Run the compiled application
-- `npm run dev` - Run with hot reload using ts-node-dev
-- `npm run start:mcp` - Run the MCP server (stdio)
-- `npm run dev:mcp` - Run the MCP server with hot reload
-- `npm test` - Run tests
-- `npm run test:watch` - Run tests in watch mode
-- `npm run test:coverage` - Run tests with coverage report
-- `npm run lint` - Lint the code
-- `npm run lint:fix` - Fix linting errors
-- `npm run type-check` - Type check without building
-- `npm run format` - Format code with Prettier
-- `npm run format:check` - Check code formatting
-
-### Project Structure
-
-```
-├── src/
-│   ├── index.ts                    # HTTP API (Fastify)
-│   ├── mcp.ts                      # MCP server (stdio)
-│   ├── mcp-core.ts                 # MCP tools registration
-│   ├── validation.ts               # Request validation
-│   ├── youtube.ts                  # Subtitle download and parsing (yt-dlp)
-│   ├── yt-dlp-check.ts             # yt-dlp availability checks
-│   ├── whisper.ts                  # Whisper API client
-│   ├── whisper-jobs.ts             # Async Whisper jobs
-│   ├── cache.ts                    # Response / subtitle caching
-│   ├── metrics.ts                  # Prometheus metrics (/metrics)
-│   ├── lifecycle.ts                # Graceful shutdown hooks
-│   ├── instrument.ts               # Sentry initialization
-│   ├── logger-sentry-breadcrumbs.ts
-│   ├── errors.ts                   # Error types and HTTP mapping
-│   ├── env.ts                      # Environment configuration
-│   ├── version.ts                  # App version (from package.json)
-│   ├── changelog.ts                # Changelog data for API
-│   ├── e2e/                        # API / MCP smoke tests (Docker)
-│   │   ├── api-smoke.ts
-│   │   ├── mcp-smoke.ts
-│   │   ├── docker-utils.ts
-│   │   └── smoke-env.ts
-│   └── *.test.ts                   # Unit tests (Jest), co-located
-├── dist/                           # Compiled JavaScript (npm run build)
-├── load/                           # Load-test scripts (k6)
-├── .github/workflows/              # CI and Docker Hub publish
-├── Dockerfile                      # API and MCP images (--target api|mcp)
-├── docker-compose.example.yml      # Example API + MCP stack
-├── docker-compose.yml
-├── package.json
-├── tsconfig.json
-├── eslint.config.mjs
-├── jest.config.cjs
-└── README.md
-```
-
-## Technologies
-
-- **TypeScript** - Type-safe JavaScript
-- **Node.js** - Runtime environment
-- **Fastify** - Fast and low overhead web framework
-- **yt-dlp** - YouTube content downloader
-- **Docker** - Containerization
-- **Jest** - Testing framework
-- **ESLint** - Code linting
-- **Prettier** - Code formatting
-
-## Security
-
-**Data and keys:** Video URLs are sent to yt-dlp for subtitle extraction. Keys and tokens are stored only in your environment; we never log or share them.
-
-Do not commit or log sensitive values. Use environment variables or a secret manager (e.g. vault, cloud secrets) for:
-
-- `**WHISPER_API_KEY`** – required when using Whisper API; never log or expose in client responses.
-- `**CACHE_REDIS_URL**` – Redis connection string when `CACHE_MODE=redis`; may contain credentials.
-- **MCP Bearer secrets** – if you terminate auth at a reverse proxy in front of mcp-proxy, store tokens only in env/secrets on that edge.
-- `**COOKIES_FILE_PATH**` – path to cookies; ensure the file is not committed and has restricted permissions.
-
-Use `cookies.example.txt` as a format template and keep real cookies outside git.
-
-## Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
-
-1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add some amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
-
-Please make sure your code passes all tests and linting checks before submitting.
-
-## License
-
-MIT License
-
-Copyright (c) 2025 samson-art
-
-See [LICENSE](LICENSE) file for details.
-
-## Support
-
-- **Bug reports**: [GitHub Issues](https://github.com/samson-art/transcriptor-mcp/issues)
-- **Feature requests**: [GitHub Issues](https://github.com/samson-art/transcriptor-mcp/issues)
-- **Contact**: [GitHub Profile](https://github.com/samson-art)
-
+[Issues](https://github.com/samson-art/transcriptor-mcp/issues) · [GitHub profile](https://github.com/samson-art)

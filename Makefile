@@ -94,13 +94,13 @@ docker-build-api: ## Build local REST API image (Dockerfile --target api)
 docker-build-mcp: ## Build local MCP image (Dockerfile --target mcp)
 	docker build -t $(DOCKER_MCP_IMAGE):$(TAG) -f Dockerfile --target mcp .
 
-docker-run-mcp-stdio: ## Run MCP image in stdio mode (for Cursor)
-	docker run --rm -i $(DOCKER_MCP_IMAGE):$(TAG)
+docker-run-mcp-stdio: ## Run MCP image in stdio mode (for Cursor; image defaults to HTTP)
+	docker run --rm -i $(DOCKER_MCP_IMAGE):$(TAG) npm run start:mcp
 
 docker-smoke-api-local: ## Build API image (via e2e) and run REST smoke (MCP skipped; full MCP: omit SMOKE_SKIP_MCP and run npm run test:e2e:api)
 	SMOKE_IMAGE_API=$(DOCKER_API_IMAGE):$(TAG) SMOKE_SKIP_MCP=1 SMOKE_API_PORT=$(SMOKE_API_PORT) npm run test:e2e:api
 
-docker-smoke-mcp-local: ## Build MCP image (via e2e) and run MCP-only smoke (mcp-proxy HTTP/SSE + stdio)
+docker-smoke-mcp-local: ## Build MCP image (via e2e) and run MCP-only smoke (Streamable HTTP + stdio)
 	SMOKE_MCP_IMAGE=$(DOCKER_MCP_IMAGE):$(TAG) SMOKE_MCP_PORT=$(SMOKE_MCP_PORT) npm run test:e2e:mcp
 
 docker-buildx-setup: ## Create/use buildx builder for multi-arch builds

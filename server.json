@@ -1,0 +1,59 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.samson-art/transcriptor-mcp",
+  "title": "Transcriptor MCP",
+  "description": "Fetch transcripts, subtitles, chapters, metadata and frames from YouTube and 10+ video platforms",
+  "version": "1.2.1",
+  "websiteUrl": "https://github.com/samson-art/transcriptor-mcp#readme",
+  "repository": {
+    "url": "https://github.com/samson-art/transcriptor-mcp",
+    "source": "github"
+  },
+  "icons": [
+    {
+      "src": "https://raw.githubusercontent.com/samson-art/transcriptor-mcp/main/logo.webp",
+      "mimeType": "image/webp",
+      "sizes": ["any"]
+    }
+  ],
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://gateway.mcpal.io/mcp/transcriptor"
+    }
+  ],
+  "packages": [
+    {
+      "registryType": "oci",
+      "identifier": "docker.io/artsamsonov/transcriptor-mcp:1.2.1",
+      "transport": {
+        "type": "stdio"
+      },
+      "runtimeHint": "docker",
+      "runtimeArguments": [
+        {
+          "type": "named",
+          "name": "--rm"
+        },
+        {
+          "type": "named",
+          "name": "-i"
+        }
+      ],
+      "packageArguments": [
+        {
+          "type": "positional",
+          "value": "npm"
+        },
+        {
+          "type": "positional",
+          "value": "run"
+        },
+        {
+          "type": "positional",
+          "value": "start:mcp"
+        }
+      ]
+    }
+  ]
+}
