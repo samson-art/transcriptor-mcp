@@ -291,7 +291,7 @@ Pull requests are welcome. Fork the repository, make a branch, and make sure tha
 
 ## ⚖️ Legal
 
-The hosted endpoint at `gateway.mcpal.io` is governed by the [Terms of Service](legal/TERMS_OF_SERVICE.md), the [EULA](legal/EULA.md), and the [Privacy Policy](legal/PRIVACY_POLICY.md).
+The hosted endpoint at `gateway.mcpal.io` is governed by the [Terms of Service](legal/TERMS_OF_SERVICE.md) and the [Privacy Policy](legal/PRIVACY_POLICY.md). The separate EULA is withdrawn; the licence is now section 6 of the Terms.
 
 A server you host yourself is not covered by those documents. It is governed by the MIT License only.
 
