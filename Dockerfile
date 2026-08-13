@@ -62,6 +62,9 @@ CMD ["npm", "start"]
 # ============================================
 FROM base AS mcp
 
+# Ownership proof for the MCP Registry (must match `name` in server.json).
+LABEL io.modelcontextprotocol.server.name="io.github.samson-art/transcriptor-mcp"
+
 WORKDIR /app
 
 COPY package*.json ./
