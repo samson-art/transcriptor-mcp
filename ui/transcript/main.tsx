@@ -56,10 +56,10 @@ function TranscriptApp() {
 
   const subtitles = useSubtitles(appRef, video?.videoId, { preferredTrack });
 
+  // Takes the app instead of reading `appRef`: this runs from the `ontoolresult`
+  // handler installed in `onAppCreated`, whose closure still sees `appRef` as null.
   const loadVideoMeta = useCallback(
-    async (videoId: string): Promise<VideoMeta | null> => {
-      if (!appRef) return null;
-
+    async (app: App, videoId: string): Promise<VideoMeta | null> => {
       const fallback: VideoMeta = {
         videoId,
         title: null,
@@ -71,7 +71,7 @@ function TranscriptApp() {
       };
 
       try {
-        const result = await appRef.callServerTool({
+        const result = await app.callServerTool({
           name: 'get_video_info',
           arguments: { url: videoId },
         });
@@ -84,15 +84,15 @@ function TranscriptApp() {
         return fallback;
       }
     },
-    [appRef]
+    []
   );
 
   const handleTranscriptResult = useCallback(
-    async (parsed: TranscriptData) => {
+    async (app: App, parsed: TranscriptData) => {
       setStatus('ready');
       subtitles.reset();
       setPreferredTrack({ type: parsed.type, lang: parsed.lang });
-      const meta = await loadVideoMeta(parsed.videoId);
+      const meta = await loadVideoMeta(app, parsed.videoId);
       if (meta) setVideo(meta);
       notifyHostAboutResize();
     },
@@ -110,7 +110,7 @@ function TranscriptApp() {
 
         const transcript = parseTranscriptResult(result);
         if (transcript) {
-          void handleTranscriptResult(transcript);
+          void handleTranscriptResult(createdApp, transcript);
           return;
         }
 

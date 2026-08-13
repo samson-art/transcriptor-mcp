@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Transcript widget rendered an empty card:** `ontoolresult` is installed once from `onAppCreated`, so its closure captured `appRef` while that state was still `null`. `loadVideoMeta` then hit its `if (!appRef) return null` guard, `get_video_info` was never called, and neither the video card nor the caption list ever appeared — the widget showed only its title bar. The app instance is now passed through `handleTranscriptResult` → `loadVideoMeta` instead of read from state, matching what the video-info widget already does with the `app` argument it is handed.
+
+### Changed
+
+- **README widget section shows the real interface:** the single `example-usage.webp` is replaced by four screenshots, one per widget, captured from the production bundles driven by real server payloads — `search_videos` ("charlie bit my finger"), `get_video_frame` (Double Rainbow at 0:34), `get_transcript` (*Me at the zoo*, the first video on YouTube), and `get_video_info` (*Gangnam Style*). They live in [assets/](assets).
+- **Widgets heading no longer breaks its own anchor:** the heading emoji carried a U+FE0F variation selector, which GitHub keeps in the generated slug, so the `#-widgets` links in the MCP Apps badge and the nav bar resolved to nothing. Replaced with an emoji that needs no variation selector.
+- **FAQ section removed** from the README.
+
 ## [1.2.1] - 2026-08-13
 
 ### Added
