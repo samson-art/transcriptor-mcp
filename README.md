@@ -1,23 +1,21 @@
+<div align="center">
 
-
-
+<img src="logo.webp" alt="Transcriptor MCP" width="120" />
 
 # 🎬 Your assistant cannot watch videos. Give it the transcript.
 
 **Connect one server. Then ask Claude, ChatGPT, or Cursor about any video:** the transcript, the chapters, the metadata, or a single frame. It works with 11 platforms, not only YouTube.
 
-[MCP Registry](https://registry.modelcontextprotocol.io/v0/servers?search=transcriptor)
-[Docker](https://hub.docker.com/r/artsamsonov/transcriptor-mcp)
-[MCP Apps](#-widgets)
-[License](LICENSE)
+[![MCP Registry](https://img.shields.io/badge/MCP%20Registry-transcriptor--mcp-6E56CF)](https://registry.modelcontextprotocol.io/v0/servers?search=transcriptor)
+[![Docker](https://img.shields.io/badge/Docker-artsamsonov/transcriptor--mcp-2496ED?logo=docker&logoColor=white)](https://hub.docker.com/r/artsamsonov/transcriptor-mcp)
+[![MCP Apps](https://img.shields.io/badge/MCP%20Apps-4%20interactive%20widgets-8A63D2)](#-widgets)
+[![License](https://img.shields.io/github/license/samson-art/transcriptor-mcp)](LICENSE)
 
-**[Connect](#-connect-in-30-seconds) · [What to ask](#-what-you-can-ask) · [Widgets](#-widgets) · [Platforms](#-platforms) · [Self-host](#-self-host) · [FAQ**](#-faq)
+**[Connect](#-connect-in-30-seconds) · [What to ask](#-what-you-can-ask) · [Widgets](#-widgets) · [Platforms](#-platforms) · [Self-host](#-self-host) · [FAQ](#-faq)**
 
-
+</div>
 
 ---
-
-
 
 ## ⚡ Connect in 30 seconds
 
@@ -31,8 +29,8 @@ Your client opens a browser and you sign in there. There is no API key to copy.
 
 ### 🖱️ One click
 
-[Add to Cursor](https://cursor.com/en/install-mcp?name=transcriptor&config=eyJ1cmwiOiJodHRwczovL2dhdGV3YXkubWNwYWwuaW8vbWNwL3RyYW5zY3JpcHRvciJ9)
-[Install in VS Code](https://insiders.vscode.dev/redirect/mcp/install?name=transcriptor&config=%7B%22type%22%3A%22http%22%2C%22url%22%3A%22https%3A%2F%2Fgateway.mcpal.io%2Fmcp%2Ftranscriptor%22%7D)
+[![Add to Cursor](https://img.shields.io/badge/Add%20to-Cursor-000000?style=for-the-badge&logo=cursor&logoColor=white)](https://cursor.com/en/install-mcp?name=transcriptor&config=eyJ1cmwiOiJodHRwczovL2dhdGV3YXkubWNwYWwuaW8vbWNwL3RyYW5zY3JpcHRvciJ9)
+[![Install in VS Code](https://img.shields.io/badge/Install%20in-VS%20Code-0098FF?style=for-the-badge&logo=visualstudiocode&logoColor=white)](https://insiders.vscode.dev/redirect/mcp/install?name=transcriptor&config=%7B%22type%22%3A%22http%22%2C%22url%22%3A%22https%3A%2F%2Fgateway.mcpal.io%2Fmcp%2Ftranscriptor%22%7D)
 
 Each link opens the client and fills in the address of the server. Then the client starts the sign-in.
 
@@ -46,16 +44,12 @@ Then run `/mcp` and approve the sign-in in the browser. After this, `claude mcp 
 
 ### 🧭 No terminal
 
-
-| Client                       | What to do                                                                                                                                                                                                                |
-| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Claude** (web and desktop) | Open [Settings → Connectors](https://claude.ai/settings/connectors). Select **Add custom connector**, paste [https://gateway.mcpal.io/mcp/transcriptor](https://gateway.mcpal.io/mcp/transcriptor) , then select **Add**. |
-| **ChatGPT**                  | Open Settings → **Security and login** and turn on **Developer mode**. Then open Plugins, select **+**, and paste [https://gateway.mcpal.io/mcp/transcriptor](https://gateway.mcpal.io/mcp/transcriptor)                  |
-
+| Client | What to do |
+| --- | --- |
+| **Claude** (web and desktop) | Open [Settings → Connectors](https://claude.ai/settings/connectors). Select **Add custom connector**, paste `https://gateway.mcpal.io/mcp/transcriptor`, then select **Add**. |
+| **ChatGPT** | Open Settings → **Security and login** and turn on **Developer mode**. Then open Plugins, select **+**, and paste `https://gateway.mcpal.io/mcp/transcriptor`. |
 
 > **Note:** ChatGPT developer mode is available on the web, for paid plans. Some releases show this control as Settings → Apps & Connectors → Advanced.
-
-
 
 ### 🧩 Any other MCP client
 
@@ -75,30 +69,27 @@ If you want to run the server yourself, read [Self-host](#-self-host). The tools
 
 ---
 
-
-
 ## 🧰 What you can ask
 
 The server has eight tools. You do not name them. You ask for the result, and the client selects the tool.
 
-
-| Ask for this                                                | Tool                       |
-| ----------------------------------------------------------- | -------------------------- |
-| *"Summarize this video for me"*                             | `get_transcript`           |
-| *"Give me the subtitles as an SRT file"*                    | `get_raw_subtitles`        |
-| *"Is there a German track for this video?"*                 | `get_available_subtitles`  |
-| *"Who published this and how many views?"*                  | `get_video_info`           |
-| *"Go to the part about pricing"*                            | `get_video_chapters`       |
-| *"Show me the screen at 4:12"*                              | `get_video_frame`          |
+| Ask for this | Tool |
+| --- | --- |
+| *"Summarize this video for me"* | `get_transcript` |
+| *"Give me the subtitles as an SRT file"* | `get_raw_subtitles` |
+| *"Is there a German track for this video?"* | `get_available_subtitles` |
+| *"Who published this and how many views?"* | `get_video_info` |
+| *"Go to the part about pricing"* | `get_video_chapters` |
+| *"Show me the screen at 4:12"* | `get_video_frame` |
 | *"Get transcripts for the first 5 videos in this playlist"* | `get_playlist_transcripts` |
-| *"Find recent videos about X"*                              | `search_videos` (YouTube)  |
-
+| *"Find recent videos about X"* | `search_videos` (YouTube) |
 
 The server also has three prompts: `get_transcript_for_video`, `summarize_video`, and `search_and_summarize`.
 
 Long transcripts come in parts. Each response gives a cursor for the next part, so no text is lost.
 
-**Full tool reference** (input and structured response)
+<details>
+<summary><b>Full tool reference</b> (input and structured response)</summary>
 
 Each tool that takes a video accepts `url`. This is a link from a [supported platform](#-platforms) or a plain YouTube ID. Each tool returns `content` (text for the chat) and `structuredContent` (typed JSON for your code).
 
@@ -134,8 +125,6 @@ Extended metadata from yt-dlp:
 - numbers — `duration`, `uploadDate`, `viewCount`, `likeCount`, `commentCount`
 - classification — `tags`, `categories`, `liveStatus`, `isLive`, `wasLive`, `availability`
 - images — `thumbnail` and `thumbnails`
-
-
 
 #### `get_video_chapters`
 
@@ -176,21 +165,17 @@ Input:
 
 Response: `results`. Each item has `videoId`, `title`, `url`, `duration`, `uploader`, `viewCount`, and `thumbnail`.
 
-
+</details>
 
 ---
-
-
 
 ## 🖼️ Widgets
 
 Four tools have an interactive interface: `get_transcript`, `get_video_info`, `get_video_frame`, and `search_videos`. Clients that support [MCP Apps](https://github.com/modelcontextprotocol/ext-apps) and the ChatGPT Apps SDK show this interface in the chat. Other clients get the same data as text and JSON.
 
-Transcriptor MCP in action
+![Transcriptor MCP in action](example-usage.webp)
 
 ---
-
-
 
 ## 🌍 Platforms
 
@@ -201,8 +186,6 @@ Each tool that takes a video accepts a link from these 11 platforms. The tool `s
 The server does not download video or audio files for you. It returns text, metadata, and single frames.
 
 ---
-
-
 
 ## 🐳 Self-host
 
@@ -235,19 +218,18 @@ docker run --rm -i artsamsonov/transcriptor-mcp:latest npm run start:mcp
 
 The server starts with no environment variables. Each variable below is optional.
 
-
-| Variable                  | Default              | Function                                                                                                                     |
-| ------------------------- | -------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| `MCP_PORT` and `MCP_HOST` | `4200` and `0.0.0.0` | The HTTP listener                                                                                                            |
-| `COOKIES_FILE_PATH`       | —                    | A Netscape cookies file for videos that need an account. See [cookies.example.txt](cookies.example.txt)                      |
-| `WHISPER_MODE`            | `off`                | Set `local` or `api` to transcribe the audio when a video has no subtitles. Then set `WHISPER_BASE_URL` or `WHISPER_API_KEY` |
-| `CACHE_MODE`              | `off`                | Set `redis` and `CACHE_REDIS_URL` to cache subtitles and metadata                                                            |
-| `YT_DLP_*`                | —                    | Timeouts, proxy, and JS runtimes. See [.env.example](.env.example)                                                           |
-
+| Variable | Default | Function |
+| --- | --- | --- |
+| `MCP_PORT` and `MCP_HOST` | `4200` and `0.0.0.0` | The HTTP listener |
+| `COOKIES_FILE_PATH` | — | A Netscape cookies file for videos that need an account. See [cookies.example.txt](cookies.example.txt) |
+| `WHISPER_MODE` | `off` | Set `local` or `api` to transcribe the audio when a video has no subtitles. Then set `WHISPER_BASE_URL` or `WHISPER_API_KEY` |
+| `CACHE_MODE` | `off` | Set `redis` and `CACHE_REDIS_URL` to cache subtitles and metadata |
+| `YT_DLP_*` | — | Timeouts, proxy, and JS runtimes. See [.env.example](.env.example) |
 
 The same port serves `GET /health` and `GET /metrics`. The metrics are in Prometheus format and include the `mcp_*` counters.
 
-**Transport, REST API, and development**
+<details>
+<summary><b>Transport, REST API, and development</b></summary>
 
 **Transport.** The server accepts `POST /mcp` only. `GET` and `DELETE` return `405`. The server is stateless and sends no `Mcp-Session-Id`.
 
@@ -273,19 +255,45 @@ npm test
 
 You need Node.js 20 or later, and `yt-dlp` in your PATH. Frame capture also needs `ffmpeg`. Other scripts: `lint`, `type-check`, `format`, `test:coverage`, `test:e2e:api`, and `test:e2e:mcp`.
 
-**Releases.** The version comes from `package.json` at runtime, through [src/version.ts](src/version.ts). Change this version, move the `[Unreleased]` entries of the changelog into the new version, then push a `v`* tag. CI builds both images and publishes the [MCP Registry](https://registry.modelcontextprotocol.io) entry from [server.json](server.json).
+**Releases.** The version comes from `package.json` at runtime, through [src/version.ts](src/version.ts). Change this version, move the `[Unreleased]` entries of the changelog into the new version, then push a `v*` tag. CI builds both images and publishes the [MCP Registry](https://registry.modelcontextprotocol.io) entry from [server.json](server.json).
 
 **Layout.** `src/mcp.ts` (stdio entry), `src/mcp-http.ts` (Streamable HTTP), `src/mcp-core.ts` (tools, prompts, widgets), `src/youtube.ts` (yt-dlp), `src/whisper.ts`, `src/cache.ts`, `src/index.ts` (REST API), `load/` (k6), and `src/e2e/` (Docker smoke tests).
 
-
+</details>
 
 ---
 
+## ❓ FAQ
 
+**Do I need an API key?**
+No. The hosted endpoint uses OAuth. Your client opens a browser, and you sign in. There is nothing to paste into a configuration file. A self-hosted server needs no account.
+
+**What happens when a video has no subtitles?**
+On a self-hosted server, you can turn on the Whisper fallback with `WHISPER_MODE=local` or `WHISPER_MODE=api`. Whisper then transcribes the audio.
+
+**Some videos return "sign-in required".**
+This is a restriction of the platform, not an error of the server. On a self-hosted server, export your cookies and set `COOKIES_FILE_PATH`. The file [cookies.example.txt](cookies.example.txt) shows the format. Keep real cookies out of git.
+
+**Does the server download videos?**
+No. It returns transcripts, subtitles, metadata, chapters, and single frames.
+
+**Can I use this server in production?**
+Yes. The Docker images are made for this. Put your own authentication and TLS in front of `POST /mcp`, because the server trusts its edge.
+
+**Where do secrets stay?**
+In your environment only. The server does not log `WHISPER_API_KEY`, `CACHE_REDIS_URL`, or cookie files, and does not return them in a response.
+
+---
 
 ## 🤝 Contributing
 
 Pull requests are welcome. Fork the repository, make a branch, and make sure that `npm test` and `npm run lint` pass. Then open a pull request.
+
+## ⚖️ Legal
+
+The hosted endpoint at `gateway.mcpal.io` is governed by the [Terms of Service](legal/TERMS_OF_SERVICE.md), the [EULA](legal/EULA.md), and the [Privacy Policy](legal/PRIVACY_POLICY.md).
+
+A server you host yourself is not covered by those documents. It is governed by the MIT License only.
 
 ## 📄 License
 
