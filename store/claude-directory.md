@@ -11,7 +11,7 @@ submission (`assets/store/`).
 | Field | Value |
 | --- | --- |
 | Server name (≤100) | Transcriptor |
-| Tagline (≤55 chars) | Your AI assistant can now watch videos (38) — alt: Transcripts, chapters and frames from 11 platforms (51) |
+| Tagline (≤55 chars) | Your AI assistant can now watch videos (38) — alt: Transcripts, chapters and frames from 11 platforms (50) |
 | Categories (1–5) | Productivity, Research |
 | Documentation URL | https://transcriptor-mcp.org |
 | Privacy policy URL | https://transcriptor-mcp.org/privacy |

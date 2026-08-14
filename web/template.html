@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>{{title}} — Transcriptor MCP</title>
+<title>{{title}}</title>
 <meta name="robots" content="noindex" />
 <link rel="canonical" href="https://transcriptor-mcp.org{{path}}" />
 <link rel="icon" type="image/png" href="/icon-512.png" />
@@ -14,8 +14,8 @@
     --ink: #10152a;
     --muted: #5b6478;
     --line: #dde3ef;
-    --accent: #2f7fd4;
-    --accent-2: #18b9a2;
+    --accent: #1e66c0;
+    --accent-2: #0f766e;
     --code-bg: #eef2f9;
   }
   @media (prefers-color-scheme: dark) {
@@ -52,6 +52,7 @@
   header.site .tc {
     margin-left: auto; font-weight: 400; font-size: 13px; color: var(--accent-2);
     font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
   h1 { font-size: 30px; letter-spacing: -0.015em; line-height: 1.25; }
   h2 { font-size: 21px; margin-top: 2em; letter-spacing: -0.01em; }
@@ -60,6 +61,7 @@
     font-family: ui-monospace, "SF Mono", Menlo, monospace;
     font-size: 0.88em; background: var(--code-bg);
     padding: 0.12em 0.35em; border-radius: 5px;
+    overflow-wrap: anywhere;
   }
   pre { background: var(--code-bg); padding: 12px 14px; border-radius: 10px; overflow-x: auto; }
   pre code { background: none; padding: 0; }

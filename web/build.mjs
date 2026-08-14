@@ -42,11 +42,13 @@ for (const page of legalPages) {
   for (const [pattern, replacement] of linkRewrites) {
     content = content.replace(pattern, replacement);
   }
+  // Replacer functions, not strings: a "$&" in the legal text would otherwise
+  // be interpreted as a substitution pattern and corrupt the page.
   const html = template
-    .replaceAll('{{title}}', title)
-    .replaceAll('{{path}}', `/${page.dir}`)
-    .replaceAll('{{eyebrow}}', page.source)
-    .replace('{{content}}', content);
+    .replaceAll('{{title}}', () => title)
+    .replaceAll('{{path}}', () => `/${page.dir}/`)
+    .replaceAll('{{eyebrow}}', () => page.source)
+    .replace('{{content}}', () => content);
   await mkdir(path.join(out, page.dir), { recursive: true });
   await writeFile(path.join(out, page.dir, 'index.html'), html);
   console.log(`built /${page.dir} from ${page.source}`);

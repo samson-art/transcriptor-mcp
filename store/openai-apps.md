@@ -27,7 +27,7 @@ identity on the OpenAI Platform, "Apps Management" write access, and the
 >
 > Eight read-only tools cover the whole workflow: cleaned plain-text transcripts with pagination for long videos, raw SRT/VTT subtitles, the list of available caption languages, extended metadata, chapter markers, single still frames at any timecode, batch transcripts for playlists, and YouTube search. Four tools render interactive widgets in the chat: a search carousel, a searchable timed transcript, a metadata card, and a frame viewer with step controls.
 >
-> The service retrieves only public captions, metadata, thumbnails and single still frames — it never downloads or redistributes video or audio files. Sign-in takes one browser round-trip; there are no API keys to manage. The server is open source (MIT) and can also be self-hosted.
+> The service retrieves only public captions, metadata, thumbnails and single still frames — it never returns or redistributes video or audio files. Sign-in takes one browser round-trip; there are no API keys to manage. The server is open source (MIT) and can also be self-hosted.
 
 ## MCP
 
@@ -56,7 +56,8 @@ No write or destructive tools.
 > to any signed-out viewer. It does not download full videos, does not
 > redistribute media, and does not bypass DRM, paywalls, age gates or any access
 > control. It holds no credentials for YouTube or any platform. Retrieval is
-> user-initiated, one video per request, transiently processed; there is no
+> user-initiated — a single video, or an explicitly selected, bounded set of
+> playlist items, per request — and transiently processed; there is no
 > crawling, bulk scraping or dataset building, and per-user rate limits are
 > enforced at the gateway. A rights-holder contact route exists
 > (legal@transcriptor-mcp.org, Terms of Service §10) with URL/channel/platform
@@ -88,7 +89,7 @@ Do **not** claim YouTube Data API usage — the extraction uses yt-dlp.
 ### Negative (expected errors are user-legible, never stack traces)
 
 1. **Unavailable video.** "Get the transcript of https://www.youtube.com/watch?v=aaaaaaaaaaa" → clear "video unavailable / not found" error.
-2. **Unsupported site.** "Get the transcript of https://example.com/article" → validation error naming the supported platforms.
+2. **Unsupported site.** "Get the transcript of https://example.com/article" → clear validation error: "Invalid video URL. Use a URL from a supported platform or YouTube video ID."
 3. **Timestamp beyond duration.** "Show me the frame at 10:00 of https://www.youtube.com/watch?v=jNQXAC9IVRw" (a 19-second video) → clear "timestamp beyond video duration" error.
 
 ## Demo account
@@ -110,7 +111,8 @@ All countries.
 
 > Transcriptor turns video into something your AI can read: transcripts, raw
 > subtitles, caption-language lists, metadata, chapters, single frames, playlist
-> digests and YouTube search — eight read-only tools over one MCP endpoint.
-> This release adds native Streamable HTTP transport, four interactive widgets
-> (search carousel, timed transcript, metadata card, frame viewer), pagination
-> for long transcripts, and publication in the official MCP Registry.
+> digests and YouTube search — eight read-only tools over one MCP endpoint,
+> with cursor pagination for long transcripts. The v1.2 line adds native
+> Streamable HTTP transport, four interactive widgets (search carousel, timed
+> transcript, metadata card, frame viewer), and publication in the official
+> MCP Registry.

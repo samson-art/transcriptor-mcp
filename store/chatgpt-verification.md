@@ -37,4 +37,4 @@ For each of `search_videos`, `get_transcript`, `get_video_info`, `get_video_fram
 ## Negative path
 
 - [ ] Unavailable video URL → error message is user-legible, not a stack trace.
-- [ ] Unsupported site URL → validation error naming supported platforms.
+- [ ] Unsupported site URL → clear validation error ("Invalid video URL. Use a URL from a supported platform or YouTube video ID.").

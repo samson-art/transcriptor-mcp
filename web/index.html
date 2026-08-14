@@ -11,6 +11,8 @@
 <meta property="og:description" content="Transcripts, chapters, metadata and frames from 11 video platforms, over one MCP endpoint." />
 <meta property="og:image" content="https://transcriptor-mcp.org/icon-512.png" />
 <meta property="og:url" content="https://transcriptor-mcp.org/" />
+<meta property="og:type" content="website" />
+<meta name="twitter:card" content="summary_large_image" />
 <style>
   :root {
     --bg: #f6f8fc;
@@ -18,8 +20,8 @@
     --ink: #10152a;
     --muted: #5b6478;
     --line: #dde3ef;
-    --accent: #2f7fd4;
-    --accent-2: #18b9a2;
+    --accent: #1e66c0;
+    --accent-2: #0f766e;
     --player-bg: #0b0e1a;
     --player-ink: #e9edf7;
     --caption-strip: rgba(2, 4, 12, 0.78);
@@ -86,6 +88,7 @@
     padding: 3px 10px;
     white-space: nowrap;
   }
+  @media (max-width: 560px) { .player-top .live { display: none; } }
   .screen { padding: 72px 0 26px; min-height: 240px; display: flex; align-items: flex-end; }
   .captions { width: 100%; text-align: center; }
   .caption-line {
@@ -134,11 +137,11 @@
     display: flex; align-items: center; gap: 10px;
     background: var(--code-bg); color: var(--code-ink);
     border-radius: 10px; padding: 12px 14px; margin: 18px 0 6px;
-    overflow-x: auto;
   }
+  .endpoint-scroll { flex: 1; overflow-x: auto; }
   .endpoint code { font-size: 15px; white-space: nowrap; }
   .endpoint button {
-    margin-left: auto; flex-shrink: 0;
+    flex-shrink: 0;
     background: transparent; color: var(--code-ink);
     border: 1px solid rgba(219, 228, 245, 0.35);
     border-radius: 7px; padding: 5px 12px; font-size: 13px; cursor: pointer;
@@ -178,7 +181,7 @@
   figcaption code { color: var(--accent); font-size: 12px; }
 
   .platforms { font-size: 17px; font-weight: 600; letter-spacing: 0.01em; margin: 14px 0 4px; }
-  .platforms span { color: var(--line); font-weight: 400; padding: 0 6px; }
+  .platforms span { color: var(--muted); font-weight: 400; padding: 0 6px; }
   .note { font-size: 14px; color: var(--muted); }
 
   footer { margin-top: 56px; border-top: 1px solid var(--line); padding: 26px 0 40px; font-size: 14px; color: var(--muted); }
@@ -191,12 +194,12 @@
 <header class="player">
   <div class="player-inner">
     <div class="player-top">
-      <img src="/logo.webp" alt="Transcriptor MCP logo" width="44" height="44" />
+      <img src="/logo.webp" alt="" width="44" height="44" />
       <span class="name">Transcriptor&nbsp;MCP</span>
       <span class="live">MCP server · 8 tools · 4 widgets</span>
     </div>
     <div class="screen">
-      <div class="captions" aria-label="Captions">
+      <div class="captions">
         <div class="row"><span class="caption-line small">Your AI assistant reads documents, browses the web…</span></div>
         <div class="row"><h1 class="caption-line big">Now it can watch videos.</h1></div>
       </div>
@@ -220,8 +223,8 @@
     <div class="cue-head"><span class="tc">00:30</span><h2>Connect in 30 seconds</h2></div>
     <p class="lead">One hosted endpoint. Sign in through your browser on first use — no API keys, no tokens.</p>
     <div class="endpoint">
-      <code id="endpoint-url">https://gateway.mcpal.io/mcp/transcriptor</code>
-      <button type="button" data-copy="https://gateway.mcpal.io/mcp/transcriptor">Copy</button>
+      <div class="endpoint-scroll"><code id="endpoint-url">https://gateway.mcpal.io/mcp/transcriptor</code></div>
+      <button type="button" aria-live="polite" data-copy="https://gateway.mcpal.io/mcp/transcriptor">Copy</button>
     </div>
     <div class="cards">
       <div class="card">
@@ -258,7 +261,7 @@
 
   <section id="ask">
     <div class="cue-head"><span class="tc">01:00</span><h2>What you can ask</h2></div>
-    <p class="lead">Eight read-only tools. Long transcripts arrive in parts with a cursor, so no text is lost.</p>
+    <p class="lead">Eight read-only tools. Long transcripts return in full, or in cursor-paged parts on request — no text is lost.</p>
     <table>
       <thead><tr><th>Ask for this</th><th>Tool</th></tr></thead>
       <tbody>
@@ -279,19 +282,19 @@
     <p class="lead">Four tools show an interactive interface in clients that support <a href="https://github.com/modelcontextprotocol/ext-apps">MCP Apps</a> and the ChatGPT Apps SDK. Other clients get the same data as text and JSON.</p>
     <div class="shots">
       <figure>
-        <img src="/assets/widget-search.png" alt="The search_videos widget: a carousel of result cards with thumbnails, durations, and view counts" loading="lazy" />
+        <img src="/assets/widget-search.png" alt="The search_videos widget: a carousel of result cards with thumbnails, durations, and view counts" width="1200" height="536" loading="lazy" />
         <figcaption><code>search_videos</code> · a carousel of result cards</figcaption>
       </figure>
       <figure>
-        <img src="/assets/widget-video-frame.png" alt="The get_video_frame widget: one captured frame with step controls and a timecode field" loading="lazy" />
+        <img src="/assets/widget-video-frame.png" alt="The get_video_frame widget: one captured frame with step controls and a timecode field" width="1200" height="875" loading="lazy" />
         <figcaption><code>get_video_frame</code> · a frame with step controls</figcaption>
       </figure>
       <figure>
-        <img src="/assets/widget-transcript.png" alt="The get_transcript widget: a video card above a searchable list of timed captions" loading="lazy" />
+        <img src="/assets/widget-transcript.png" alt="The get_transcript widget: a video card above a searchable list of timed captions" width="1200" height="1414" loading="lazy" />
         <figcaption><code>get_transcript</code> · searchable timed captions</figcaption>
       </figure>
       <figure>
-        <img src="/assets/widget-video-info.png" alt="The get_video_info widget: thumbnail, channel, views, likes, description, and a subtitle language picker" loading="lazy" />
+        <img src="/assets/widget-video-info.png" alt="The get_video_info widget: thumbnail, channel, views, likes, description, and a subtitle language picker" width="1200" height="1336" loading="lazy" />
         <figcaption><code>get_video_info</code> · metadata and caption languages</figcaption>
       </figure>
     </div>
@@ -299,8 +302,8 @@
 
   <section id="platforms">
     <div class="cue-head"><span class="tc">02:00</span><h2>Platforms</h2></div>
-    <p class="platforms">YouTube<span>·</span>Twitter/X<span>·</span>Instagram<span>·</span>TikTok<span>·</span>Twitch<span>·</span>Vimeo<span>·</span>Facebook<span>·</span>Bilibili<span>·</span>VK<span>·</span>Dailymotion<span>·</span>Reddit</p>
-    <p class="note">Every video tool accepts a link from these 11 platforms; <code>search_videos</code> works with YouTube. The server retrieves only public captions, metadata and single frames — it does not download video or audio files.</p>
+    <p class="platforms">YouTube <span>·</span> Twitter/X <span>·</span> Instagram <span>·</span> TikTok <span>·</span> Twitch <span>·</span> Vimeo <span>·</span> Facebook <span>·</span> Bilibili <span>·</span> VK <span>·</span> Dailymotion <span>·</span> Reddit</p>
+    <p class="note">Every video tool accepts a link from these 11 platforms; <code>search_videos</code> works with YouTube. The server retrieves only public captions, metadata and single still frames — it never returns video or audio files.</p>
   </section>
 
   <section id="self-host">
@@ -333,10 +336,15 @@
       try {
         await navigator.clipboard.writeText(btn.dataset.copy);
         btn.textContent = 'Copied';
-        setTimeout(() => { btn.textContent = 'Copy'; }, 1600);
       } catch {
-        btn.textContent = 'Select and copy';
+        const range = document.createRange();
+        range.selectNodeContents(document.getElementById('endpoint-url'));
+        const selection = getSelection();
+        selection.removeAllRanges();
+        selection.addRange(range);
+        btn.textContent = 'Press ⌘C';
       }
+      setTimeout(() => { btn.textContent = 'Copy'; }, 2000);
     });
   }
 </script>
