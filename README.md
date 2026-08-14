@@ -43,7 +43,7 @@ Then run `/mcp` and approve the sign-in in the browser. After this, `claude mcp 
 | Client | What to do |
 | --- | --- |
 | **Claude** (web and desktop) | Open [Settings → Connectors](https://claude.ai/settings/connectors). Select **Add custom connector**, paste `https://gateway.mcpal.io/mcp/transcriptor`, then select **Add**. |
-| **ChatGPT** | Open Settings → **Security and login** and turn on **Developer mode**. Then open Plugins, select **+**, and paste `https://gateway.mcpal.io/mcp/transcriptor`. |
+| **ChatGPT** | Open [Settings → **Security and login**](https://chatgpt.com/#settings) and turn on **Developer mode**. Then open Plugins, select **+**, and paste `https://gateway.mcpal.io/mcp/transcriptor`. |
 
 > **Note:** ChatGPT developer mode is available on the web, for paid plans. Some releases show this control as Settings → Apps & Connectors → Advanced.
 
