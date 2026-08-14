@@ -1,0 +1,4 @@
+Anton, by Vernon Adams.
+Licensed under the SIL Open Font License 1.1: https://openfontlicense.org
+Source: https://fonts.google.com/specimen/Anton
+Self-hosted here (latin subset, woff2) so the site makes no third-party font requests.
