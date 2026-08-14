@@ -16,3 +16,6 @@ tokens.csv
 apisix/
 docs/
 mcp-analytics-gateway/
+store/
+assets/store/
+.claude/

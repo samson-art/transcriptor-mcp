@@ -56,11 +56,11 @@ for (const page of legalPages) {
 
 await cp(path.join(root, 'web/index.html'), path.join(out, 'index.html'));
 await cp(path.join(root, 'logo.webp'), path.join(out, 'logo.webp'));
-await cp(path.join(root, 'assets/store/icon-512.png'), path.join(out, 'icon-512.png'));
+await cp(path.join(root, 'web/icon-512.png'), path.join(out, 'icon-512.png'));
 for (const name of ['search', 'transcript', 'video-info', 'video-frame']) {
   await cp(
-    path.join(root, `assets/store/widget-${name}.png`),
-    path.join(out, 'assets', `widget-${name}.png`)
+    path.join(root, `assets/widget-${name}.webp`),
+    path.join(out, 'assets', `widget-${name}.webp`)
   );
 }
 console.log('copied landing page and assets');
