@@ -54,7 +54,8 @@
   html { scroll-behavior: smooth; }
   @media (prefers-reduced-motion: reduce) {
     html { scroll-behavior: auto; }
-    .caption-line { animation: none !important; opacity: 1 !important; }
+    .caption-line, .scene-line, .tool-chip, .check { animation: none !important; opacity: 1 !important; }
+    .dot { animation: none !important; opacity: 0 !important; }
   }
   body {
     margin: 0;
@@ -97,7 +98,7 @@
     white-space: nowrap;
   }
   @media (max-width: 560px) { .player-top .live { display: none; } }
-  .screen { padding: 72px 0 26px; min-height: 240px; display: flex; align-items: flex-end; }
+  .screen { padding: 40px 0 24px; min-height: 240px; display: flex; align-items: flex-end; }
   .captions { width: 100%; text-align: center; }
   /* Cues cut in like real captions — no easing, no slide. The animation
      duration is the delay: steps(1, end) holds the cue invisible, then cuts. */
@@ -118,8 +119,36 @@
     letter-spacing: 0.01em;
     animation-duration: 1.05s;
   }
+  .caption-line.answer { animation-duration: 4.6s; }
   .captions .row + .row { margin-top: 10px; }
   @keyframes cue { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes cue-out { to { opacity: 0; } }
+
+  /* Tool-call scene: same duration-as-delay cut-ins as the captions. */
+  .scene-line, .tool-chip { opacity: 0; animation: cue 0.35s steps(1, end) forwards; }
+  .scene-line.prompt {
+    display: inline-block;
+    background: var(--caption-strip);
+    padding: 5px 13px; border-radius: 6px;
+    font-size: clamp(13px, 1.9vw, 15px); color: #c8d2e8;
+    animation-duration: 2s;
+  }
+  .row.tools { display: flex; justify-content: center; gap: 8px; flex-wrap: wrap; }
+  .tool-chip {
+    display: inline-flex; align-items: center; gap: 7px;
+    font-family: ui-monospace, "SF Mono", "Cascadia Code", Menlo, monospace;
+    font-size: 12px; color: #c8d2e8;
+    border: 1px solid rgba(63, 224, 197, 0.4); border-radius: 999px;
+    padding: 4px 12px; background: rgba(2, 4, 12, 0.5);
+  }
+  .tool-chip.t1 { animation-duration: 2.6s; }
+  .tool-chip.t2 { animation-duration: 3.5s; }
+  .tool-chip .state { display: inline-grid; width: 1em; place-items: center; }
+  .tool-chip .state > * { grid-area: 1 / 1; }
+  .dot { color: #f5c96b; animation: cue-out 3.3s steps(1, end) forwards; }
+  .check { color: var(--tick); opacity: 0; animation: cue 3.3s steps(1, end) forwards; }
+  .t2 .dot { animation-duration: 4.2s; }
+  .t2 .check { animation-duration: 4.2s; }
 
   /* Chapter bar: page navigation drawn as a video timeline */
   .timeline { padding: 18px 0 20px; }
@@ -175,7 +204,39 @@
   }
   .endpoint button:hover { border-color: var(--accent-2); color: var(--accent-2); }
 
-  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px; margin-top: 18px; }
+  .endpoint-note { margin: 10px 0 0; }
+
+  /* One-click install row + the per-client switcher below it. */
+  .install-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 16px; }
+  .install-label { font-size: 13px; color: var(--muted); }
+  .install-btn, .copy-btn, .docs-link {
+    font: inherit; font-size: 13px; line-height: 1.4;
+    border-radius: 8px; padding: 6px 13px;
+    border: 1px solid var(--line); background: var(--surface); color: var(--ink);
+    text-decoration: none; cursor: pointer;
+    transition: border-color 0.18s, color 0.18s;
+  }
+  .install-btn:hover, .copy-btn:hover { border-color: var(--accent); color: var(--accent); text-decoration: none; }
+  .docs-link { border-color: transparent; background: none; color: var(--accent); padding-left: 4px; }
+
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 26px; }
+  .chip {
+    font: inherit; font-size: 13px;
+    border: 1px solid var(--line); background: var(--surface); color: var(--muted);
+    border-radius: 999px; padding: 6px 14px; cursor: pointer;
+    transition: border-color 0.18s, color 0.18s;
+  }
+  .chip:hover { color: var(--ink); }
+  .chip[aria-selected="true"] {
+    color: var(--ink);
+    border-color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 12%, var(--surface));
+  }
+  .client-panel { margin-top: 14px; }
+  .client-panel h3 { margin: 0 0 10px; font-size: 15px; }
+  .cfg-file { font-size: 14px; color: var(--muted); margin: 0; }
+  .cfg-after { font-size: 14px; color: var(--muted); margin: 10px 0 0; }
+  .panel-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 14px; }
   .card {
     background: var(--surface); border: 1px solid var(--line);
     border-radius: 12px; padding: 16px 18px;
@@ -231,6 +292,16 @@
       <div class="captions">
         <div class="row"><span class="caption-line small">Your AI assistant reads documents, browses the web…</span></div>
         <div class="row"><h1 class="caption-line big">Now it can watch videos.</h1></div>
+        <!-- The scene below plays the rest of the cue sequence: a prompt,
+             two tool calls flipping from running to done, then the answer. -->
+        <div class="scene" aria-hidden="true">
+          <div class="row"><span class="scene-line prompt">“Summarize this talk — and grab the slide at 4:12”</span></div>
+          <div class="row tools">
+            <span class="tool-chip t1"><span class="state"><span class="dot">●</span><span class="check">✓</span></span>get_video_info</span>
+            <span class="tool-chip t2"><span class="state"><span class="dot">●</span><span class="check">✓</span></span>get_transcript</span>
+          </div>
+        </div>
+        <div class="row"><span class="caption-line small answer">It's a 40-minute keynote. Here's the short version…</span></div>
       </div>
     </div>
     <nav class="timeline" aria-label="Page chapters">
@@ -255,37 +326,9 @@
       <div class="endpoint-scroll"><code id="endpoint-url">https://gateway.mcpal.io/mcp/transcriptor</code></div>
       <button type="button" aria-live="polite" data-copy="https://gateway.mcpal.io/mcp/transcriptor">Copy</button>
     </div>
-    <div class="cards">
-      <div class="card">
-        <h3>Claude — web and desktop</h3>
-        <p>Open <a href="https://claude.ai/settings/connectors">Settings → Customize → Connectors</a>, select <b>Add</b> → <b>Add custom connector</b>, paste the endpoint, then select <b>Add</b>.</p>
-      </div>
-      <div class="card">
-        <h3>ChatGPT</h3>
-        <ol class="steps">
-          <li><a href="https://chatgpt.com/#settings">Settings</a> → <b>Security and login</b> → turn on <b>Developer mode</b></li>
-          <li>Open Plugins, select <b>+</b>, paste the endpoint</li>
-        </ol>
-        <p style="margin-top:8px">Available on the web, for paid plans.</p>
-      </div>
-      <div class="card">
-        <h3>Claude Code</h3>
-        <pre>claude mcp add --transport http \
-  transcriptor \
-  https://gateway.mcpal.io/mcp/transcriptor</pre>
-        <p style="margin-top:8px">Then run <code>/mcp</code> and approve the sign-in.</p>
-      </div>
-      <div class="card">
-        <h3>Cursor, VS Code, any MCP client</h3>
-        <pre>{
-  "mcpServers": {
-    "transcriptor": {
-      "url": "https://gateway.mcpal.io/mcp/transcriptor"
-    }
-  }
-}</pre>
-      </div>
-    </div>
+    <p class="note endpoint-note">Paste this into an MCP client, not a browser. The first connection opens a sign-in page in your browser; approve it once and the client keeps the session. No API keys, no tokens.</p>
+    <!-- build:install-row -->
+    <!-- build:clients -->
   </section>
 
   <section id="ask">
@@ -350,6 +393,7 @@
       <a href="https://github.com/samson-art/transcriptor-mcp">GitHub</a>
       <a href="https://hub.docker.com/r/artsamsonov/transcriptor-mcp">Docker Hub</a>
       <a href="https://registry.modelcontextprotocol.io/v0/servers?search=transcriptor">MCP Registry</a>
+      <a href="/llms.txt">llms.txt</a>
       <a href="/terms">Terms of Service</a>
       <a href="/privacy">Privacy Policy</a>
       <a href="mailto:legal@transcriptor-mcp.org">Support</a>
@@ -388,21 +432,61 @@
   }, { passive: true });
   updateTimeline();
 
-  for (const btn of document.querySelectorAll('[data-copy]')) {
+  // Copy buttons carry either the text itself (data-copy) or a selector for
+  // the element holding it (data-copy-target) — multi-line configs live in
+  // the DOM rather than in an attribute.
+  for (const btn of document.querySelectorAll('[data-copy], [data-copy-target]')) {
+    const label = btn.textContent;
+    const source = btn.dataset.copyTarget ? document.querySelector(btn.dataset.copyTarget) : null;
     btn.addEventListener('click', async () => {
       try {
-        await navigator.clipboard.writeText(btn.dataset.copy);
+        await navigator.clipboard.writeText(btn.dataset.copy ?? source.textContent);
         btn.textContent = 'Copied';
       } catch {
         const range = document.createRange();
-        range.selectNodeContents(document.getElementById('endpoint-url'));
+        range.selectNodeContents(source ?? document.getElementById('endpoint-url'));
         const selection = getSelection();
         selection.removeAllRanges();
         selection.addRange(range);
         btn.textContent = 'Press ⌘C';
       }
-      setTimeout(() => { btn.textContent = 'Copy'; }, 2000);
+      setTimeout(() => { btn.textContent = label; }, 2000);
     });
+  }
+
+  // Client switcher: one panel visible at a time, ARIA tabs with roving
+  // tabindex. The panels are pre-rendered by web/build.mjs.
+  const tablist = document.querySelector('.chips');
+  if (tablist) {
+    const chips = [...tablist.querySelectorAll('.chip')];
+    const select = (index, focus) => {
+      chips.forEach((chip, i) => {
+        const on = i === index;
+        chip.setAttribute('aria-selected', on);
+        chip.tabIndex = on ? 0 : -1;
+        document.getElementById(chip.getAttribute('aria-controls')).hidden = !on;
+      });
+      if (focus) chips[index].focus();
+      try { localStorage.setItem('transcriptor:client', chips[index].dataset.client); } catch {}
+    };
+    tablist.addEventListener('click', (event) => {
+      const chip = event.target.closest('.chip');
+      if (chip) select(chips.indexOf(chip), false);
+    });
+    tablist.addEventListener('keydown', (event) => {
+      const current = chips.findIndex((chip) => chip.tabIndex === 0);
+      const step = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[event.key];
+      if (step) select((current + step + chips.length) % chips.length, true);
+      else if (event.key === 'Home') select(0, true);
+      else if (event.key === 'End') select(chips.length - 1, true);
+      else return;
+      event.preventDefault();
+    });
+    try {
+      const saved = localStorage.getItem('transcriptor:client');
+      const index = chips.findIndex((chip) => chip.dataset.client === saved);
+      if (index > 0) select(index, false);
+    } catch {}
   }
 </script>
 

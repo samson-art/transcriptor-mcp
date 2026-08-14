@@ -8,6 +8,7 @@ import { cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { marked } from 'marked';
+import { SERVER_URL, clients, installLinks, tools } from './clients.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const out = path.join(root, 'dist-site');
@@ -54,7 +55,127 @@ for (const page of legalPages) {
   console.log(`built /${page.dir} from ${page.source}`);
 }
 
-await cp(path.join(root, 'web/index.html'), path.join(out, 'index.html'));
+const esc = (text) =>
+  text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+const pretty = (config) => JSON.stringify(config, null, 2);
+
+const installLabels = { cursor: 'Add to Cursor', vscode: 'Add to VS Code', lmstudio: 'Add to LM Studio' };
+
+function renderInstallRow() {
+  const buttons = Object.entries(installLabels)
+    .map(([key, label]) => `<a class="install-btn" href="${installLinks[key]}">${label}</a>`)
+    .join('\n        ');
+  return `<div class="install-row">
+        <span class="install-label">One click:</span>
+        ${buttons}
+      </div>`;
+}
+
+function renderPanelBody(client) {
+  const parts = [];
+  if (client.heading) parts.push(`<h3>${client.heading}</h3>`);
+  if (client.kind === 'steps') {
+    parts.push(`<ol class="steps">\n${client.steps.map((s) => `          <li>${s}</li>`).join('\n')}\n        </ol>`);
+  }
+  if (client.kind === 'command') {
+    parts.push(`<pre id="cfg-${client.id}">${esc(client.command)}</pre>`);
+  }
+  if (client.kind === 'json') {
+    parts.push(`<p class="cfg-file">Add to <code>${esc(client.file)}</code></p>`);
+    parts.push(`<pre id="cfg-${client.id}">${esc(pretty(client.config))}</pre>`);
+  }
+  if (client.after) parts.push(`<p class="cfg-after">${client.after}</p>`);
+  return parts.map((p) => `        ${p}`).join('\n');
+}
+
+function renderPanelActions(client) {
+  const actions = [];
+  if (client.kind !== 'steps') {
+    const label = client.kind === 'command' ? 'Copy command' : 'Copy config';
+    actions.push(
+      `<button type="button" class="copy-btn" data-copy-target="#cfg-${client.id}" aria-live="polite">${label}</button>`
+    );
+  }
+  if (client.install) {
+    actions.push(`<a class="install-btn" href="${installLinks[client.install]}">${installLabels[client.install]}</a>`);
+  }
+  actions.push(`<a class="docs-link" href="${client.docs}">${client.docsLabel}</a>`);
+  return `<div class="panel-actions">\n${actions.map((a) => `          ${a}`).join('\n')}\n        </div>`;
+}
+
+function renderClients() {
+  const chips = clients
+    .map(
+      (c, i) =>
+        `<button class="chip" role="tab" type="button" id="chip-${c.id}" data-client="${c.id}"` +
+        ` aria-controls="panel-${c.id}" aria-selected="${i === 0}" tabindex="${i === 0 ? 0 : -1}">${c.label}</button>`
+    )
+    .join('\n        ');
+  const panels = clients
+    .map(
+      (c, i) =>
+        `<div class="client-panel card" role="tabpanel" id="panel-${c.id}" aria-labelledby="chip-${c.id}"${i === 0 ? '' : ' hidden'}>\n` +
+        `${renderPanelBody(c)}\n        ${renderPanelActions(c)}\n      </div>`
+    )
+    .join('\n      ');
+  return `<div class="chips" role="tablist" aria-label="Choose your MCP client">
+        ${chips}
+      </div>
+      ${panels}`;
+}
+
+function renderLlmsTxt() {
+  const connect = clients
+    .map((c) => {
+      const how = c.llms ?? (c.kind === 'command' ? c.command.replace(/\n/g, ' && ') : `add ${JSON.stringify(c.config)} to ${c.file}`);
+      return `- [${c.label}](${c.docs}): ${how}`;
+    })
+    .join('\n');
+  return `# Transcriptor MCP
+
+> One MCP server that gives Claude, ChatGPT, Cursor and any MCP client transcripts, chapters, metadata and still frames from YouTube and 10 more video platforms.
+
+Endpoint: ${SERVER_URL} (Streamable HTTP; OAuth browser sign-in on first connection, no API keys).
+Eight read-only tools; four of them render interactive widgets in clients that support MCP Apps or the ChatGPT Apps SDK.
+Platforms: YouTube, Twitter/X, Instagram, TikTok, Twitch, Vimeo, Facebook, Bilibili, VK, Dailymotion, Reddit. Search is YouTube only.
+The server returns text, metadata and single still frames. It never returns video or audio files.
+Self-host (MIT): docker run --rm -p 4200:4200 artsamsonov/transcriptor-mcp:latest
+
+## Tools
+
+${tools.map((t) => `- ${t.name}: ${t.desc}`).join('\n')}
+
+## Connect
+
+${connect}
+
+## Docs
+
+- [README](${REPO_URL}#readme): full tool reference, widgets and self-host guide
+- [MCP Registry](https://registry.modelcontextprotocol.io/v0/servers?search=transcriptor): registry entry
+- [Terms of Service](https://transcriptor-mcp.org/terms)
+- [Privacy Policy](https://transcriptor-mcp.org/privacy)
+`;
+}
+
+// The landing page ships generated markup: web/index.html carries marker
+// comments that this build replaces. Throw rather than emit a page with a
+// silently missing section if a marker is ever renamed.
+let landing = await readFile(path.join(root, 'web/index.html'), 'utf8');
+for (const [marker, render] of [
+  ['<!-- build:install-row -->', renderInstallRow],
+  ['<!-- build:clients -->', renderClients],
+]) {
+  if (!landing.includes(marker)) {
+    throw new Error(`web/index.html is missing the ${marker} marker`);
+  }
+  landing = landing.replace(marker, () => render());
+}
+await writeFile(path.join(out, 'index.html'), landing);
+await writeFile(path.join(out, 'llms.txt'), renderLlmsTxt());
+console.log(`built / with ${clients.length} client panels, and /llms.txt`);
+
 await cp(path.join(root, 'web/fonts'), path.join(out, 'fonts'), { recursive: true });
 await cp(path.join(root, 'logo.webp'), path.join(out, 'logo.webp'));
 await cp(path.join(root, 'web/icon-512.png'), path.join(out, 'icon-512.png'));
