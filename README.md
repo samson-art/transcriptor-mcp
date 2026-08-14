@@ -2,16 +2,16 @@
 
 <img src="logo.webp" alt="Transcriptor MCP" width="120" />
 
-# 🎬 Your assistant cannot watch videos. Give it the transcript.
+# 🎬 Now your AI assistant can watch videos!
 
-**Connect one server. Then ask Claude, ChatGPT, or Cursor about any video:** the transcript, the chapters, the metadata, or a single frame. It works with 11 platforms, not only YouTube.
+**Connect one server. Then ask Claude, ChatGPT or etc about a video:** the transcript, the chapters, the metadata, or a single frame. It works with 11 platforms, not only YouTube.
 
 [![MCP Registry](https://img.shields.io/badge/MCP%20Registry-transcriptor--mcp-6E56CF)](https://registry.modelcontextprotocol.io/v0/servers?search=transcriptor)
 [![Docker](https://img.shields.io/badge/Docker-artsamsonov/transcriptor--mcp-2496ED?logo=docker&logoColor=white)](https://hub.docker.com/r/artsamsonov/transcriptor-mcp)
 [![MCP Apps](https://img.shields.io/badge/MCP%20Apps-4%20interactive%20widgets-8A63D2)](#-widgets)
 [![License](https://img.shields.io/github/license/samson-art/transcriptor-mcp)](LICENSE)
 
-**[Connect](#-connect-in-30-seconds) · [What to ask](#-what-you-can-ask) · [Widgets](#-widgets) · [Platforms](#-platforms) · [Self-host](#-self-host) · [FAQ](#-faq)**
+**[Connect](#-connect-in-30-seconds) · [What to ask](#-what-you-can-ask) · [Widgets](#-widgets) · [Platforms](#-platforms) · [Self-host](#-self-host)**
 
 </div>
 
@@ -25,14 +25,10 @@ The hosted endpoint is:
 https://gateway.mcpal.io/mcp/transcriptor
 ```
 
-Your client opens a browser and you sign in there. There is no API key to copy.
-
 ### 🖱️ One click
 
 [![Add to Cursor](https://img.shields.io/badge/Add%20to-Cursor-000000?style=for-the-badge&logo=cursor&logoColor=white)](https://cursor.com/en/install-mcp?name=transcriptor&config=eyJ1cmwiOiJodHRwczovL2dhdGV3YXkubWNwYWwuaW8vbWNwL3RyYW5zY3JpcHRvciJ9)
 [![Install in VS Code](https://img.shields.io/badge/Install%20in-VS%20Code-0098FF?style=for-the-badge&logo=visualstudiocode&logoColor=white)](https://insiders.vscode.dev/redirect/mcp/install?name=transcriptor&config=%7B%22type%22%3A%22http%22%2C%22url%22%3A%22https%3A%2F%2Fgateway.mcpal.io%2Fmcp%2Ftranscriptor%22%7D)
-
-Each link opens the client and fills in the address of the server. Then the client starts the sign-in.
 
 ### ⌨️ One command, for Claude Code
 
@@ -71,8 +67,6 @@ If you want to run the server yourself, read [Self-host](#-self-host). The tools
 
 ## 🧰 What you can ask
 
-The server has eight tools. You do not name them. You ask for the result, and the client selects the tool.
-
 | Ask for this | Tool |
 | --- | --- |
 | *"Summarize this video for me"* | `get_transcript` |
@@ -83,8 +77,6 @@ The server has eight tools. You do not name them. You ask for the result, and th
 | *"Show me the screen at 4:12"* | `get_video_frame` |
 | *"Get transcripts for the first 5 videos in this playlist"* | `get_playlist_transcripts` |
 | *"Find recent videos about X"* | `search_videos` (YouTube) |
-
-The server also has three prompts: `get_transcript_for_video`, `summarize_video`, and `search_and_summarize`.
 
 Long transcripts come in parts. Each response gives a cursor for the next part, so no text is lost.
 
@@ -169,11 +161,32 @@ Response: `results`. Each item has `videoId`, `title`, `url`, `duration`, `uploa
 
 ---
 
-## 🖼️ Widgets
+## 📺 Widgets
 
 Four tools have an interactive interface: `get_transcript`, `get_video_info`, `get_video_frame`, and `search_videos`. Clients that support [MCP Apps](https://github.com/modelcontextprotocol/ext-apps) and the ChatGPT Apps SDK show this interface in the chat. Other clients get the same data as text and JSON.
 
-![Transcriptor MCP in action](example-usage.webp)
+<table>
+  <tr>
+    <td width="50%" valign="top">
+      <img src="assets/widget-search.webp" alt="The search_videos widget: a carousel of result cards with thumbnails, durations, and view counts" />
+      <p align="center"><sub><code>search_videos</code> · <i>"model context protocol MCP server production"</i></sub></p>
+    </td>
+    <td width="50%" valign="top">
+      <img src="assets/widget-video-frame.webp" alt="The get_video_frame widget: one captured frame with step controls and a timecode field" />
+      <p align="center"><sub><code>get_video_frame</code> · an architecture slide at 3:30</sub></p>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <img src="assets/widget-transcript.webp" alt="The get_transcript widget: a video card above a searchable list of timed captions" />
+      <p align="center"><sub><code>get_transcript</code> · a 3-minute MCP explainer, official captions</sub></p>
+    </td>
+    <td width="50%" valign="top">
+      <img src="assets/widget-video-info.webp" alt="The get_video_info widget: thumbnail, channel, views, likes, description, and a subtitle language picker" />
+      <p align="center"><sub><code>get_video_info</code> · channel, views, likes, and 169 caption languages</sub></p>
+    </td>
+  </tr>
+</table>
 
 ---
 
@@ -260,28 +273,6 @@ You need Node.js 20 or later, and `yt-dlp` in your PATH. Frame capture also need
 **Layout.** `src/mcp.ts` (stdio entry), `src/mcp-http.ts` (Streamable HTTP), `src/mcp-core.ts` (tools, prompts, widgets), `src/youtube.ts` (yt-dlp), `src/whisper.ts`, `src/cache.ts`, `src/index.ts` (REST API), `load/` (k6), and `src/e2e/` (Docker smoke tests).
 
 </details>
-
----
-
-## ❓ FAQ
-
-**Do I need an API key?**
-No. The hosted endpoint uses OAuth. Your client opens a browser, and you sign in. There is nothing to paste into a configuration file. A self-hosted server needs no account.
-
-**What happens when a video has no subtitles?**
-On a self-hosted server, you can turn on the Whisper fallback with `WHISPER_MODE=local` or `WHISPER_MODE=api`. Whisper then transcribes the audio.
-
-**Some videos return "sign-in required".**
-This is a restriction of the platform, not an error of the server. On a self-hosted server, export your cookies and set `COOKIES_FILE_PATH`. The file [cookies.example.txt](cookies.example.txt) shows the format. Keep real cookies out of git.
-
-**Does the server download videos?**
-No. It returns transcripts, subtitles, metadata, chapters, and single frames.
-
-**Can I use this server in production?**
-Yes. The Docker images are made for this. Put your own authentication and TLS in front of `POST /mcp`, because the server trusts its edge.
-
-**Where do secrets stay?**
-In your environment only. The server does not log `WHISPER_API_KEY`, `CACHE_REDIS_URL`, or cookie files, and does not return them in a response.
 
 ---
 
