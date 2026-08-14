@@ -1,0 +1,345 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Transcriptor MCP — your AI assistant can watch videos</title>
+<meta name="description" content="One MCP server that gives Claude, ChatGPT, Cursor and any MCP client transcripts, chapters, metadata and frames from YouTube and 10 more video platforms." />
+<link rel="canonical" href="https://transcriptor-mcp.org/" />
+<link rel="icon" type="image/png" href="/icon-512.png" />
+<meta property="og:title" content="Transcriptor MCP — your AI assistant can watch videos" />
+<meta property="og:description" content="Transcripts, chapters, metadata and frames from 11 video platforms, over one MCP endpoint." />
+<meta property="og:image" content="https://transcriptor-mcp.org/icon-512.png" />
+<meta property="og:url" content="https://transcriptor-mcp.org/" />
+<style>
+  :root {
+    --bg: #f6f8fc;
+    --surface: #ffffff;
+    --ink: #10152a;
+    --muted: #5b6478;
+    --line: #dde3ef;
+    --accent: #2f7fd4;
+    --accent-2: #18b9a2;
+    --player-bg: #0b0e1a;
+    --player-ink: #e9edf7;
+    --caption-strip: rgba(2, 4, 12, 0.78);
+    --code-bg: #0f1425;
+    --code-ink: #dbe4f5;
+    --tick: #3fe0c5;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0b0e1a;
+      --surface: #121729;
+      --ink: #e9edf7;
+      --muted: #8d95ab;
+      --line: #232b44;
+      --accent: #57a9f2;
+      --accent-2: #3fe0c5;
+      --code-bg: #0f1425;
+      --code-ink: #dbe4f5;
+    }
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  @media (prefers-reduced-motion: reduce) {
+    html { scroll-behavior: auto; }
+    .caption-line { animation: none !important; opacity: 1 !important; }
+  }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font: 16px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  a:focus-visible, button:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+  code, pre, .tc { font-family: ui-monospace, "SF Mono", "Cascadia Code", Menlo, monospace; }
+  .wrap { max-width: 920px; margin: 0 auto; padding: 0 20px; }
+
+  /* ---- Hero: a video player whose captions introduce the product ---- */
+  .player {
+    background:
+      radial-gradient(120% 90% at 75% 10%, rgba(47, 127, 212, 0.28), transparent 60%),
+      radial-gradient(90% 80% at 15% 90%, rgba(24, 185, 162, 0.16), transparent 55%),
+      var(--player-bg);
+    color: var(--player-ink);
+    border-radius: 0 0 22px 22px;
+    padding: 42px 20px 0;
+  }
+  .player-inner { max-width: 920px; margin: 0 auto; }
+  .player-top { display: flex; align-items: center; gap: 12px; }
+  .player-top img { width: 44px; height: 44px; border-radius: 10px; }
+  .player-top .name { font-weight: 700; letter-spacing: 0.01em; }
+  .player-top .live {
+    margin-left: auto;
+    font-size: 12px;
+    color: #9fe8db;
+    border: 1px solid rgba(63, 224, 197, 0.4);
+    border-radius: 999px;
+    padding: 3px 10px;
+    white-space: nowrap;
+  }
+  .screen { padding: 72px 0 26px; min-height: 240px; display: flex; align-items: flex-end; }
+  .captions { width: 100%; text-align: center; }
+  .caption-line {
+    display: inline-block;
+    background: var(--caption-strip);
+    padding: 6px 14px;
+    border-radius: 6px;
+    opacity: 0;
+    animation: cue 0.6s ease forwards;
+  }
+  .caption-line.small { font-size: clamp(15px, 2.2vw, 18px); color: #c8d2e8; animation-delay: 0.15s; }
+  .caption-line.big {
+    font-size: clamp(26px, 4.6vw, 44px);
+    font-weight: 800;
+    line-height: 1.2;
+    letter-spacing: -0.015em;
+    animation-delay: 0.55s;
+  }
+  .captions .row + .row { margin-top: 10px; }
+  @keyframes cue { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
+  /* Chapter bar: page navigation drawn as a video timeline */
+  .timeline { padding: 18px 0 20px; }
+  .track { position: relative; height: 4px; border-radius: 2px; background: rgba(233, 237, 247, 0.22); }
+  .track .played {
+    position: absolute; inset: 0 auto 0 0; width: 14%;
+    background: linear-gradient(90deg, var(--accent), var(--tick));
+    border-radius: 2px;
+  }
+  .chapters { display: flex; justify-content: space-between; margin-top: 10px; flex-wrap: wrap; gap: 6px 14px; }
+  .chapters a {
+    color: #aeb8d0; font-size: 13px;
+    display: inline-flex; align-items: baseline; gap: 7px;
+  }
+  .chapters a:hover { color: var(--player-ink); text-decoration: none; }
+  .chapters .tc { color: var(--tick); font-size: 11px; }
+
+  /* ---- Sections ---- */
+  section { padding: 46px 0 6px; }
+  .cue-head { display: flex; align-items: baseline; gap: 12px; margin-bottom: 6px; }
+  .cue-head .tc { color: var(--accent-2); font-size: 13px; }
+  h2 { font-size: 24px; margin: 0; letter-spacing: -0.01em; }
+  .lead { color: var(--muted); margin-top: 6px; }
+
+  .endpoint {
+    display: flex; align-items: center; gap: 10px;
+    background: var(--code-bg); color: var(--code-ink);
+    border-radius: 10px; padding: 12px 14px; margin: 18px 0 6px;
+    overflow-x: auto;
+  }
+  .endpoint code { font-size: 15px; white-space: nowrap; }
+  .endpoint button {
+    margin-left: auto; flex-shrink: 0;
+    background: transparent; color: var(--code-ink);
+    border: 1px solid rgba(219, 228, 245, 0.35);
+    border-radius: 7px; padding: 5px 12px; font-size: 13px; cursor: pointer;
+  }
+  .endpoint button:hover { border-color: var(--accent-2); color: var(--accent-2); }
+
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px; margin-top: 18px; }
+  .card {
+    background: var(--surface); border: 1px solid var(--line);
+    border-radius: 12px; padding: 16px 18px;
+  }
+  .card h3 { margin: 0 0 8px; font-size: 15px; }
+  .card p { margin: 0; font-size: 14px; color: var(--muted); }
+  .card pre { margin: 10px 0 0; }
+  pre {
+    background: var(--code-bg); color: var(--code-ink);
+    border-radius: 10px; padding: 12px 14px;
+    font-size: 13px; line-height: 1.55; overflow-x: auto;
+  }
+  .steps { padding-left: 18px; margin: 8px 0 0; font-size: 14px; color: var(--muted); }
+  .steps li { margin: 4px 0; }
+  .steps b { color: var(--ink); font-weight: 600; }
+
+  table { width: 100%; border-collapse: collapse; margin-top: 16px; font-size: 15px; }
+  th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--line); }
+  th { font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); font-weight: 600; }
+  td code { font-size: 13px; color: var(--accent); }
+  td:first-child { color: var(--ink); }
+
+  .shots { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; margin-top: 18px; align-items: start; }
+  figure { margin: 0; }
+  figure img {
+    width: 100%; height: auto; display: block;
+    border-radius: 12px; border: 1px solid var(--line);
+  }
+  figcaption { font-size: 13px; color: var(--muted); margin-top: 7px; text-align: center; }
+  figcaption code { color: var(--accent); font-size: 12px; }
+
+  .platforms { font-size: 17px; font-weight: 600; letter-spacing: 0.01em; margin: 14px 0 4px; }
+  .platforms span { color: var(--line); font-weight: 400; padding: 0 6px; }
+  .note { font-size: 14px; color: var(--muted); }
+
+  footer { margin-top: 56px; border-top: 1px solid var(--line); padding: 26px 0 40px; font-size: 14px; color: var(--muted); }
+  footer .links { display: flex; flex-wrap: wrap; gap: 8px 22px; margin-bottom: 14px; }
+  footer p { margin: 6px 0; }
+</style>
+</head>
+<body>
+
+<header class="player">
+  <div class="player-inner">
+    <div class="player-top">
+      <img src="/logo.webp" alt="Transcriptor MCP logo" width="44" height="44" />
+      <span class="name">Transcriptor&nbsp;MCP</span>
+      <span class="live">MCP server · 8 tools · 4 widgets</span>
+    </div>
+    <div class="screen">
+      <div class="captions" aria-label="Captions">
+        <div class="row"><span class="caption-line small">Your AI assistant reads documents, browses the web…</span></div>
+        <div class="row"><h1 class="caption-line big">Now it can watch videos.</h1></div>
+      </div>
+    </div>
+    <nav class="timeline" aria-label="Page chapters">
+      <div class="track"><div class="played"></div></div>
+      <div class="chapters">
+        <a href="#connect"><span class="tc">00:30</span>Connect</a>
+        <a href="#ask"><span class="tc">01:00</span>What to ask</a>
+        <a href="#widgets"><span class="tc">01:30</span>Widgets</a>
+        <a href="#platforms"><span class="tc">02:00</span>Platforms</a>
+        <a href="#self-host"><span class="tc">02:30</span>Self-host</a>
+      </div>
+    </nav>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <section id="connect">
+    <div class="cue-head"><span class="tc">00:30</span><h2>Connect in 30 seconds</h2></div>
+    <p class="lead">One hosted endpoint. Sign in through your browser on first use — no API keys, no tokens.</p>
+    <div class="endpoint">
+      <code id="endpoint-url">https://gateway.mcpal.io/mcp/transcriptor</code>
+      <button type="button" data-copy="https://gateway.mcpal.io/mcp/transcriptor">Copy</button>
+    </div>
+    <div class="cards">
+      <div class="card">
+        <h3>Claude — web and desktop</h3>
+        <p>Open <a href="https://claude.ai/settings/connectors">Settings → Connectors</a>, select <b>Add custom connector</b>, paste the endpoint, then select <b>Add</b>.</p>
+      </div>
+      <div class="card">
+        <h3>ChatGPT</h3>
+        <ol class="steps">
+          <li>Settings → <b>Security and login</b> → turn on <b>Developer mode</b></li>
+          <li>Open Plugins, select <b>+</b>, paste the endpoint</li>
+        </ol>
+        <p style="margin-top:8px">Available on the web, for paid plans.</p>
+      </div>
+      <div class="card">
+        <h3>Claude Code</h3>
+        <pre>claude mcp add --transport http \
+  transcriptor \
+  https://gateway.mcpal.io/mcp/transcriptor</pre>
+        <p style="margin-top:8px">Then run <code>/mcp</code> and approve the sign-in.</p>
+      </div>
+      <div class="card">
+        <h3>Cursor, VS Code, any MCP client</h3>
+        <pre>{
+  "mcpServers": {
+    "transcriptor": {
+      "url": "https://gateway.mcpal.io/mcp/transcriptor"
+    }
+  }
+}</pre>
+      </div>
+    </div>
+  </section>
+
+  <section id="ask">
+    <div class="cue-head"><span class="tc">01:00</span><h2>What you can ask</h2></div>
+    <p class="lead">Eight read-only tools. Long transcripts arrive in parts with a cursor, so no text is lost.</p>
+    <table>
+      <thead><tr><th>Ask for this</th><th>Tool</th></tr></thead>
+      <tbody>
+        <tr><td>“Summarize this video for me”</td><td><code>get_transcript</code></td></tr>
+        <tr><td>“Give me the subtitles as an SRT file”</td><td><code>get_raw_subtitles</code></td></tr>
+        <tr><td>“Is there a German track for this video?”</td><td><code>get_available_subtitles</code></td></tr>
+        <tr><td>“Who published this and how many views?”</td><td><code>get_video_info</code></td></tr>
+        <tr><td>“Go to the part about pricing”</td><td><code>get_video_chapters</code></td></tr>
+        <tr><td>“Show me the screen at 4:12”</td><td><code>get_video_frame</code></td></tr>
+        <tr><td>“Get transcripts for the first 5 videos in this playlist”</td><td><code>get_playlist_transcripts</code></td></tr>
+        <tr><td>“Find recent videos about X”</td><td><code>search_videos</code></td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section id="widgets">
+    <div class="cue-head"><span class="tc">01:30</span><h2>Widgets</h2></div>
+    <p class="lead">Four tools show an interactive interface in clients that support <a href="https://github.com/modelcontextprotocol/ext-apps">MCP Apps</a> and the ChatGPT Apps SDK. Other clients get the same data as text and JSON.</p>
+    <div class="shots">
+      <figure>
+        <img src="/assets/widget-search.png" alt="The search_videos widget: a carousel of result cards with thumbnails, durations, and view counts" loading="lazy" />
+        <figcaption><code>search_videos</code> · a carousel of result cards</figcaption>
+      </figure>
+      <figure>
+        <img src="/assets/widget-video-frame.png" alt="The get_video_frame widget: one captured frame with step controls and a timecode field" loading="lazy" />
+        <figcaption><code>get_video_frame</code> · a frame with step controls</figcaption>
+      </figure>
+      <figure>
+        <img src="/assets/widget-transcript.png" alt="The get_transcript widget: a video card above a searchable list of timed captions" loading="lazy" />
+        <figcaption><code>get_transcript</code> · searchable timed captions</figcaption>
+      </figure>
+      <figure>
+        <img src="/assets/widget-video-info.png" alt="The get_video_info widget: thumbnail, channel, views, likes, description, and a subtitle language picker" loading="lazy" />
+        <figcaption><code>get_video_info</code> · metadata and caption languages</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <section id="platforms">
+    <div class="cue-head"><span class="tc">02:00</span><h2>Platforms</h2></div>
+    <p class="platforms">YouTube<span>·</span>Twitter/X<span>·</span>Instagram<span>·</span>TikTok<span>·</span>Twitch<span>·</span>Vimeo<span>·</span>Facebook<span>·</span>Bilibili<span>·</span>VK<span>·</span>Dailymotion<span>·</span>Reddit</p>
+    <p class="note">Every video tool accepts a link from these 11 platforms; <code>search_videos</code> works with YouTube. The server retrieves only public captions, metadata and single frames — it does not download video or audio files.</p>
+  </section>
+
+  <section id="self-host">
+    <div class="cue-head"><span class="tc">02:30</span><h2>Self-host</h2></div>
+    <p class="lead">The same tools, on your machine. Open source (MIT), no account needed.</p>
+    <pre>docker run --rm -p 4200:4200 artsamsonov/transcriptor-mcp:latest</pre>
+    <p class="note">Then point your client at <code>http://localhost:4200/mcp</code>. See the <a href="https://github.com/samson-art/transcriptor-mcp#-self-host">self-host guide</a> for stdio mode, Whisper fallback, caching and the REST API.</p>
+  </section>
+
+</main>
+
+<footer>
+  <div class="wrap">
+    <div class="links">
+      <a href="https://github.com/samson-art/transcriptor-mcp">GitHub</a>
+      <a href="https://hub.docker.com/r/artsamsonov/transcriptor-mcp">Docker Hub</a>
+      <a href="https://registry.modelcontextprotocol.io/v0/servers?search=transcriptor">MCP Registry</a>
+      <a href="/terms">Terms of Service</a>
+      <a href="/privacy">Privacy Policy</a>
+      <a href="mailto:legal@transcriptor-mcp.org">Support</a>
+    </div>
+    <p>The hosted endpoint is governed by the <a href="/terms">Terms of Service</a> and the <a href="/privacy">Privacy Policy</a>. A server you host yourself is governed by the MIT License only.</p>
+    <p>MIT © 2026 <a href="https://github.com/samson-art">samson-art</a></p>
+  </div>
+</footer>
+
+<script>
+  for (const btn of document.querySelectorAll('[data-copy]')) {
+    btn.addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(btn.dataset.copy);
+        btn.textContent = 'Copied';
+        setTimeout(() => { btn.textContent = 'Copy'; }, 1600);
+      } catch {
+        btn.textContent = 'Select and copy';
+      }
+    });
+  }
+</script>
+
+</body>
+</html>
