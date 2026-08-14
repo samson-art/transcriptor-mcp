@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.2] - 2026-08-14
+
 ### Fixed
 
 - **Transcript widget rendered an empty card:** `ontoolresult` is installed once from `onAppCreated`, so its closure captured `appRef` while that state was still `null`. `loadVideoMeta` then hit its `if (!appRef) return null` guard, `get_video_info` was never called, and neither the video card nor the caption list ever appeared — the widget showed only its title bar. The app instance is now passed through `handleTranscriptResult` → `loadVideoMeta` instead of read from state, matching what the video-info widget already does with the `app` argument it is handed.
