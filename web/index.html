@@ -182,6 +182,7 @@
     html { scroll-behavior: auto; }
     .bubble, .toolrow, .check, .done, .chat-answer, .slide { animation: none !important; opacity: 1 !important; }
     .spinner, .run { animation: none !important; opacity: 0 !important; }
+    .client-panel { animation: none !important; }
   }
 
   /* ---- Sections ---- */
@@ -208,35 +209,52 @@
   }
   .endpoint button:hover { border-color: var(--accent); }
 
-  /* One-click install row + the per-client switcher below it. */
-  .install-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 16px; }
-  .install-label { font-size: 13px; color: var(--muted); }
-  .install-btn, .copy-btn {
-    font: inherit; font-size: 13px; line-height: 1.4;
-    border: 1px solid var(--line); background: var(--surface); color: var(--ink);
-    border-radius: 8px; padding: 6px 13px;
-    text-decoration: none; cursor: pointer;
-    transition: border-color 0.18s, color 0.18s;
+  /* Per-client switcher: a framed card with a chip bar on top and one
+     panel below; the one-click install lives inside the panel. */
+  .switcher {
+    margin-top: 24px; background: var(--surface);
+    border: 1px solid var(--line); border-radius: 14px; overflow: hidden;
   }
-  .install-btn:hover, .copy-btn:hover { border-color: var(--accent); color: var(--ink); }
-  .docs-link { font-size: 13px; }
-
-  .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 26px; }
+  .switcher-bar {
+    display: flex; align-items: center; flex-wrap: wrap; gap: 8px;
+    padding: 14px 18px; border-bottom: 1px solid var(--line-soft); background: #fcfbf8;
+  }
+  .switcher-label { font-size: 13px; color: var(--muted); margin-right: 4px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; flex: 1; min-width: 0; }
   .chip {
     font: inherit; font-size: 13px;
     border: 1px solid var(--line); background: var(--surface); color: var(--muted);
     border-radius: 999px; padding: 6px 14px; cursor: pointer;
-    transition: border-color 0.18s, color 0.18s, background 0.18s;
+    transition: border-color 0.18s ease, background 0.18s ease, color 0.18s ease;
   }
   .chip:hover { color: var(--ink); }
   .chip[aria-selected="true"] { color: var(--ink); border-color: var(--accent); background: var(--chip-on); }
-  .client-panel { margin-top: 14px; }
+  .client-panel { padding: 16px 18px; animation: panel-in 0.18s ease; }
+  @keyframes panel-in { from { opacity: 0; transform: translateY(6px); } }
   .client-panel h3 { margin: 0 0 8px; font-size: 15px; }
-  .card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 16px 18px; }
+  .install-cta { display: flex; align-items: center; gap: 12px; margin: 0 0 14px; }
+  .install-btn {
+    display: inline-flex; align-items: center; gap: 8px; flex: none; white-space: nowrap;
+    background: var(--accent); color: var(--bg);
+    border-radius: 10px; padding: 10px 20px;
+    font-size: 14px; font-weight: 500; text-decoration: none;
+  }
+  .install-btn:hover { background: var(--accent-hover); color: var(--bg); }
+  .or-manual { font-size: 13px; color: var(--muted-2); }
   .cfg-file { font-size: 14px; color: var(--muted); margin: 0 0 10px; }
   .cfg-file code { font-size: 12.5px; color: var(--accent); }
   .cfg-after { font-size: 14px; color: var(--muted); margin: 10px 0 0; }
-  .panel-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: 14px; }
+  .pre-wrap { position: relative; }
+  .pre-wrap pre { padding-right: 110px; }
+  .copy-btn {
+    position: absolute; top: 8px; right: 8px;
+    font: inherit; font-size: 12px;
+    border: 1px solid rgba(243, 239, 230, 0.3); background: rgba(243, 239, 230, 0.08);
+    color: var(--dark-ink); border-radius: 7px; padding: 4px 11px; cursor: pointer;
+  }
+  .copy-btn:hover { border-color: var(--accent); }
+  .docs-row { margin-top: 14px; }
+  .docs-link { font-size: 13px; }
   pre {
     background: var(--dark); color: var(--dark-ink);
     border-radius: 10px; padding: 12px 14px; margin: 0;
@@ -333,8 +351,7 @@
       <button type="button" aria-live="polite" data-copy="https://gateway.mcpal.io/mcp/transcriptor">Copy</button>
     </div>
     <p class="note endpoint-note">Paste this into an MCP client, not a browser. The first connection opens a sign-in page in your browser; approve it once and the client keeps the session. No API keys, no tokens.</p>
-    <!-- The two build: markers below are replaced by web/build.mjs from web/clients.mjs; preview via npm run dev:site. -->
-    <!-- build:install-row -->
+    <!-- The build: marker below is replaced by web/build.mjs from web/clients.mjs; preview via npm run dev:site. -->
     <!-- build:clients -->
   </section>
 

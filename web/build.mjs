@@ -62,46 +62,36 @@ const pretty = (config) => JSON.stringify(config, null, 2);
 
 const installLabels = { cursor: 'Add to Cursor', vscode: 'Add to VS Code', lmstudio: 'Add to LM Studio' };
 
-function renderInstallRow() {
-  const buttons = Object.entries(installLabels)
-    .map(([key, label]) => `<a class="install-btn" href="${installLinks[key]}">${label}</a>`)
-    .join('\n        ');
-  return `<div class="install-row">
-        <span class="install-label">One click:</span>
-        ${buttons}
-      </div>`;
-}
-
 function renderPanelBody(client) {
   const parts = [];
   if (client.heading) parts.push(`<h3>${client.heading}</h3>`);
   if (client.kind === 'steps') {
     parts.push(`<ol class="steps">\n${client.steps.map((s) => `          <li>${s}</li>`).join('\n')}\n        </ol>`);
   }
-  if (client.kind === 'command') {
-    parts.push(`<pre id="cfg-${client.id}">${esc(client.command)}</pre>`);
+  if (client.install) {
+    parts.push(
+      `<div class="install-cta">` +
+        `<a class="install-btn" href="${installLinks[client.install]}">⚡ ${installLabels[client.install]}</a>` +
+        `<span class="or-manual">or add manually:</span>` +
+        `</div>`
+    );
   }
   if (client.kind === 'json') {
     parts.push(`<p class="cfg-file">Add to <code>${esc(client.file)}</code></p>`);
-    parts.push(`<pre id="cfg-${client.id}">${esc(pretty(client.config))}</pre>`);
   }
-  if (client.after) parts.push(`<p class="cfg-after">${client.after}</p>`);
-  return parts.map((p) => `        ${p}`).join('\n');
-}
-
-function renderPanelActions(client) {
-  const actions = [];
-  if (client.kind !== 'steps') {
+  if (client.kind === 'command' || client.kind === 'json') {
+    const text = client.kind === 'command' ? client.command : pretty(client.config);
     const label = client.kind === 'command' ? 'Copy command' : 'Copy config';
-    actions.push(
-      `<button type="button" class="copy-btn" data-copy-target="#cfg-${client.id}" aria-live="polite">${label}</button>`
+    parts.push(
+      `<div class="pre-wrap">` +
+        `<pre id="cfg-${client.id}">${esc(text)}</pre>` +
+        `<button type="button" class="copy-btn" data-copy-target="#cfg-${client.id}" aria-live="polite">${label}</button>` +
+        `</div>`
     );
   }
-  if (client.install) {
-    actions.push(`<a class="install-btn" href="${installLinks[client.install]}">${installLabels[client.install]}</a>`);
-  }
-  actions.push(`<a class="docs-link" href="${client.docs}">${client.docsLabel}</a>`);
-  return `<div class="panel-actions">\n${actions.map((a) => `          ${a}`).join('\n')}\n        </div>`;
+  if (client.after) parts.push(`<p class="cfg-after">${client.after}</p>`);
+  parts.push(`<div class="docs-row"><a class="docs-link" href="${client.docs}">${client.docsLabel}</a></div>`);
+  return parts.map((p) => `        ${p}`).join('\n');
 }
 
 function renderClients() {
@@ -111,18 +101,23 @@ function renderClients() {
         `<button class="chip" role="tab" type="button" id="chip-${c.id}" data-client="${c.id}"` +
         ` aria-controls="panel-${c.id}" aria-selected="${i === 0}" tabindex="${i === 0 ? 0 : -1}">${c.label}</button>`
     )
-    .join('\n        ');
+    .join('\n          ');
   const panels = clients
     .map(
       (c, i) =>
-        `<div class="client-panel card" role="tabpanel" id="panel-${c.id}" aria-labelledby="chip-${c.id}"${i === 0 ? '' : ' hidden'}>\n` +
-        `${renderPanelBody(c)}\n        ${renderPanelActions(c)}\n      </div>`
+        `<div class="client-panel" role="tabpanel" id="panel-${c.id}" aria-labelledby="chip-${c.id}"${i === 0 ? '' : ' hidden'}>\n` +
+        `${renderPanelBody(c)}\n      </div>`
     )
     .join('\n      ');
-  return `<div class="chips" role="tablist" aria-label="Choose your MCP client">
-        ${chips}
+  return `<div class="switcher">
+      <div class="switcher-bar">
+        <span class="switcher-label">Your client:</span>
+        <div class="chips" role="tablist" aria-label="Choose your MCP client">
+          ${chips}
+        </div>
       </div>
-      ${panels}`;
+      ${panels}
+    </div>`;
 }
 
 function renderLlmsTxt() {
@@ -163,10 +158,7 @@ ${connect}
 // comments that this build replaces. Throw rather than emit a page with a
 // silently missing section if a marker is ever renamed.
 let landing = await readFile(path.join(root, 'web/index.html'), 'utf8');
-for (const [marker, render] of [
-  ['<!-- build:install-row -->', renderInstallRow],
-  ['<!-- build:clients -->', renderClients],
-]) {
+for (const [marker, render] of [['<!-- build:clients -->', renderClients]]) {
   if (!landing.includes(marker)) {
     throw new Error(`web/index.html is missing the ${marker} marker`);
   }
