@@ -7,7 +7,7 @@
   "scripts": {
     "build": "tsc && npm run build:ui",
     "build:ui": "APP=search vite build && APP=transcript vite build && APP=video-info vite build && APP=video-frame vite build",
-    "build:site": "node web/build.mjs",
+    "build:site": "npm run build:ui && vite build --config web/vite.host.config.mjs && node web/build.mjs",
     "dev:site": "npm run build:site && python3 -m http.server 8799 -d dist-site",
     "start": "node --import ./dist/instrument.js dist/index.js",
     "start:mcp": "node --import ./dist/instrument.js dist/mcp.js",
