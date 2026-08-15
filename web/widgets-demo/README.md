@@ -1,28 +1,26 @@
-# Live widget demos on the landing page
+# Widget snapshots on the landing page
 
-The Widgets section of transcriptor-mcp.org embeds the real production
-widget bundles (`dist/ui/*.html` — the same files the MCP server serves
-as `ui://` resources) in iframes. `host.mjs` plays the host side of the
-MCP Apps protocol with the official `AppBridge` from
-`@modelcontextprotocol/ext-apps`, so the widgets run exactly as they do
-inside a chat client — data comes from `fixtures.json` instead of the
-network.
+The Widgets section of transcriptor-mcp.org shows static HTML snapshots
+of the real widgets (`snapshots/*.html`). Each file is the serialized
+DOM of the production widget bundle (`dist/ui/*.html`, the same files
+the MCP server serves as `ui://` resources), captured in a browser
+while the widget was rendering real data. `web/build.mjs` inlines them
+into the page at the `<!-- build:widget-tiles -->` marker.
 
-## fixtures.json
+The data in the snapshots is real, recorded once with local `yt-dlp`
+and `ffmpeg`:
 
-Real data, recorded once with local `yt-dlp` + `ffmpeg`:
+- search: the actual top-4 YouTube results for "model context protocol";
+- transcript / video info: full metadata and official English captions
+  of "What is MCP?" by IBM Technology (`eur8dUO9mvE`);
+- video frame: a real 640px frame of that video at 2:00
+  (`yt-dlp -f 135` + `ffmpeg -ss 120 -frames:v 1`).
 
-- `search`: top results of `ytsearch4:"model context protocol"`
-  (flat playlist dump).
-- `hero`: full `yt-dlp -J` metadata of "What is MCP?" by IBM Technology
-  (`eur8dUO9mvE`) plus its official English subtitles converted to a
-  plain-text transcript.
-- `subtitles`: SRT tracks per video (official for the hero, auto for
-  the rest), truncated to ~40 KB at a cue boundary.
-- `frames`: five 640px JPEG frames of the hero video at 90/100/110/111/120s
-  (`yt-dlp -f 135` + `ffmpeg -ss <t> -frames:v 1`), base64-encoded. The
-  demo's `get_video_frame` handler returns the nearest recorded frame,
-  so the −10s/−1s/+1s/+10s step controls work.
+Thumbnails and the frame are inlined as data URIs, so the page makes no
+requests to YouTube. The snapshots are inert (`pointer-events: none` on
+the tile) — they are pictures made of HTML, not running apps.
 
-To refresh, rerun those commands and rebuild the JSON with the same
-shape; `npm run build:site` bundles it into `/widgets/host.js`.
+To re-capture: serve the widget bundles, drive them with an MCP Apps
+host (the git history of this directory has a full AppBridge-based demo
+host with fixtures — commit 5ff33ae), and serialize `#root.innerHTML`
+of each iframe with images swapped for data URIs.

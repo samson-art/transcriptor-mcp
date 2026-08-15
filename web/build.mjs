@@ -4,7 +4,6 @@
  * renders them into the HTML shell (web/template.html) and copies the
  * landing page and image assets alongside them.
  */
-import { createHash } from 'node:crypto';
 import { cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -158,42 +157,41 @@ ${connect}
 // The landing page ships generated markup: web/index.html carries marker
 // comments that this build replaces. Throw rather than emit a page with a
 // silently missing section if a marker is ever renamed.
+// The widget tiles are static snapshots of the real widgets rendered
+// with real data (see web/widgets-demo/README.md).
+const WIDGET_TILES = [
+  { id: 'search', caption: '<code>search_videos</code> · a carousel of result cards' },
+  { id: 'video-frame', caption: '<code>get_video_frame</code> · a frame with step controls' },
+  { id: 'transcript', caption: '<code>get_transcript</code> · searchable timed captions' },
+  { id: 'video-info', caption: '<code>get_video_info</code> · metadata and caption languages' },
+];
+
+async function renderWidgetTiles() {
+  const tiles = [];
+  for (const tile of WIDGET_TILES) {
+    const html = await readFile(
+      path.join(root, 'web/widgets-demo/snapshots', `${tile.id}.html`),
+      'utf8'
+    );
+    tiles.push(
+      `<figure class="tile">\n        <div class="snapshot" aria-hidden="true">${html.trim()}</div>\n        <figcaption>${tile.caption}</figcaption>\n      </figure>`
+    );
+  }
+  return `<div class="widget-tiles">\n      ${tiles.join('\n      ')}\n    </div>`;
+}
+
 let landing = await readFile(path.join(root, 'web/index.html'), 'utf8');
-for (const [marker, render] of [['<!-- build:clients -->', renderClients]]) {
+for (const [marker, rendered] of [
+  ['<!-- build:clients -->', renderClients()],
+  ['<!-- build:widget-tiles -->', await renderWidgetTiles()],
+]) {
   if (!landing.includes(marker)) {
     throw new Error(`web/index.html is missing the ${marker} marker`);
   }
-  landing = landing.replace(marker, () => render());
+  landing = landing.replace(marker, () => rendered);
 }
-
-// Cache-bust the demo host bundle by content hash, so a redeploy always
-// reaches browsers that have an older host.js cached.
-const hostBundle = await readFile(path.join(root, 'dist/site-widgets/host.js')).catch(() => {
-  throw new Error('Missing dist/site-widgets/host.js — run the full build: npm run build:site');
-});
-const hostHash = createHash('sha1').update(hostBundle).digest('hex').slice(0, 8);
-if (!landing.includes('src="/widgets/host.js"')) {
-  throw new Error('web/index.html is missing the /widgets/host.js script tag');
-}
-landing = landing.replace('src="/widgets/host.js"', () => `src="/widgets/host.js?v=${hostHash}"`);
 await writeFile(path.join(out, 'index.html'), landing);
 await writeFile(path.join(out, 'llms.txt'), renderLlmsTxt());
-
-// Live widget demos: the real production widget bundles plus the demo
-// host bundle. Both are build artifacts — `npm run build:site` produces
-// them via build:ui and the vite.host.config.mjs step before this script.
-await mkdir(path.join(out, 'widgets'), { recursive: true });
-for (const name of ['search', 'transcript', 'video-info', 'video-frame']) {
-  const source = path.join(root, 'dist/ui', `${name}.html`);
-  await cp(source, path.join(out, 'widgets', `${name}.html`)).catch(() => {
-    throw new Error(`Missing ${source} — run the full build: npm run build:site`);
-  });
-}
-await cp(path.join(root, 'dist/site-widgets/host.js'), path.join(out, 'widgets/host.js')).catch(
-  () => {
-    throw new Error('Missing dist/site-widgets/host.js — run the full build: npm run build:site');
-  }
-);
 console.log(`built / with ${clients.length} client panels, and /llms.txt`);
 
 await cp(path.join(root, 'web/fonts'), path.join(out, 'fonts'), { recursive: true });
