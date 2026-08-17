@@ -244,21 +244,40 @@ const WIDGET_TILES = [
   { id: 'video-frame', caption: '<code>get_video_frame</code> · a frame with step controls' },
 ];
 
+// Half the tiles per column, in reading order. The page used to hand the
+// packing to CSS multi-column, which fragments the flow itself — and a
+// fragmented .snapshot-frame paints as a blank box in WebKit, because the
+// clip its overflow and radius create is resolved against the column the
+// tile started in. Filling the columns here keeps each tile whole.
+function splitIntoColumns(items, columns = 2) {
+  const perColumn = Math.ceil(items.length / columns);
+  return Array.from({ length: columns }, (_, i) =>
+    items.slice(i * perColumn, (i + 1) * perColumn)
+  ).filter((column) => column.length > 0);
+}
+
 async function renderWidgetTiles() {
-  const tiles = [];
+  const rendered = new Map();
   for (const tile of WIDGET_TILES) {
     const html = await readFile(
       path.join(root, 'web/widgets-demo/snapshots', `${tile.id}.html`),
       'utf8'
     );
-    tiles.push(
+    rendered.set(
+      tile.id,
       `<figure class="tile">\n` +
-        `        <div class="snapshot-frame"${tile.scrolls ? ' data-scrolls' : ''}>` +
+        `          <div class="snapshot-frame"${tile.scrolls ? ' data-scrolls' : ''}>` +
         `<div class="snapshot" aria-hidden="true">${html.trim()}</div></div>\n` +
-        `        <figcaption>${tile.caption}</figcaption>\n      </figure>`
+        `          <figcaption>${tile.caption}</figcaption>\n        </figure>`
     );
   }
-  return `<div class="widget-tiles">\n      ${tiles.join('\n      ')}\n    </div>`;
+  const columns = splitIntoColumns(WIDGET_TILES).map(
+    (column) =>
+      `<div class="tile-col">\n        ` +
+      column.map((tile) => rendered.get(tile.id)).join('\n        ') +
+      `\n      </div>`
+  );
+  return `<div class="widget-tiles">\n      ${columns.join('\n      ')}\n    </div>`;
 }
 
 let landing = await readFile(path.join(root, 'web/index.html'), 'utf8');
