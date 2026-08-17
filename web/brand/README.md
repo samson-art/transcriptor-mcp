@@ -24,11 +24,12 @@ BRAND="$PWD/web/brand"
 
 For the raster icons, point a minimal page at `mark.svg` sized to the
 target (512 → `web/icon-512.png`, 180 → `web/apple-touch-icon.png`,
-1024 → `logo.webp` via `cwebp -q 92`). `sips` reads webp but cannot write
-it, hence `cwebp`.
+1024 → `logo.webp`, 240 → `assets/logo-small.webp`, both via
+`cwebp -q 90`). `sips` reads webp but cannot write it, hence `cwebp`.
 
-`logo.webp` at the repository root is the one file the outside world
-reads: the README header, the Docker Hub description and the MCP Registry
-icon in `server.json` all point at it, so regenerating it updates all
-three. The Docker Hub account avatar is separate and is uploaded by hand
+`logo.webp` at the repository root is the 1024px icon the MCP Registry
+reads through `server.json`. The README header and the Docker Hub
+description use `assets/logo-small.webp` instead: at 1024px the logo
+filled half the Docker Hub page, and Docker Hub's markdown gives no way
+to size an image down. The Docker Hub account avatar is separate and is uploaded by hand
 (`assets/store/logo-mark-512.png` is kept ready for that).
