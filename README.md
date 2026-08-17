@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="logo.webp" alt="Transcriptor MCP" width="120" />
+<img src="assets/logo-small.webp" alt="Transcriptor MCP" width="120" />
 
 # 🎬 Now your AI assistant can watch videos!
 
