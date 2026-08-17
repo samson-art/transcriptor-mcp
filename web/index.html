@@ -27,6 +27,8 @@
 <meta name="twitter:description" content="Transcripts, chapters, metadata and frames from 11 video platforms, over one MCP endpoint." />
 <meta name="twitter:image" content="https://transcriptor-mcp.org/og-image.png" />
 <meta name="twitter:image:alt" content="Transcriptor MCP — now your AI assistant can watch videos" />
+<meta name="robots" content="index, follow, max-image-preview:large" />
+<!-- build:jsonld -->
 <style>
   @font-face {
     font-family: 'Lora';
@@ -166,8 +168,10 @@
     font-size: 10px; line-height: 17px; text-align: center;
     opacity: 0; animation: fi 0.3s ease 2.8s forwards;
   }
-  .toolrow .tool-name { font-family: var(--mono); font-size: 13px; flex: 1; }
-  .toolrow .status { position: relative; height: 17px; font-family: var(--mono); font-size: 11.5px; }
+  .toolrow .tool-name { font-family: var(--mono); font-size: 13px; flex: 1; min-width: 0; }
+  /* flex: none matters: the status holds absolutely positioned labels, so a
+     shrinking box lets them slide out over the tool name. */
+  .toolrow .status { position: relative; flex: none; height: 17px; font-family: var(--mono); font-size: 11.5px; }
   .toolrow .run { position: absolute; right: 0; color: var(--muted-2); animation: fo 0.3s ease 2.8s forwards; white-space: nowrap; }
   .toolrow .done { position: absolute; right: 0; color: var(--accent); opacity: 0; animation: fi 0.3s ease 2.8s forwards; white-space: nowrap; }
   .toolrow.t1 .status { width: 104px; }
@@ -192,6 +196,19 @@
     background: #ffffffcc; border-radius: 6px; padding: 4px 9px;
   }
   .chat-credit { font-size: 12px; color: var(--muted-2); margin: 12px 4px 0; }
+  /* On a phone the chat card sits below the fold, so its cue sequence would
+     finish before anyone scrolls to it. The script arms the card when it
+     comes into view; until then every animation inside it is paused at
+     frame zero. Without JavaScript the class never lands and the card
+     plays on load, as it always did. */
+  .hero-demo.pending .bubble,
+  .hero-demo.pending .toolrow,
+  .hero-demo.pending .spinner,
+  .hero-demo.pending .check,
+  .hero-demo.pending .run,
+  .hero-demo.pending .done,
+  .hero-demo.pending .chat-answer,
+  .hero-demo.pending .slide { animation-play-state: paused; }
   @keyframes fi { to { opacity: 1; } }
   @keyframes fo { to { opacity: 0; } }
   @keyframes spin { to { transform: rotate(360deg); } }
@@ -361,6 +378,14 @@
     .chips { flex: none; }
     .chip { padding: 6px 12px; font-size: 12.5px; }
   }
+  /* On a phone the tool row cannot hold the name and the status side by
+     side, so the status moves to its own line under the name. */
+  @media (max-width: 560px) {
+    .toolrow { flex-wrap: wrap; row-gap: 4px; }
+    .toolrow .tool-name { flex: 1 0 auto; font-size: 12.5px; }
+    .toolrow .status { flex: 1 0 100%; height: 15px; }
+    .toolrow .run, .toolrow .done { font-size: 11px; }
+  }
   /* The prompt-to-tool table stops being a table on a phone: two columns
      squeeze the long prompts into a five-line sliver and force the page
      wider than the screen. Each row becomes the question with its tool
@@ -497,6 +522,38 @@
 </footer>
 
 <script>
+  // Hold the hero's tool-call sequence until the card is actually on screen,
+  // so a phone visitor sees it play instead of arriving after it finished.
+  const demo = document.querySelector('.hero-demo');
+  if (demo && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    demo.classList.add('pending');
+    let io;
+    const release = () => {
+      demo.classList.remove('pending');
+      io?.disconnect();
+      removeEventListener('scroll', onScroll);
+      clearTimeout(failsafe);
+    };
+    // Two triggers, because each covers what the other misses: the observer
+    // is precise about the card being on screen, the scroll handler still
+    // fires where observers are throttled (background tabs, hidden panes).
+    function onScroll() {
+      if (demo.getBoundingClientRect().top < innerHeight * 0.75) release();
+    }
+    const failsafe = setTimeout(release, 8000);
+    if ('IntersectionObserver' in window) {
+      io = new IntersectionObserver(
+        (entries) => {
+          if (entries.some((e) => e.isIntersecting)) release();
+        },
+        { threshold: 0.35 }
+      );
+      io.observe(demo);
+    }
+    addEventListener('scroll', onScroll, { passive: true });
+    onScroll();
+  }
+
   // Copy buttons carry either the text itself (data-copy) or a selector for
   // the element holding it (data-copy-target) — multi-line configs live in
   // the DOM rather than in an attribute.

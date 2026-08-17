@@ -45,8 +45,17 @@ Then run `/mcp` and approve the sign-in in the browser. After this, `claude mcp 
 | --- | --- |
 | **Claude** (web and desktop) | Open [Settings → Customize → Connectors](https://claude.ai/settings/connectors). Select **Add** → **Add custom connector**, paste `https://gateway.mcpal.io/mcp/transcriptor`, then select **Add**. |
 | **ChatGPT** | Open [Settings → **Security and login**](https://chatgpt.com/#settings) and turn on **Developer mode**. Then open Plugins, select **+**, and paste `https://gateway.mcpal.io/mcp/transcriptor`. |
+| **Codex** | Add the block below to `~/.codex/config.toml`, then run `codex mcp login transcriptor`. The CLI, the IDE extension and the ChatGPT desktop app share this file. |
+
+```toml
+[mcp_servers.transcriptor]
+url = "https://gateway.mcpal.io/mcp/transcriptor"
+auth = "oauth"
+```
 
 > **Note:** ChatGPT developer mode is available on the web, for paid plans. Some releases show this control as Settings → Apps & Connectors → Advanced.
+>
+> **Note:** `codex mcp add` registers stdio servers only, so a hosted server goes into `config.toml`. See the [Codex MCP docs](https://learn.chatgpt.com/docs/extend/mcp?surface=cli).
 
 ### 🧩 Any other MCP client
 

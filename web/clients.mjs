@@ -127,10 +127,16 @@ export const clients = [
   },
   {
     id: 'codex',
-    label: 'Codex CLI',
-    kind: 'command',
-    command: `codex mcp add ${SERVER_NAME} --url ${SERVER_URL}\ncodex mcp login ${SERVER_NAME}`,
-    docs: 'https://developers.openai.com/codex/mcp',
+    label: 'Codex',
+    kind: 'text',
+    // `codex mcp add` covers stdio servers only; a streamable HTTP server goes
+    // into config.toml, which the CLI, the IDE extension and the ChatGPT
+    // desktop app all read.
+    file: '~/.codex/config.toml',
+    text: `[mcp_servers.${SERVER_NAME}]\nurl = "${SERVER_URL}"\nauth = "oauth"`,
+    after: `Then run <code>codex mcp login ${SERVER_NAME}</code> to sign in. The CLI, the IDE extension and the ChatGPT desktop app share this configuration.`,
+    llms: `add [mcp_servers.${SERVER_NAME}] with url = "${SERVER_URL}" and auth = "oauth" to ~/.codex/config.toml, then run codex mcp login ${SERVER_NAME}`,
+    docs: 'https://learn.chatgpt.com/docs/extend/mcp?surface=cli',
     docsLabel: 'Codex MCP docs',
   },
   {

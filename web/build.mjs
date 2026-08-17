@@ -11,6 +11,9 @@ import { marked } from 'marked';
 import { SERVER_URL, clients, installLinks, tools } from './clients.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const { version } = JSON.parse(
+  await readFile(path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../package.json'), 'utf8')
+);
 const out = path.join(root, 'dist-site');
 
 const REPO_URL = 'https://github.com/samson-art/transcriptor-mcp';
@@ -75,11 +78,16 @@ function renderPanelBody(client) {
         `</div>`
     );
   }
-  if (client.kind === 'json') {
+  if (client.kind === 'json' || client.kind === 'text') {
     parts.push(`<p class="cfg-file">Add to <code>${esc(client.file)}</code></p>`);
   }
-  if (client.kind === 'command' || client.kind === 'json') {
-    const text = client.kind === 'command' ? client.command : pretty(client.config);
+  if (client.kind === 'command' || client.kind === 'json' || client.kind === 'text') {
+    const text =
+      client.kind === 'command'
+        ? client.command
+        : client.kind === 'text'
+          ? client.text
+          : pretty(client.config);
     const label = client.kind === 'command' ? 'Copy command' : 'Copy config';
     parts.push(
       `<div class="pre-wrap">` +
@@ -153,6 +161,50 @@ ${connect}
 `;
 }
 
+const SITE_URL = 'https://transcriptor-mcp.org';
+
+// Structured data for the landing page. Only facts already stated on the page
+// or in the repository — no claims about price or ratings.
+function renderJsonLd() {
+  const data = {
+    '@context': 'https://schema.org',
+    '@type': 'SoftwareApplication',
+    name: 'Transcriptor MCP',
+    url: SITE_URL,
+    applicationCategory: 'DeveloperApplication',
+    operatingSystem: 'Any',
+    description:
+      'One MCP server that gives Claude, ChatGPT, Cursor and any MCP client transcripts, chapters, metadata and frames from YouTube and 10 more video platforms.',
+    image: `${SITE_URL}/og-image.png`,
+    license: 'https://opensource.org/licenses/MIT',
+    softwareVersion: version,
+    author: {
+      '@type': 'Person',
+      name: 'Artem Samsonov',
+      url: 'https://www.linkedin.com/in/artem-samsonov-284a66105/',
+    },
+    sameAs: [
+      REPO_URL,
+      'https://hub.docker.com/r/artsamsonov/transcriptor-mcp',
+      'https://registry.modelcontextprotocol.io/v0/servers?search=transcriptor',
+    ],
+    featureList: tools.map((t) => `${t.name}: ${t.desc}`),
+  };
+  return `<script type="application/ld+json">${JSON.stringify(data)}</script>`;
+}
+
+function renderSitemap() {
+  const paths = ['/', '/terms/', '/privacy/', '/eula/'];
+  const urls = paths
+    .map(
+      (p) =>
+        `  <url><loc>${SITE_URL}${p}</loc><changefreq>${p === '/' ? 'weekly' : 'yearly'}</changefreq>` +
+        `<priority>${p === '/' ? '1.0' : '0.3'}</priority></url>`
+    )
+    .join('\n');
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls}\n</urlset>\n`;
+}
+
 // The landing page ships generated markup: web/index.html carries marker
 // comments that this build replaces. Throw rather than emit a page with a
 // silently missing section if a marker is ever renamed.
@@ -194,8 +246,16 @@ for (const [marker, rendered] of [
   }
   landing = landing.replace(marker, () => rendered);
 }
+if (!landing.includes('<!-- build:jsonld -->')) {
+  throw new Error('web/index.html is missing the <!-- build:jsonld --> marker');
+}
+landing = landing.replace('<!-- build:jsonld -->', () => renderJsonLd());
+
 await writeFile(path.join(out, 'index.html'), landing);
 await writeFile(path.join(out, 'llms.txt'), renderLlmsTxt());
+await writeFile(path.join(out, 'sitemap.xml'), renderSitemap());
+await cp(path.join(root, 'web/robots.txt'), path.join(out, 'robots.txt'));
+await cp(path.join(root, 'web/_headers'), path.join(out, '_headers'));
 console.log(`built / with ${clients.length} client panels, and /llms.txt`);
 
 await cp(path.join(root, 'web/fonts'), path.join(out, 'fonts'), { recursive: true });
