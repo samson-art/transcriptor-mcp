@@ -123,7 +123,9 @@ function renderClients() {
           ${chips}
         </div>
       </div>
+      <div class="panel-stack">
       ${panels}
+      </div>
     </div>`;
 }
 

@@ -263,8 +263,19 @@
   }
   .chip:hover { color: var(--ink); }
   .chip[aria-selected="true"] { color: var(--ink); border-color: var(--accent); background: var(--chip-on); }
-  .client-panel { padding: 16px 18px; animation: panel-in 0.18s ease; }
-  @keyframes panel-in { from { opacity: 0; transform: translateY(6px); } }
+  /* Switching clients glides: the stack animates between the two panel
+     heights while the incoming content settles in behind it. Only the panel
+     being switched to animates — the one rendered on load does not. */
+  .panel-stack { position: relative; }
+  .panel-stack.animating {
+    overflow: hidden;
+    transition: height 0.34s cubic-bezier(0.22, 0.61, 0.36, 1);
+  }
+  .client-panel { padding: 16px 18px; }
+  .client-panel.entering {
+    animation: panel-in 0.3s cubic-bezier(0.22, 0.61, 0.36, 1) 0.04s both;
+  }
+  @keyframes panel-in { from { opacity: 0; transform: translateY(4px); } }
   .client-panel h3 { margin: 0 0 8px; font-size: 15px; }
   .install-cta { display: flex; align-items: center; gap: 12px; margin: 0 0 14px; }
   .install-btn {
@@ -581,33 +592,77 @@
   const tablist = document.querySelector('.chips');
   if (tablist) {
     const chips = [...tablist.querySelectorAll('.chip')];
-    const select = (index, focus) => {
+    const stack = document.querySelector('.panel-stack');
+    const calm = matchMedia('(prefers-reduced-motion: reduce)');
+
+    // Panels differ a lot in height, so a plain swap makes the card jump.
+    // Measure before and after, then let the stack glide between the two
+    // while the incoming panel fades up behind it.
+    const swap = (index) => {
       chips.forEach((chip, i) => {
         const on = i === index;
         chip.setAttribute('aria-selected', on);
         chip.tabIndex = on ? 0 : -1;
         document.getElementById(chip.getAttribute('aria-controls')).hidden = !on;
       });
+    };
+
+    const select = (index, focus, animate) => {
+      const shouldAnimate = animate && !calm.matches && stack;
+      const from = shouldAnimate ? stack.offsetHeight : 0;
+      swap(index);
+      if (shouldAnimate) {
+        const to = stack.offsetHeight;
+        const panel = document.getElementById(chips[index].getAttribute('aria-controls'));
+        panel.classList.remove('entering');
+        // Reading offsetWidth restarts the fade even when the same panel is
+        // re-entered before its previous run finished.
+        void panel.offsetWidth;
+        panel.classList.add('entering');
+        panel.addEventListener('animationend', () => panel.classList.remove('entering'), { once: true });
+        if (from && to && from !== to) {
+          stack.classList.add('animating');
+          stack.style.height = from + 'px';
+          // Reading the height commits the starting value, so the next
+          // assignment transitions from it. No requestAnimationFrame here on
+          // purpose: in a background tab frames stop arriving and the stack
+          // would stay clipped at the old height.
+          void stack.offsetHeight;
+          stack.style.height = to + 'px';
+          const settle = () => {
+            clearTimeout(settleTimer);
+            stack.removeEventListener('transitionend', onEnd);
+            stack.style.height = '';
+            stack.classList.remove('animating');
+          };
+          const onEnd = (event) => {
+            if (event.target === stack && event.propertyName === 'height') settle();
+          };
+          const settleTimer = setTimeout(settle, 600);
+          stack.addEventListener('transitionend', onEnd);
+        }
+      }
       if (focus) chips[index].focus();
       try { localStorage.setItem('transcriptor:client', chips[index].dataset.client); } catch {}
     };
+
     tablist.addEventListener('click', (event) => {
       const chip = event.target.closest('.chip');
-      if (chip) select(chips.indexOf(chip), false);
+      if (chip) select(chips.indexOf(chip), false, true);
     });
     tablist.addEventListener('keydown', (event) => {
       const current = chips.findIndex((chip) => chip.tabIndex === 0);
       const step = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[event.key];
-      if (step) select((current + step + chips.length) % chips.length, true);
-      else if (event.key === 'Home') select(0, true);
-      else if (event.key === 'End') select(chips.length - 1, true);
+      if (step) select((current + step + chips.length) % chips.length, true, true);
+      else if (event.key === 'Home') select(0, true, true);
+      else if (event.key === 'End') select(chips.length - 1, true, true);
       else return;
       event.preventDefault();
     });
     try {
       const saved = localStorage.getItem('transcriptor:client');
       const index = chips.findIndex((chip) => chip.dataset.client === saved);
-      if (index > 0) select(index, false);
+      if (index > 0) select(index, false, false);
     } catch {}
   }
 </script>
