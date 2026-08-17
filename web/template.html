@@ -7,69 +7,102 @@
 <meta name="robots" content="noindex" />
 <link rel="canonical" href="https://transcriptor-mcp.org{{path}}" />
 <link rel="icon" type="image/png" href="/icon-512.png" />
+<link rel="preload" href="/fonts/lora-600-latin.woff2" as="font" type="font/woff2" crossorigin />
+<link rel="preload" href="/fonts/jetbrains-mono-400-latin.woff2" as="font" type="font/woff2" crossorigin />
 <style>
-  :root {
-    --bg: #f6f8fc;
-    --surface: #ffffff;
-    --ink: #10152a;
-    --muted: #5b6478;
-    --line: #dde3ef;
-    --accent: #1e66c0;
-    --accent-2: #0f766e;
-    --code-bg: #eef2f9;
+  @font-face {
+    font-family: 'Lora';
+    font-style: normal;
+    font-weight: 600;
+    font-display: swap;
+    src: url('/fonts/lora-600-latin.woff2') format('woff2');
   }
-  @media (prefers-color-scheme: dark) {
-    :root {
-      --bg: #0b0e1a;
-      --surface: #121729;
-      --ink: #e9edf7;
-      --muted: #8d95ab;
-      --line: #232b44;
-      --accent: #57a9f2;
-      --accent-2: #3fe0c5;
-      --code-bg: #0f1425;
-    }
+  @font-face {
+    font-family: 'JetBrains Mono';
+    font-style: normal;
+    font-weight: 400;
+    font-display: swap;
+    src: url('/fonts/jetbrains-mono-400-latin.woff2') format('woff2');
+  }
+  :root {
+    --bg: #faf9f6;
+    --surface: #ffffff;
+    --ink: #1f1e1a;
+    --muted: #6f6b60;
+    --muted-2: #8b867a;
+    --line: #e9e6df;
+    --line-soft: #f0eee8;
+    --accent: #c15f3c;
+    --accent-hover: #a04a2c;
+    --code-bg: #f2f0ea;
+    --dark: #1f1e1a;
+    --dark-ink: #f3efe6;
+    --serif: 'Lora', Georgia, serif;
+    --mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
   }
   * { box-sizing: border-box; }
   body {
     margin: 0;
     background: var(--bg);
     color: var(--ink);
-    font: 16px/1.65 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    font: 16px/1.65 'Helvetica Neue', Helvetica, Arial, sans-serif;
     -webkit-font-smoothing: antialiased;
   }
   a { color: var(--accent); }
-  a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-  .wrap { max-width: 760px; margin: 0 auto; padding: 0 20px 60px; }
+  a:hover { color: var(--accent-hover); }
+  a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+  .wrap { max-width: 760px; margin: 0 auto; padding: 0 24px 60px; }
+
   header.site {
-    border-bottom: 1px solid var(--line);
-    margin-bottom: 34px; padding: 18px 0;
     display: flex; align-items: center; gap: 12px;
-    font-weight: 700;
+    border-bottom: 1px solid var(--line);
+    margin-bottom: 34px; padding: 20px 0;
   }
-  header.site img { width: 30px; height: 30px; border-radius: 7px; }
-  header.site a { color: var(--ink); text-decoration: none; }
+  header.site .brand { display: flex; align-items: center; gap: 10px; text-decoration: none; color: var(--ink); }
+  header.site .brand-mark {
+    width: 28px; height: 28px; border-radius: 50%; background: var(--accent);
+    display: flex; align-items: center; justify-content: center; flex: none;
+  }
+  header.site .brand-mark::after {
+    content: ''; width: 0; height: 0; margin-left: 2px;
+    border-left: 9px solid var(--bg);
+    border-top: 5.5px solid transparent; border-bottom: 5.5px solid transparent;
+  }
+  header.site .brand-name { font-family: var(--serif); font-weight: 600; font-size: 17px; }
   header.site .tc {
-    margin-left: auto; font-weight: 400; font-size: 13px; color: var(--accent-2);
-    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    margin-left: auto; font-family: var(--mono); font-size: 12px; color: var(--muted-2);
     min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
-  h1 { font-size: 30px; letter-spacing: -0.015em; line-height: 1.25; }
-  h2 { font-size: 21px; margin-top: 2em; letter-spacing: -0.01em; }
+
+  h1, h2, h3 { font-family: var(--serif); font-weight: 600; }
+  h1 { font-size: 30px; line-height: 1.25; letter-spacing: -0.01em; }
+  h2 { font-size: 22px; margin-top: 2em; }
   h3 { font-size: 17px; margin-top: 1.6em; }
   code {
-    font-family: ui-monospace, "SF Mono", Menlo, monospace;
-    font-size: 0.88em; background: var(--code-bg);
-    padding: 0.12em 0.35em; border-radius: 5px;
+    font-family: var(--mono); font-size: 0.86em;
+    background: var(--code-bg); padding: 0.12em 0.35em; border-radius: 5px;
     overflow-wrap: anywhere;
   }
-  pre { background: var(--code-bg); padding: 12px 14px; border-radius: 10px; overflow-x: auto; }
-  pre code { background: none; padding: 0; }
-  table { width: 100%; border-collapse: collapse; margin: 1em 0; font-size: 15px; }
-  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
-  th { font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
-  blockquote { border-left: 3px solid var(--accent-2); margin: 1em 0; padding: 0.1em 0 0.1em 16px; color: var(--muted); }
+  pre {
+    background: var(--dark); color: var(--dark-ink);
+    padding: 12px 14px; border-radius: 10px; overflow-x: auto;
+    font-family: var(--mono); font-size: 12.5px; line-height: 1.55;
+  }
+  pre code { background: none; padding: 0; font-size: inherit; }
+  table { width: 100%; border-collapse: collapse; margin: 1.2em 0; font-size: 15px; }
+  th, td { text-align: left; padding: 9px 12px; vertical-align: top; }
+  th {
+    border-bottom: 1px solid var(--line);
+    font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em;
+    color: var(--muted); font-weight: 600;
+  }
+  td { border-bottom: 1px solid var(--line-soft); }
+  blockquote {
+    border-left: 3px solid var(--accent); margin: 1.2em 0;
+    padding: 0.1em 0 0.1em 16px; color: var(--muted);
+  }
   hr { border: 0; border-top: 1px solid var(--line); margin: 2em 0; }
+
   footer.site {
     border-top: 1px solid var(--line);
     margin-top: 48px; padding-top: 20px;
@@ -77,13 +110,16 @@
     display: flex; flex-wrap: wrap; gap: 8px 22px;
   }
   footer.site a { color: var(--muted); }
+  footer.site a:hover { color: var(--accent); }
 </style>
 </head>
 <body>
 <div class="wrap">
   <header class="site">
-    <img src="/logo.webp" alt="" width="30" height="30" />
-    <a href="/">Transcriptor&nbsp;MCP</a>
+    <a class="brand" href="/">
+      <span class="brand-mark" aria-hidden="true"></span>
+      <span class="brand-name">Transcriptor</span>
+    </a>
     <span class="tc">{{eyebrow}}</span>
   </header>
   <main>
