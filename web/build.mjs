@@ -194,8 +194,13 @@ await writeFile(path.join(out, 'llms.txt'), renderLlmsTxt());
 console.log(`built / with ${clients.length} client panels, and /llms.txt`);
 
 await cp(path.join(root, 'web/fonts'), path.join(out, 'fonts'), { recursive: true });
-await cp(path.join(root, 'logo.webp'), path.join(out, 'logo.webp'));
+// Brand assets: the SVG mark is the source of truth (web/brand/README.md
+// documents how the raster sizes are rendered from it).
+await mkdir(path.join(out, 'brand'), { recursive: true });
+await cp(path.join(root, 'web/brand/mark.svg'), path.join(out, 'brand/mark.svg'));
 await cp(path.join(root, 'web/icon-512.png'), path.join(out, 'icon-512.png'));
+await cp(path.join(root, 'web/apple-touch-icon.png'), path.join(out, 'apple-touch-icon.png'));
+await cp(path.join(root, 'web/og-image.png'), path.join(out, 'og-image.png'));
 for (const name of ['search', 'transcript', 'video-info', 'video-frame']) {
   await cp(
     path.join(root, `assets/widget-${name}.webp`),
