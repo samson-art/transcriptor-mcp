@@ -1,10 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="Transcriptor">
   <title>Transcriptor</title>
-  <!-- A play button sliced into three bands: video turning into lines of
-       text. The 9px gaps vanish below ~64px, so the mark degrades into a
-       plain play button at favicon sizes. -->
   <circle cx="256" cy="256" r="256" fill="#c15f3c"/>
   <path d="M182 148 L182 364 L374 256 Z" fill="#faf9f6"/>
-  <rect x="170" y="227" width="220" height="10" fill="#c15f3c"/>
-  <rect x="170" y="275" width="220" height="10" fill="#c15f3c"/>
 </svg>

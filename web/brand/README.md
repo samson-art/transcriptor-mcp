@@ -1,9 +1,9 @@
 # Brand assets
 
-`mark.svg` is the source of truth: a terracotta disc with a play triangle
-sliced into three bands — video turning into lines of text. The slice gaps
-are 10 units on a 512 grid, so they disappear below roughly 32px and the
-mark degrades into a plain play button at favicon sizes.
+`mark.svg` is the source of truth: a terracotta disc with a cream play
+triangle, and nothing else. It reads the same at 16px in a browser tab as
+it does at 1024px on Docker Hub, and it matches the mark the pages draw in
+CSS for the header.
 
 `og.html` is the 1200×630 social preview, built from the same mark plus
 the site's own type (Lora, JetBrains Mono).

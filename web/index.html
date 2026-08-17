@@ -216,7 +216,6 @@
     html { scroll-behavior: auto; }
     .bubble, .toolrow, .check, .done, .chat-answer, .slide { animation: none !important; opacity: 1 !important; }
     .spinner, .run { animation: none !important; opacity: 0 !important; }
-    .client-panel { animation: none !important; }
   }
 
   /* ---- Sections ---- */
@@ -259,23 +258,18 @@
     font: inherit; font-size: 13px;
     border: 1px solid var(--line); background: var(--surface); color: var(--muted);
     border-radius: 999px; padding: 6px 14px; cursor: pointer;
-    transition: border-color 0.18s ease, background 0.18s ease, color 0.18s ease;
+    transition: border-color 0.25s ease, background 0.25s ease, color 0.25s ease;
   }
   .chip:hover { color: var(--ink); }
   .chip[aria-selected="true"] { color: var(--ink); border-color: var(--accent); background: var(--chip-on); }
-  /* Switching clients glides: the stack animates between the two panel
-     heights while the incoming content settles in behind it. Only the panel
-     being switched to animates — the one rendered on load does not. */
+  /* Switching clients moves the card between the two panel heights and
+     nothing else: the content itself simply swaps, with no fade. */
   .panel-stack { position: relative; }
   .panel-stack.animating {
     overflow: hidden;
     transition: height 0.34s cubic-bezier(0.22, 0.61, 0.36, 1);
   }
   .client-panel { padding: 16px 18px; }
-  .client-panel.entering {
-    animation: panel-in 0.3s cubic-bezier(0.22, 0.61, 0.36, 1) 0.04s both;
-  }
-  @keyframes panel-in { from { opacity: 0; transform: translateY(4px); } }
   .client-panel h3 { margin: 0 0 8px; font-size: 15px; }
   .install-cta { display: flex; align-items: center; gap: 12px; margin: 0 0 14px; }
   .install-btn {
@@ -613,13 +607,6 @@
       swap(index);
       if (shouldAnimate) {
         const to = stack.offsetHeight;
-        const panel = document.getElementById(chips[index].getAttribute('aria-controls'));
-        panel.classList.remove('entering');
-        // Reading offsetWidth restarts the fade even when the same panel is
-        // re-entered before its previous run finished.
-        void panel.offsetWidth;
-        panel.classList.add('entering');
-        panel.addEventListener('animationend', () => panel.classList.remove('entering'), { once: true });
         if (from && to && from !== to) {
           stack.classList.add('animating');
           stack.style.height = from + 'px';
