@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Transcriptor MCP — social preview source</title>
+<style>
+  @font-face {
+    font-family: 'Lora';
+    font-weight: 600;
+    src: url('../fonts/lora-600-latin.woff2') format('woff2');
+  }
+  @font-face {
+    font-family: 'JetBrains Mono';
+    font-weight: 400;
+    src: url('../fonts/jetbrains-mono-400-latin.woff2') format('woff2');
+  }
+  * { box-sizing: border-box; margin: 0; }
+  body { background: #faf9f6; }
+  .card {
+    width: 1200px; height: 630px;
+    padding: 78px 88px;
+    display: flex; flex-direction: column;
+    background: #faf9f6; color: #1f1e1a;
+    font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+  }
+  .lockup { display: flex; align-items: center; gap: 22px; }
+  .lockup img { width: 96px; height: 96px; display: block; }
+  .wordmark { font-family: 'Lora', Georgia, serif; font-weight: 600; font-size: 58px; letter-spacing: -0.01em; }
+  h1 {
+    font-family: 'Lora', Georgia, serif; font-weight: 600;
+    font-size: 76px; line-height: 1.1; letter-spacing: -0.015em;
+    margin-top: auto;
+  }
+  h1 .flip { display: block; color: #c15f3c; }
+  .foot {
+    margin-top: 44px; padding-top: 28px; border-top: 1px solid #e9e6df;
+    display: flex; align-items: baseline; justify-content: space-between; gap: 24px;
+    font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 22px; color: #6f6b60;
+  }
+  .foot .site { color: #c15f3c; }
+</style>
+</head>
+<body>
+  <div class="card">
+    <div class="lockup">
+      <img src="./mark.svg" alt="" />
+      <span class="wordmark">Transcriptor MCP</span>
+    </div>
+    <h1>Your AI assistant reads documents…<span class="flip">Now it can watch videos.</span></h1>
+    <div class="foot">
+      <span class="site">transcriptor-mcp.org</span>
+      <span>8 read-only tools · 11 platforms</span>
+    </div>
+  </div>
+</body>
+</html>

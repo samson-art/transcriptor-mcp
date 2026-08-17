@@ -27,8 +27,9 @@ https://gateway.mcpal.io/mcp/transcriptor
 
 ### 🖱️ One click
 
-[![Add to Cursor](https://img.shields.io/badge/Add%20to-Cursor-000000?style=for-the-badge&logo=cursor&logoColor=white)](https://cursor.com/en/install-mcp?name=transcriptor&config=eyJ1cmwiOiJodHRwczovL2dhdGV3YXkubWNwYWwuaW8vbWNwL3RyYW5zY3JpcHRvciJ9)
-[![Install in VS Code](https://img.shields.io/badge/Install%20in-VS%20Code-0098FF?style=for-the-badge&logo=visualstudiocode&logoColor=white)](https://insiders.vscode.dev/redirect/mcp/install?name=transcriptor&config=%7B%22type%22%3A%22http%22%2C%22url%22%3A%22https%3A%2F%2Fgateway.mcpal.io%2Fmcp%2Ftranscriptor%22%7D)
+[![Add to Cursor](https://img.shields.io/badge/Add%20to-Cursor-000000?style=for-the-badge&logo=cursor&logoColor=white)](https://cursor.com/install-mcp?name=transcriptor&config=eyJ1cmwiOiJodHRwczovL2dhdGV3YXkubWNwYWwuaW8vbWNwL3RyYW5zY3JpcHRvciJ9)
+[![Install in VS Code](https://img.shields.io/badge/Install%20in-VS%20Code-0098FF?style=for-the-badge&logo=visualstudiocode&logoColor=white)](https://vscode.dev/redirect/mcp/install?name=transcriptor&config=%7B%22type%22%3A%22http%22%2C%22url%22%3A%22https%3A%2F%2Fgateway.mcpal.io%2Fmcp%2Ftranscriptor%22%7D)
+[![Add to LM Studio](https://img.shields.io/badge/Add%20to-LM%20Studio-4B5563?style=for-the-badge)](https://lmstudio.ai/install-mcp?name=transcriptor&config=eyJ1cmwiOiJodHRwczovL2dhdGV3YXkubWNwYWwuaW8vbWNwL3RyYW5zY3JpcHRvciJ9)
 
 ### ⌨️ One command, for Claude Code
 
@@ -42,10 +43,19 @@ Then run `/mcp` and approve the sign-in in the browser. After this, `claude mcp 
 
 | Client | What to do |
 | --- | --- |
-| **Claude** (web and desktop) | Open [Settings → Connectors](https://claude.ai/settings/connectors). Select **Add custom connector**, paste `https://gateway.mcpal.io/mcp/transcriptor`, then select **Add**. |
-| **ChatGPT** | Open Settings → **Security and login** and turn on **Developer mode**. Then open Plugins, select **+**, and paste `https://gateway.mcpal.io/mcp/transcriptor`. |
+| **Claude** (web and desktop) | Open [Settings → Customize → Connectors](https://claude.ai/settings/connectors). Select **Add** → **Add custom connector**, paste `https://gateway.mcpal.io/mcp/transcriptor`, then select **Add**. |
+| **ChatGPT** | Open [Settings → **Security and login**](https://chatgpt.com/#settings) and turn on **Developer mode**. Then open Plugins, select **+**, and paste `https://gateway.mcpal.io/mcp/transcriptor`. |
+| **Codex** | Add the block below to `~/.codex/config.toml`, then run `codex mcp login transcriptor`. The CLI, the IDE extension and the ChatGPT desktop app share this file. |
+
+```toml
+[mcp_servers.transcriptor]
+url = "https://gateway.mcpal.io/mcp/transcriptor"
+auth = "oauth"
+```
 
 > **Note:** ChatGPT developer mode is available on the web, for paid plans. Some releases show this control as Settings → Apps & Connectors → Advanced.
+>
+> **Note:** `codex mcp add` registers stdio servers only, so a hosted server goes into `config.toml`. See the [Codex MCP docs](https://learn.chatgpt.com/docs/extend/mcp?surface=cli).
 
 ### 🧩 Any other MCP client
 

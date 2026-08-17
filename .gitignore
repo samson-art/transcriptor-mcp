@@ -1,5 +1,6 @@
 node_modules/
 dist/
+dist-site/
 *.log
 .env
 .DS_Store
@@ -15,3 +16,6 @@ tokens.csv
 apisix/
 docs/
 mcp-analytics-gateway/
+store/
+assets/store/
+.claude/

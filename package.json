@@ -1,12 +1,14 @@
 {
   "name": "transcriptor-mcp",
   "version": "1.2.2",
-  "description": "API for downloading subtitles from YouTube videos",
+  "description": "Fetch transcripts, subtitles, chapters, metadata and frames from YouTube and 10+ video platforms",
   "type": "module",
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc && npm run build:ui",
     "build:ui": "APP=search vite build && APP=transcript vite build && APP=video-info vite build && APP=video-frame vite build",
+    "build:site": "node web/build.mjs",
+    "dev:site": "npm run build:site && python3 -m http.server 8799 -d dist-site",
     "start": "node --import ./dist/instrument.js dist/index.js",
     "start:mcp": "node --import ./dist/instrument.js dist/mcp.js",
     "start:mcp:http": "node --import ./dist/instrument.js dist/mcp-http-entry.js",
@@ -35,7 +37,10 @@
     "youtube",
     "subtitles",
     "captions",
-    "api"
+    "api",
+    "mcp",
+    "mcp-server",
+    "transcript"
   ],
   "author": "samson-art",
   "license": "MIT",
@@ -80,6 +85,7 @@
     "eslint-plugin-prettier": "^5.5.5",
     "husky": "^9.1.7",
     "jest": "^30.2.0",
+    "marked": "^16.4.2",
     "prettier": "^3.8.1",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",

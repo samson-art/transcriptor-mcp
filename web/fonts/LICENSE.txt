@@ -1,0 +1,6 @@
+Lora, by Cyreal. Licensed under the SIL Open Font License 1.1.
+  https://fonts.google.com/specimen/Lora
+JetBrains Mono, by JetBrains. Licensed under the SIL Open Font License 1.1.
+  https://fonts.google.com/specimen/JetBrains+Mono
+License text: https://openfontlicense.org
+Self-hosted here (latin subsets, woff2) so the site makes no third-party font requests.
