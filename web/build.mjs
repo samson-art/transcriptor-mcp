@@ -48,7 +48,6 @@ for (const page of legalPages) {
   const html = template
     .replaceAll('{{title}}', () => title)
     .replaceAll('{{path}}', () => `/${page.dir}/`)
-    .replaceAll('{{eyebrow}}', () => page.source)
     .replace('{{content}}', () => content);
   await mkdir(path.join(out, page.dir), { recursive: true });
   await writeFile(path.join(out, page.dir, 'index.html'), html);
@@ -161,9 +160,9 @@ ${connect}
 // with real data (see web/widgets-demo/README.md).
 const WIDGET_TILES = [
   { id: 'search', caption: '<code>search_videos</code> · a carousel of result cards' },
-  { id: 'video-frame', caption: '<code>get_video_frame</code> · a frame with step controls' },
-  { id: 'transcript', caption: '<code>get_transcript</code> · searchable timed captions' },
   { id: 'video-info', caption: '<code>get_video_info</code> · metadata and caption languages' },
+  { id: 'transcript', caption: '<code>get_transcript</code> · searchable timed captions' },
+  { id: 'video-frame', caption: '<code>get_video_frame</code> · a frame with step controls' },
 ];
 
 async function renderWidgetTiles() {

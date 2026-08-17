@@ -100,10 +100,6 @@
     max-width: 1280px; margin: 0 auto; width: 100%;
     padding: 40px 56px 84px;
   }
-  .eyebrow {
-    font-family: var(--mono); font-size: 12px; color: var(--accent);
-    letter-spacing: 0.08em; margin-bottom: 18px;
-  }
   h1 { font-size: clamp(32px, 4.5vw, 44px); line-height: 1.18; letter-spacing: -0.01em; margin: 0 0 22px; }
   h1 .flip { display: block; color: var(--accent); }
   .hero-lead { font-size: 16px; line-height: 1.55; color: var(--lead); max-width: 440px; margin: 0 0 28px; text-wrap: pretty; }
@@ -322,7 +318,6 @@
 
 <header class="hero">
   <div>
-    <div class="eyebrow">MCP SERVER · 8 TOOLS · 4 WIDGETS</div>
     <h1>Your AI assistant reads documents, browses the web…<span class="flip">Now it can watch videos.</span></h1>
     <p class="hero-lead">One MCP server that gives Claude, ChatGPT, Cursor and any MCP client transcripts, chapters, metadata and frames from YouTube and 10 more video platforms.</p>
     <div class="hero-cta">
@@ -390,19 +385,6 @@
     <!-- build:widget-tiles -->
   </section>
 
-  <section id="platforms">
-    <div class="cue-head"><span class="tc">02:00</span><h2>Platforms</h2></div>
-    <p class="platforms">YouTube <span>·</span> Twitter/X <span>·</span> Instagram <span>·</span> TikTok <span>·</span> Twitch <span>·</span> Vimeo <span>·</span> Facebook <span>·</span> Bilibili <span>·</span> VK <span>·</span> Dailymotion <span>·</span> Reddit</p>
-    <p class="note">Every video tool accepts a link from these 11 platforms; <code>search_videos</code> works with YouTube. The server retrieves only public captions, metadata and single frames — it does not download video or audio files.</p>
-  </section>
-
-  <section id="self-host">
-    <div class="cue-head"><span class="tc">02:30</span><h2>Self-host</h2></div>
-    <p class="lead">The same tools, on your machine. Open source (MIT), no account needed.</p>
-    <pre style="margin-top:16px">docker run --rm -p 4200:4200 artsamsonov/transcriptor-mcp:latest</pre>
-    <p class="note" style="margin-top:10px">Then point your client at <code>http://localhost:4200/mcp</code>. See the <a href="https://github.com/samson-art/transcriptor-mcp#-self-host">self-host guide</a> for stdio mode, Whisper fallback, caching and the REST API.</p>
-  </section>
-
 </main>
 
 <footer>
@@ -414,10 +396,9 @@
       <a href="/llms.txt">llms.txt</a>
       <a href="/terms">Terms of Service</a>
       <a href="/privacy">Privacy Policy</a>
-      <a href="mailto:legal@transcriptor-mcp.org">Support</a>
+      <a href="mailto:contact@transcriptor-mcp.org">Contact</a>
     </div>
-    <p>The hosted endpoint is governed by the <a href="/terms">Terms of Service</a> and the <a href="/privacy">Privacy Policy</a>. A server you host yourself is governed by the MIT License only.</p>
-    <p>MIT © 2026 <a href="https://github.com/samson-art">samson-art</a></p>
+    <p>© 2026 <a href="https://github.com/samson-art">samson-art</a></p>
   </div>
 </footer>
 
