@@ -17,6 +17,7 @@ const { version } = JSON.parse(
 const out = path.join(root, 'dist-site');
 
 const REPO_URL = 'https://github.com/samson-art/transcriptor-mcp';
+const SITE_URL = 'https://transcriptor-mcp.org';
 
 const legalPages = [
   { source: 'legal/TERMS_OF_SERVICE.md', dir: 'terms' },
@@ -53,7 +54,7 @@ for (const page of legalPages) {
     .replaceAll('{{path}}', () => `/${page.dir}/`)
     .replace('{{content}}', () => content);
   await mkdir(path.join(out, page.dir), { recursive: true });
-  await writeFile(path.join(out, page.dir, 'index.html'), html);
+  await writeFile(path.join(out, page.dir, 'index.html'), openExternalLinksInNewTab(html));
   console.log(`built /${page.dir} from ${page.source}`);
 }
 
@@ -170,7 +171,22 @@ ${connect}
 `;
 }
 
-const SITE_URL = 'https://transcriptor-mcp.org';
+/**
+ * Sends every link that leaves the site to a new tab. Applied to the finished
+ * HTML rather than to each anchor by hand, so the landing page, the generated
+ * client panels and the legal documents rendered from markdown all follow the
+ * same rule. Relative links, in-page anchors, mailto: and our own absolute
+ * URLs are left alone.
+ */
+function openExternalLinksInNewTab(html) {
+  return html.replace(/<a\s+([^>]*?)>/gi, (tag, attrs) => {
+    const href = attrs.match(/href="([^"]*)"/i)?.[1];
+    if (!href || !/^https?:\/\//i.test(href) || href.startsWith(SITE_URL)) return tag;
+    if (/\starget=/i.test(` ${attrs}`)) return tag;
+    const rel = /\srel=/i.test(` ${attrs}`) ? '' : ' rel="noopener noreferrer"';
+    return `<a ${attrs} target="_blank"${rel}>`;
+  });
+}
 
 // Structured data for the landing page. Only facts already stated on the page
 // or in the repository — no claims about price or ratings.
@@ -260,7 +276,7 @@ if (!landing.includes('<!-- build:jsonld -->')) {
 }
 landing = landing.replace('<!-- build:jsonld -->', () => renderJsonLd());
 
-await writeFile(path.join(out, 'index.html'), landing);
+await writeFile(path.join(out, 'index.html'), openExternalLinksInNewTab(landing));
 await writeFile(path.join(out, 'llms.txt'), renderLlmsTxt());
 await writeFile(path.join(out, 'sitemap.xml'), renderSitemap());
 await cp(path.join(root, 'web/robots.txt'), path.join(out, 'robots.txt'));
