@@ -75,11 +75,18 @@
   }
   a { color: var(--accent); }
   a:hover { color: var(--accent-hover); }
+  /* No border-radius here: it would square off the pills and buttons that
+     carry their own, and the outline follows whatever radius the element
+     already has. The tap highlight is off because it paints a rectangle
+     over rounded controls; the pressed and selected states show the touch
+     instead. */
+  html { -webkit-tap-highlight-color: transparent; }
   a:focus-visible, button:focus-visible {
     outline: 2px solid var(--accent);
     outline-offset: 2px;
-    border-radius: 4px;
   }
+  .chip:active { background: var(--chip-on); border-color: var(--accent); }
+  .copy-btn:active, .install-btn:active, .cta:active, .gh-pill:active { filter: brightness(0.96); }
   code, pre, .tc { font-family: var(--mono); }
   h1, h2, .brand-name { font-family: var(--serif); font-weight: 600; }
   .wrap { max-width: 920px; margin: 0 auto; padding: 0 24px; }
@@ -283,15 +290,24 @@
   .cfg-file { font-size: 14px; color: var(--muted); margin: 0 0 10px; }
   .cfg-file code { font-size: 12.5px; color: var(--accent); }
   .cfg-after { font-size: 14px; color: var(--muted); margin: 10px 0 0; }
+  /* The copy control sits over a horizontally scrolling code block, so it is
+     an icon: a labelled button covered the config text on a narrow screen. */
   .pre-wrap { position: relative; }
-  .pre-wrap pre { padding-right: 110px; }
+  .pre-wrap pre { padding-right: 46px; }
   .copy-btn {
-    position: absolute; top: 8px; right: 8px;
-    font: inherit; font-size: 12px;
-    border: 1px solid rgba(243, 239, 230, 0.3); background: rgba(243, 239, 230, 0.08);
-    color: var(--dark-ink); border-radius: 7px; padding: 4px 11px; cursor: pointer;
+    position: absolute; top: 7px; right: 7px;
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 30px; height: 30px; padding: 0;
+    border: 1px solid rgba(243, 239, 230, 0.28); background: rgba(31, 30, 26, 0.72);
+    backdrop-filter: blur(2px);
+    color: var(--dark-ink); border-radius: 8px; cursor: pointer;
+    transition: border-color 0.18s, color 0.18s;
   }
-  .copy-btn:hover { border-color: var(--accent); }
+  .copy-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .copy-btn .i-done { display: none; }
+  .copy-btn.copied { color: #7fd6a6; border-color: rgba(127, 214, 166, 0.5); }
+  .copy-btn.copied .i-copy { display: none; }
+  .copy-btn.copied .i-done { display: block; }
   .docs-row { margin-top: 14px; }
   .docs-link { font-size: 13px; }
   pre {
@@ -563,21 +579,34 @@
   // the element holding it (data-copy-target) — multi-line configs live in
   // the DOM rather than in an attribute.
   for (const btn of document.querySelectorAll('[data-copy], [data-copy-target]')) {
-    const label = btn.textContent;
+    // Icon buttons swap a glyph and keep their markup; the labelled ones
+    // swap their text. Writing textContent on an icon button would delete
+    // the SVG inside it.
+    const icon = btn.hasAttribute('data-icon');
+    const label = icon ? btn.getAttribute('aria-label') : btn.textContent;
     const source = btn.dataset.copyTarget ? document.querySelector(btn.dataset.copyTarget) : null;
+    const say = (text, done) => {
+      if (icon) {
+        btn.classList.toggle('copied', done);
+        btn.setAttribute('aria-label', text);
+        btn.title = text;
+      } else {
+        btn.textContent = text;
+      }
+    };
     btn.addEventListener('click', async () => {
       try {
         await navigator.clipboard.writeText(btn.dataset.copy ?? source.textContent);
-        btn.textContent = 'Copied';
+        say('Copied', true);
       } catch {
         const range = document.createRange();
         range.selectNodeContents(source ?? document.getElementById('endpoint-url'));
         const selection = getSelection();
         selection.removeAllRanges();
         selection.addRange(range);
-        btn.textContent = 'Press ⌘C';
+        say('Press ⌘C to copy', false);
       }
-      setTimeout(() => { btn.textContent = label; }, 2000);
+      setTimeout(() => say(label, false), 2000);
     });
   }
 
