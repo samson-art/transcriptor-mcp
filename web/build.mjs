@@ -130,7 +130,7 @@ function renderLlmsTxt() {
 
 > One MCP server that gives Claude, ChatGPT, Cursor and any MCP client transcripts, chapters, metadata and still frames from YouTube and 10 more video platforms.
 
-Endpoint: ${SERVER_URL} (Streamable HTTP; OAuth browser sign-in on first connection, no API keys).
+Endpoint: ${SERVER_URL} (Streamable HTTP; OAuth 2.1 browser sign-in on first connection, no static API keys).
 Eight read-only tools; four of them render interactive widgets in clients that support MCP Apps or the ChatGPT Apps SDK.
 Platforms: YouTube, Twitter/X, Instagram, TikTok, Twitch, Vimeo, Facebook, Bilibili, VK, Dailymotion, Reddit. Search is YouTube only.
 The server returns text, metadata and single still frames. It never returns video or audio files.
@@ -206,6 +206,7 @@ await cp(path.join(root, 'web/brand/mark.svg'), path.join(out, 'brand/mark.svg')
 await cp(path.join(root, 'web/icon-512.png'), path.join(out, 'icon-512.png'));
 await cp(path.join(root, 'web/apple-touch-icon.png'), path.join(out, 'apple-touch-icon.png'));
 await cp(path.join(root, 'web/og-image.png'), path.join(out, 'og-image.png'));
+await cp(path.join(root, 'web/hero-slide.webp'), path.join(out, 'hero-slide.webp'));
 for (const name of ['search', 'transcript', 'video-info', 'video-frame']) {
   await cp(
     path.join(root, `assets/widget-${name}.webp`),

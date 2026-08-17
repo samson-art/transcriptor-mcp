@@ -115,6 +115,7 @@
     max-width: 1280px; margin: 0 auto; width: 100%;
     padding: 40px 56px 84px;
   }
+  .hero > * { min-width: 0; }
   h1 { font-size: clamp(32px, 4.5vw, 44px); line-height: 1.18; letter-spacing: -0.01em; margin: 0 0 22px; }
   h1 .flip { display: block; color: var(--accent); text-wrap: balance; }
   .hero-lead { font-size: 16px; line-height: 1.55; color: var(--lead); max-width: 440px; margin: 0 0 28px; text-wrap: pretty; }
@@ -142,8 +143,10 @@
     align-self: flex-end; max-width: 85%;
     background: var(--bubble); border-radius: 16px 16px 4px 16px;
     padding: 12px 17px; font-size: 14.5px; line-height: 1.45;
+    overflow-wrap: anywhere;
     opacity: 0; animation: fi 0.6s ease 0.5s forwards;
   }
+  .bubble-url { font-size: 12.5px; color: #3b6db4; text-decoration: underline; text-underline-offset: 2px; }
   .toolrow {
     display: flex; align-items: center; gap: 12px;
     background: var(--tool-bg); border: 1px solid var(--line); border-radius: 12px;
@@ -177,15 +180,18 @@
     opacity: 0; animation: fi 0.6s ease 5s forwards;
   }
   .slide {
-    width: 64%; aspect-ratio: 16/9; border-radius: 10px; border: 1px solid var(--line);
-    background: repeating-linear-gradient(45deg, #f4f2ec, #f4f2ec 10px, #eceade 10px, #eceade 20px);
-    display: flex; align-items: center; justify-content: center;
+    position: relative;
+    width: 76%; aspect-ratio: 880 / 496; border-radius: 10px; border: 1px solid var(--line);
+    overflow: hidden; background: #fff;
     opacity: 0; animation: fi 0.6s ease 5.6s forwards;
   }
+  .slide img { width: 100%; height: 100%; object-fit: cover; display: block; }
   .slide span {
+    position: absolute; right: 8px; bottom: 8px;
     font-family: var(--mono); font-size: 11px; color: var(--muted-2);
     background: #ffffffcc; border-radius: 6px; padding: 4px 9px;
   }
+  .chat-credit { font-size: 12px; color: var(--muted-2); margin: 12px 4px 0; }
   @keyframes fi { to { opacity: 1; } }
   @keyframes fo { to { opacity: 0; } }
   @keyframes spin { to { transform: rotate(360deg); } }
@@ -400,13 +406,18 @@
     <p class="hero-lead">One MCP server that gives Claude, ChatGPT, Cursor and any MCP client transcripts, chapters, metadata and frames from YouTube and 10 more video platforms.</p>
     <div class="hero-cta">
       <a class="cta" href="#connect">Connect in 30 seconds</a>
-      <span class="aside">no API keys, no tokens</span>
+      <span class="aside">with OAuth 2.1</span>
     </div>
   </div>
+  <div class="hero-demo">
   <div class="chatcard" aria-hidden="true">
     <div class="chatbar"><i></i><i></i><i></i><span class="name">transcriptor-mcp</span></div>
     <div class="chatbody">
-      <div class="bubble">“Summarize this lecture and grab the slide at 4:20”</div>
+      <div class="bubble">
+        Summarize this lecture and grab the slide at 20:00
+        <br>
+        <span class="bubble-url">https://www.youtube.com/watch?v=-OkwGDKoY0o</span>
+      </div>
       <div class="toolrow t1">
         <span class="state"><span class="spinner"></span><span class="check">✓</span></span>
         <span class="tool-name">get_video_info</span>
@@ -417,9 +428,14 @@
         <span class="tool-name">get_transcript</span>
         <span class="status"><span class="run">running…</span><span class="done">12,400 words</span></span>
       </div>
-      <div class="chat-answer">Summary ready — 12 chapters with timecodes. Slide at 4:20 attached.</div>
-      <div class="slide"><span>slide @ 4:20</span></div>
+      <div class="chat-answer">Summary ready — 27 chapters with timecodes. Slide at 20:00 attached.</div>
+      <div class="slide">
+        <img src="/hero-slide.webp" alt="" width="880" height="496" />
+        <span>slide @ 20:00</span>
+      </div>
     </div>
+  </div>
+  <p class="chat-credit">Lecture: <a href="https://www.youtube.com/watch?v=-OkwGDKoY0o">“The Quantum Origins of Gravity”</a> — Leonard Susskind, UC&nbsp;Berkeley (CC&nbsp;BY)</p>
   </div>
 </header>
 
@@ -427,12 +443,12 @@
 
   <section id="connect">
     <div class="cue-head"><span class="tc">00:30</span><h2>Connect in 30 seconds</h2></div>
-    <p class="lead">One hosted endpoint. Sign in through your browser on first use — no API keys, no tokens.</p>
+    <p class="lead">One hosted endpoint. Sign in through your browser on first use.</p>
     <div class="endpoint">
       <div class="endpoint-scroll"><code id="endpoint-url">https://gateway.mcpal.io/mcp/transcriptor</code></div>
       <button type="button" aria-live="polite" data-copy="https://gateway.mcpal.io/mcp/transcriptor">Copy</button>
     </div>
-    <p class="note endpoint-note">Paste this into an MCP client, not a browser. The first connection opens a sign-in page in your browser; approve it once and the client keeps the session. No API keys, no tokens.</p>
+    <p class="note endpoint-note">Paste this into an MCP client, not a browser. The first connection opens an OAuth 2.1 sign-in page in your browser; approve it once and the client keeps the session.</p>
     <!-- The build: marker below is replaced by web/build.mjs from web/clients.mjs; preview via npm run dev:site. -->
     <!-- build:clients -->
   </section>
