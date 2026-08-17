@@ -159,7 +159,9 @@ ${connect}
 // The widget tiles are static snapshots of the real widgets rendered
 // with real data (see web/widgets-demo/README.md).
 const WIDGET_TILES = [
-  { id: 'search', caption: '<code>search_videos</code> · a carousel of result cards' },
+  // scrolls: the captured widget is wider than a tile at every breakpoint,
+  // so its frame gets the scroll affordance.
+  { id: 'search', caption: '<code>search_videos</code> · a carousel of result cards', scrolls: true },
   { id: 'video-info', caption: '<code>get_video_info</code> · metadata and caption languages' },
   { id: 'transcript', caption: '<code>get_transcript</code> · searchable timed captions' },
   { id: 'video-frame', caption: '<code>get_video_frame</code> · a frame with step controls' },
@@ -173,7 +175,10 @@ async function renderWidgetTiles() {
       'utf8'
     );
     tiles.push(
-      `<figure class="tile">\n        <div class="snapshot" aria-hidden="true">${html.trim()}</div>\n        <figcaption>${tile.caption}</figcaption>\n      </figure>`
+      `<figure class="tile">\n` +
+        `        <div class="snapshot-frame"${tile.scrolls ? ' data-scrolls' : ''}>` +
+        `<div class="snapshot" aria-hidden="true">${html.trim()}</div></div>\n` +
+        `        <figcaption>${tile.caption}</figcaption>\n      </figure>`
     );
   }
   return `<div class="widget-tiles">\n      ${tiles.join('\n      ')}\n    </div>`;
