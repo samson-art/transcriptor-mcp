@@ -20,10 +20,14 @@ the README still shows.
   subject; the set is curated to official uploads only, so every
   thumbnail on the page is NASA's own work. Titles, channels, durations
   and view counts are the real values.
-- **transcript**, **video info**, **video frame**: "NASA Moon Base:
-  Lunar Landers (August 2026 Update)" (`Sempwv5MPMQ`, 10:15, official
-  English captions, 7 chapters). The cue list holds the first twelve
-  real caption lines; the frame is the launch at 8:00.
+- **transcript** and **video frame**: "NASA Moon Base: Lunar Landers
+  (August 2026 Update)" (`Sempwv5MPMQ`, 10:15, official English
+  captions, 7 chapters). The cue list holds the first twelve real
+  caption lines; the frame is the launch at 8:00.
+- **video info**: a different video on purpose — "2026 Total Solar
+  Eclipse (Official NASA Trailer)" (`29ixFQIGZaY`, 838K views, official
+  English captions). Reusing the moon-base video here gave two tiles the
+  same thumbnail, which read as a rendering bug rather than two tools.
 
 Thumbnails and the frame are inlined as data URIs, so the page makes no
 requests to YouTube. The snapshots are inert — the tile disables pointer
