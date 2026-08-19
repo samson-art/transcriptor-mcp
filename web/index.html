@@ -134,7 +134,6 @@
     padding: 12px 22px; font-size: 14.5px; text-decoration: none;
   }
   .cta:hover { color: var(--bg); background: #33312a; }
-  .hero-cta .aside { font-family: var(--mono); font-size: 13px; color: var(--muted-2); }
 
   /* Chat card */
   .chatcard {
@@ -458,11 +457,10 @@
 
 <header class="hero">
   <div>
-    <h1>Your AI assistant reads documents, browses the web…<span class="flip">Now it can watch videos.</span></h1>
-    <p class="hero-lead">One MCP server that gives Claude, ChatGPT, Cursor and any MCP client transcripts, chapters, metadata and frames from YouTube and 10 more video platforms.</p>
+    <h1>Your AI assistant reads documents, browses the web.<span class="flip">Now it can watch videos.</span></h1>
+    <p class="hero-lead">One MCP server that gives Claude, ChatGPT, Cursor and any other AI app transcripts, chapters, metadata and frames from YouTube and 10 more video platforms.</p>
     <div class="hero-cta">
       <a class="cta" href="#connect">Connect in 30 seconds</a>
-      <span class="aside">with OAuth 2.1</span>
     </div>
   </div>
   <div class="hero-demo">
@@ -491,7 +489,7 @@
       </div>
     </div>
   </div>
-  <p class="chat-credit">Lecture: <a href="https://www.youtube.com/watch?v=-OkwGDKoY0o">“The Quantum Origins of Gravity”</a> — Leonard Susskind, UC&nbsp;Berkeley (CC&nbsp;BY)</p>
+  <p class="chat-credit">Lecture: <a href="https://www.youtube.com/watch?v=-OkwGDKoY0o">“The Quantum Origins of Gravity”</a> - Leonard Susskind, UC&nbsp;Berkeley (CC&nbsp;BY)</p>
   </div>
 </header>
 
@@ -499,19 +497,18 @@
 
   <section id="connect">
     <div class="cue-head"><span class="tc">00:30</span><h2>Connect in 30 seconds</h2></div>
-    <p class="lead">One hosted endpoint. Sign in through your browser on first use.</p>
     <div class="endpoint">
       <div class="endpoint-scroll"><code id="endpoint-url">https://gateway.mcpal.io/mcp/transcriptor</code></div>
       <button type="button" aria-live="polite" data-copy="https://gateway.mcpal.io/mcp/transcriptor">Copy</button>
     </div>
-    <p class="note endpoint-note">Paste this into an MCP client, not a browser. The first connection opens an OAuth 2.1 sign-in page in your browser; approve it once and the client keeps the session.</p>
+    <p class="note endpoint-note">Paste this into an MCP client. The first connection opens a login page; sign in once and the client keeps the session.</p>
     <!-- The build: marker below is replaced by web/build.mjs from web/clients.mjs; preview via npm run dev:site. -->
     <!-- build:clients -->
   </section>
 
   <section id="ask">
     <div class="cue-head"><span class="tc">01:00</span><h2>What you can ask</h2></div>
-    <p class="lead">Eight read-only tools. Long transcripts return in full, or in cursor-paged parts on request — no text is lost.</p>
+    <p class="lead">Eight read-only tools.</p>
     <table>
       <thead><tr><th>Ask for this</th><th>Tool</th></tr></thead>
       <tbody>
@@ -520,7 +517,7 @@
         <tr><td>“Is there a German track for this video?”</td><td><code>get_available_subtitles</code></td></tr>
         <tr><td>“Who published this and how many views?”</td><td><code>get_video_info</code></td></tr>
         <tr><td>“Go to the part about pricing”</td><td><code>get_video_chapters</code></td></tr>
-        <tr><td>“Show me the screen at 4:12”</td><td><code>get_video_frame</code></td></tr>
+        <tr><td>“Show me the screen at 4:20”</td><td><code>get_video_frame</code></td></tr>
         <tr><td>“Get transcripts for the first 5 videos in this playlist”</td><td><code>get_playlist_transcripts</code></td></tr>
         <tr><td>“Find recent videos about X”</td><td><code>search_videos</code></td></tr>
       </tbody>
@@ -529,7 +526,7 @@
 
   <section id="widgets">
     <div class="cue-head"><span class="tc">01:30</span><h2>Widgets</h2></div>
-    <p class="lead">Four tools show an interactive interface in clients that support <a href="https://github.com/modelcontextprotocol/ext-apps">MCP Apps</a> and the ChatGPT Apps SDK. Other clients get the same data as text and JSON.</p>
+    <p class="lead">Four tools show an interactive interface in clients that support <a href="https://github.com/modelcontextprotocol/ext-apps">MCP Apps</a> and the ChatGPT Apps SDK. Other clients get the same data.</p>
     <!-- Replaced by web/build.mjs with static snapshots of the real widgets
          rendered on real data; see web/widgets-demo/README.md. -->
     <!-- build:widget-tiles -->
@@ -592,7 +589,7 @@
     // Icon buttons swap a glyph and keep their markup; the labelled ones
     // swap their text. Writing textContent on an icon button would delete
     // the SVG inside it.
-    const icon = btn.hasAttribute('data-icon');
+    const icon = Object.hasOwn(btn.dataset, 'icon');
     const label = icon ? btn.getAttribute('aria-label') : btn.textContent;
     const source = btn.dataset.copyTarget ? document.querySelector(btn.dataset.copyTarget) : null;
     const say = (text, done) => {
