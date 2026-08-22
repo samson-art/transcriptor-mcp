@@ -65,11 +65,34 @@ const pretty = (config) => JSON.stringify(config, null, 2);
 
 const installLabels = { cursor: 'Add to Cursor', vscode: 'Add to VS Code', lmstudio: 'Add to LM Studio' };
 
+const copyIcon =
+  '<svg class="i-copy" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+  '<rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
+const doneIcon =
+  '<svg class="i-done" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+  '<path d="M20 6 9 17l-5-5"/></svg>';
+
+// A code block with the copy control over its trailing edge. The text lives
+// in the DOM and the button points at it, so multi-line configs need no
+// attribute escaping.
+function renderCopyBlock(id, text, label) {
+  return (
+    `<div class="pre-wrap">` +
+    `<pre id="${id}">${esc(text)}</pre>` +
+    `<button type="button" class="copy-btn" data-copy-target="#${id}"` +
+    ` aria-label="${label}" title="${label}">${copyIcon}${doneIcon}</button>` +
+    `</div>`
+  );
+}
+
 function renderPanelBody(client) {
   const parts = [];
   if (client.heading) parts.push(`<h3>${client.heading}</h3>`);
   if (client.kind === 'steps') {
     parts.push(`<ol class="steps">\n${client.steps.map((s) => `          <li>${s}</li>`).join('\n')}\n        </ol>`);
+    // These clients take the endpoint through their own UI, so the URL is the
+    // thing to copy here — the same block the other panels use for a config.
+    parts.push(renderCopyBlock(`url-${client.id}`, SERVER_URL, 'Copy endpoint'));
   }
   if (client.install) {
     parts.push(
@@ -90,19 +113,7 @@ function renderPanelBody(client) {
           ? client.text
           : pretty(client.config);
     const label = client.kind === 'command' ? 'Copy command' : 'Copy config';
-    const copyIcon =
-      '<svg class="i-copy" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
-      '<rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
-    const doneIcon =
-      '<svg class="i-done" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
-      '<path d="M20 6 9 17l-5-5"/></svg>';
-    parts.push(
-      `<div class="pre-wrap">` +
-        `<pre id="cfg-${client.id}">${esc(text)}</pre>` +
-        `<button type="button" class="copy-btn" data-icon data-copy-target="#cfg-${client.id}"` +
-        ` aria-label="${label}" title="${label}">${copyIcon}${doneIcon}</button>` +
-        `</div>`
-    );
+    parts.push(renderCopyBlock(`cfg-${client.id}`, text, label));
   }
   if (client.after) parts.push(`<p class="cfg-after">${client.after}</p>`);
   parts.push(`<div class="docs-row"><a class="docs-link" href="${client.docs}">${client.docsLabel}</a></div>`);

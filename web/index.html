@@ -232,21 +232,7 @@
   h2 { font-size: 28px; margin: 0; }
   .lead { color: var(--muted); margin: 6px 0 0; }
   .note { font-size: 14px; color: var(--muted); line-height: 1.5; }
-  .endpoint-note { margin: 10px 0 0; }
-
-  .endpoint {
-    display: flex; align-items: center; gap: 10px;
-    background: var(--dark); color: var(--dark-ink);
-    border-radius: 10px; padding: 12px 14px; margin: 18px 0 6px;
-  }
-  .endpoint-scroll { flex: 1; overflow-x: auto; }
-  .endpoint code { font-size: 14.5px; white-space: nowrap; }
-  .endpoint button {
-    flex-shrink: 0; background: transparent; color: var(--dark-ink);
-    border: 1px solid rgba(243, 239, 230, 0.35);
-    border-radius: 7px; padding: 5px 12px; font-size: 13px; cursor: pointer; font-family: inherit;
-  }
-  .endpoint button:hover { border-color: var(--accent); }
+  .connect-note { margin: 14px 0 0; }
 
   /* Per-client switcher: a framed card with a chip bar on top and one
      panel below; the one-click install lives inside the panel. */
@@ -317,6 +303,8 @@
   .steps { padding-left: 18px; margin: 4px 0 0; font-size: 14px; color: var(--muted); line-height: 1.6; }
   .steps li { margin: 4px 0; }
   .steps b { color: var(--ink); font-weight: 600; }
+  /* The endpoint block follows the steps that tell the reader to paste it. */
+  .steps + .pre-wrap { margin-top: 12px; }
 
   table { width: 100%; border-collapse: collapse; margin-top: 16px; font-size: 15px; }
   th, td { text-align: left; padding: 9px 12px; }
@@ -497,13 +485,9 @@
 
   <section id="connect">
     <div class="cue-head"><span class="tc">00:30</span><h2>Connect in 30 seconds</h2></div>
-    <div class="endpoint">
-      <div class="endpoint-scroll"><code id="endpoint-url">https://gateway.mcpal.io/mcp/transcriptor</code></div>
-      <button type="button" aria-live="polite" data-copy="https://gateway.mcpal.io/mcp/transcriptor">Copy</button>
-    </div>
-    <p class="note endpoint-note">Paste this into an MCP client. The first connection opens a login page; sign in once and the client keeps the session.</p>
     <!-- The build: marker below is replaced by web/build.mjs from web/clients.mjs; preview via npm run dev:site. -->
     <!-- build:clients -->
+    <p class="note connect-note">The first connection opens a login page; sign in once and the client keeps the session.</p>
   </section>
 
   <section id="ask">
@@ -582,32 +566,25 @@
     onScroll();
   }
 
-  // Copy buttons carry either the text itself (data-copy) or a selector for
-  // the element holding it (data-copy-target) — multi-line configs live in
-  // the DOM rather than in an attribute.
-  for (const btn of document.querySelectorAll('[data-copy], [data-copy-target]')) {
-    // Icon buttons swap a glyph and keep their markup; the labelled ones
-    // swap their text. Writing textContent on an icon button would delete
-    // the SVG inside it.
-    const icon = Object.hasOwn(btn.dataset, 'icon');
-    const label = icon ? btn.getAttribute('aria-label') : btn.textContent;
-    const source = btn.dataset.copyTarget ? document.querySelector(btn.dataset.copyTarget) : null;
+  // Copy buttons point at the element holding the text (data-copy-target):
+  // the text lives in the DOM, not in an attribute, so multi-line configs
+  // need no escaping. Every one of them is an icon button: feedback swaps
+  // the glyph and the label; the markup inside stays put.
+  for (const btn of document.querySelectorAll('[data-copy-target]')) {
+    const label = btn.getAttribute('aria-label');
+    const source = document.querySelector(btn.dataset.copyTarget);
     const say = (text, done) => {
-      if (icon) {
-        btn.classList.toggle('copied', done);
-        btn.setAttribute('aria-label', text);
-        btn.title = text;
-      } else {
-        btn.textContent = text;
-      }
+      btn.classList.toggle('copied', done);
+      btn.setAttribute('aria-label', text);
+      btn.title = text;
     };
     btn.addEventListener('click', async () => {
       try {
-        await navigator.clipboard.writeText(btn.dataset.copy ?? source.textContent);
+        await navigator.clipboard.writeText(source.textContent);
         say('Copied', true);
       } catch {
         const range = document.createRange();
-        range.selectNodeContents(source ?? document.getElementById('endpoint-url'));
+        range.selectNodeContents(source);
         const selection = getSelection();
         selection.removeAllRanges();
         selection.addRange(range);
