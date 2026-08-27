@@ -16,7 +16,7 @@ The Service is provided by a natural person (persona física) resident in Spain 
 
 ## 2. What these Terms cover
 
-These Terms are a contract between you and us for the hosted Transcriptor MCP service at `https://gateway.mcpal.io/mcp/transcriptor` (the "Service"). They bind you from the moment you accept them by an affirmative act — ticking the acceptance box shown with these Terms and the [Privacy Policy](./PRIVACY_POLICY.md) on the sign-in and consent screen — before your first tool call. We record the version number, the date and time, and that you ticked it.
+These Terms are a contract between you and us for the hosted Transcriptor MCP service at `https://transcriptor.gateway.mcpal.io/mcp` (the "Service"). They bind you from the moment you accept them by an affirmative act — ticking the acceptance box shown with these Terms and the [Privacy Policy](./PRIVACY_POLICY.md) on the sign-in and consent screen — before your first tool call. We record the version number, the date and time, and that you ticked it.
 
 Sign-in, the gateway and quota metering run on the MCPal platform, which we do not operate. You accept MCPal's terms separately when you sign in.
 

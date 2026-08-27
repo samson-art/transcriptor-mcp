@@ -8,7 +8,7 @@ Companion document: [Terms of Service](./TERMS_OF_SERVICE.md). "Output" has the 
 
 ## 1. Who is responsible
 
-A natural person resident in Spain operates the hosted Transcriptor MCP service at `https://gateway.mcpal.io/mcp/transcriptor` (the "Service") and is the controller for the processing described here. Our postal address and tax identification number (NIF) are available on request. Email: legal@transcriptor-mcp.org. We have not appointed a data protection officer and are not required to.
+A natural person resident in Spain operates the hosted Transcriptor MCP service at `https://transcriptor.gateway.mcpal.io/mcp` (the "Service") and is the controller for the processing described here. Our postal address and tax identification number (NIF) are available on request. Email: legal@transcriptor-mcp.org. We have not appointed a data protection officer and are not required to.
 
 This policy covers only the hosted Service. If you run the software yourself from <https://github.com/samson-art/transcriptor-mcp>, we are not the controller and we process nothing about you.
 

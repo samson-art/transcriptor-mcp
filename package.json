@@ -1,6 +1,6 @@
 {
   "name": "transcriptor-mcp",
-  "version": "1.2.2",
+  "version": "1.2.3",
   "description": "Fetch transcripts, subtitles, chapters, metadata and frames from YouTube and 10+ video platforms",
   "type": "module",
   "main": "dist/index.js",
