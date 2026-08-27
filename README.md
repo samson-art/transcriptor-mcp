@@ -28,9 +28,9 @@ https://transcriptor.gateway.mcpal.io/mcp
 
 ### 🖱️ One click
 
-[![Add to Cursor](https://img.shields.io/badge/Add%20to-Cursor-000000?style=for-the-badge&logo=cursor&logoColor=white)](https://cursor.com/install-mcp?name=transcriptor&config=eyJ1cmwiOiJodHRwczovL2dhdGV3YXkubWNwYWwuaW8vbWNwL3RyYW5zY3JpcHRvciJ9)
+[![Add to Cursor](https://img.shields.io/badge/Add%20to-Cursor-000000?style=for-the-badge&logo=cursor&logoColor=white)](https://cursor.com/install-mcp?name=transcriptor&config=eyJ1cmwiOiJodHRwczovL3RyYW5zY3JpcHRvci5nYXRld2F5Lm1jcGFsLmlvL21jcCJ9)
 [![Install in VS Code](https://img.shields.io/badge/Install%20in-VS%20Code-0098FF?style=for-the-badge&logo=visualstudiocode&logoColor=white)](https://vscode.dev/redirect/mcp/install?name=transcriptor&config=%7B%22type%22%3A%22http%22%2C%22url%22%3A%22https%3A%2F%2Ftranscriptor.gateway.mcpal.io%2Fmcp%22%7D)
-[![Add to LM Studio](https://img.shields.io/badge/Add%20to-LM%20Studio-4B5563?style=for-the-badge)](https://lmstudio.ai/install-mcp?name=transcriptor&config=eyJ1cmwiOiJodHRwczovL2dhdGV3YXkubWNwYWwuaW8vbWNwL3RyYW5zY3JpcHRvciJ9)
+[![Add to LM Studio](https://img.shields.io/badge/Add%20to-LM%20Studio-4B5563?style=for-the-badge)](https://lmstudio.ai/install-mcp?name=transcriptor&config=eyJ1cmwiOiJodHRwczovL3RyYW5zY3JpcHRvci5nYXRld2F5Lm1jcGFsLmlvL21jcCJ9)
 
 ### ⌨️ One command, for Claude Code
 
