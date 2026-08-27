@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.3] - 2026-08-28
+
+### Changed
+
+- **Hosted endpoint moved to its own subdomain:** `https://gateway.mcpal.io/mcp/transcriptor` is now `https://transcriptor.gateway.mcpal.io/mcp`. Updated everywhere it is published — the registry entry ([server.json](server.json)), the README connect section and its one-click install links, the landing page and `llms.txt` (both generated from `SERVER_URL` in [web/clients.mjs](web/clients.mjs)), and the service address named in the [Terms of Service](legal/TERMS_OF_SERVICE.md) and [Privacy Policy](legal/PRIVACY_POLICY.md). **Existing clients must repoint:** a configuration holding the old path-based URL has to be updated by hand.
+
 ## [1.2.2] - 2026-08-14
 
 ### Fixed

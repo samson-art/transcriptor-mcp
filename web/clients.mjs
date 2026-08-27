@@ -10,7 +10,7 @@
  * Zed wraps in `context_servers`), so don't "unify" them.
  */
 
-export const SERVER_URL = 'https://gateway.mcpal.io/mcp/transcriptor';
+export const SERVER_URL = 'https://transcriptor.gateway.mcpal.io/mcp';
 export const SERVER_NAME = 'transcriptor';
 
 export const installLinks = {
