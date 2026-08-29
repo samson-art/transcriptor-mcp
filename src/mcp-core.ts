@@ -388,7 +388,12 @@ export function createMcpServer(opts?: CreateMcpServerOptions) {
         'Fetch cleaned subtitles as plain text for a video (YouTube, Twitter/X, Instagram, TikTok, Twitch, Vimeo, Facebook, Bilibili, VK, Dailymotion, Reddit). Uses auto-discovery for type/language when omitted. Optional: type, lang, response_limit (when omitted returns full transcript), next_cursor for pagination.',
       inputSchema: subtitleInputSchema.shape,
       outputSchema: transcriptOutputSchema.shape,
-      annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: true },
+      annotations: {
+        readOnlyHint: true,
+        idempotentHint: true,
+        openWorldHint: true,
+        destructiveHint: false,
+      },
       _meta: {
         ui: { resourceUri: TRANSCRIPT_UI_URI },
         'openai/outputTemplate': TRANSCRIPT_UI_URI,
@@ -449,7 +454,12 @@ export function createMcpServer(opts?: CreateMcpServerOptions) {
         'Fetch raw SRT/VTT subtitles for a video (supported platforms). Optional: type, lang, response_limit (when omitted returns full content), next_cursor for pagination.',
       inputSchema: subtitleInputSchema,
       outputSchema: rawSubtitlesOutputSchema,
-      annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: true },
+      annotations: {
+        readOnlyHint: true,
+        idempotentHint: true,
+        openWorldHint: true,
+        destructiveHint: false,
+      },
     },
     async (args, _extra) =>
       withToolErrorHandling(TOOL_GET_RAW_SUBTITLES, log, async () => {
@@ -500,7 +510,12 @@ export function createMcpServer(opts?: CreateMcpServerOptions) {
       description: 'List available official and auto-generated subtitle languages.',
       inputSchema: baseInputSchema,
       outputSchema: availableSubtitlesOutputSchema,
-      annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: true },
+      annotations: {
+        readOnlyHint: true,
+        idempotentHint: true,
+        openWorldHint: true,
+        destructiveHint: false,
+      },
     },
     async (args, _extra) =>
       withToolErrorHandling(
@@ -545,7 +560,12 @@ export function createMcpServer(opts?: CreateMcpServerOptions) {
         'Fetch extended metadata for a video (title, channel, duration, tags, thumbnails, etc.).',
       inputSchema: baseInputSchema.shape,
       outputSchema: videoInfoOutputSchema.shape,
-      annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: true },
+      annotations: {
+        readOnlyHint: true,
+        idempotentHint: true,
+        openWorldHint: true,
+        destructiveHint: false,
+      },
       _meta: {
         ui: { resourceUri: VIDEO_INFO_UI_URI },
         'openai/outputTemplate': VIDEO_INFO_UI_URI,
@@ -621,7 +641,12 @@ export function createMcpServer(opts?: CreateMcpServerOptions) {
       description: 'Fetch chapter markers (start/end time, title) for a video.',
       inputSchema: baseInputSchema,
       outputSchema: videoChaptersOutputSchema,
-      annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: true },
+      annotations: {
+        readOnlyHint: true,
+        idempotentHint: true,
+        openWorldHint: true,
+        destructiveHint: false,
+      },
     },
     async (args, _extra) =>
       withToolErrorHandling(
@@ -669,7 +694,12 @@ export function createMcpServer(opts?: CreateMcpServerOptions) {
         'Capture a single frame from a video at the given timestamp. Provide timecode ("01:23", "00:01:23.500") or seconds; defaults to the first frame. Optional: format (png|jpeg), width (max 1920), quality (jpeg, 2-31). Returns the image plus metadata.',
       inputSchema: videoFrameInputSchema.shape,
       outputSchema: videoFrameOutputSchema.shape,
-      annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: true },
+      annotations: {
+        readOnlyHint: true,
+        idempotentHint: true,
+        openWorldHint: true,
+        destructiveHint: false,
+      },
       _meta: {
         ui: { resourceUri: VIDEO_FRAME_UI_URI },
         'openai/outputTemplate': VIDEO_FRAME_UI_URI,
@@ -727,7 +757,12 @@ export function createMcpServer(opts?: CreateMcpServerOptions) {
         'Fetch cleaned subtitles (plain text) for multiple videos from a playlist. Use playlistItems (e.g. "1:5") to select specific items, maxItems to limit count.',
       inputSchema: playlistTranscriptsInputSchema,
       outputSchema: playlistTranscriptsOutputSchema,
-      annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: true },
+      annotations: {
+        readOnlyHint: true,
+        idempotentHint: true,
+        openWorldHint: true,
+        destructiveHint: false,
+      },
     },
     async (args, _extra) =>
       withToolErrorHandling(TOOL_GET_PLAYLIST_TRANSCRIPTS, log, async () => {
@@ -794,7 +829,12 @@ export function createMcpServer(opts?: CreateMcpServerOptions) {
         'Search videos on YouTube via yt-dlp (ytsearch). Returns list of matching videos with metadata. Optional: limit, offset (pagination), uploadDateFilter (hour|today|week|month|year), dateBefore, date, matchFilter (e.g. "!is_live"), response_format (json|markdown).',
       inputSchema: searchInputSchema.shape,
       outputSchema: searchVideosOutputSchema.shape,
-      annotations: { readOnlyHint: true, idempotentHint: false, openWorldHint: true },
+      annotations: {
+        readOnlyHint: true,
+        idempotentHint: false,
+        openWorldHint: true,
+        destructiveHint: false,
+      },
       _meta: {
         ui: { resourceUri: SEARCH_UI_URI },
         'openai/outputTemplate': SEARCH_UI_URI,
