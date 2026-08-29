@@ -23,6 +23,7 @@ const legalPages = [
   { source: 'legal/TERMS_OF_SERVICE.md', dir: 'terms' },
   { source: 'legal/PRIVACY_POLICY.md', dir: 'privacy' },
   { source: 'legal/EULA.md', dir: 'eula' },
+  { source: 'web/support.md', dir: 'support' },
 ];
 
 // Cross-document links inside legal/*.md point at sibling markdown files;
@@ -230,7 +231,7 @@ function renderJsonLd() {
 }
 
 function renderSitemap() {
-  const paths = ['/', '/terms/', '/privacy/', '/eula/'];
+  const paths = ['/', '/support/', '/terms/', '/privacy/', '/eula/'];
   const urls = paths
     .map(
       (p) =>
