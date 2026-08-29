@@ -3,7 +3,7 @@
   "name": "io.github.samson-art/transcriptor-mcp",
   "title": "Transcriptor MCP",
   "description": "Fetch transcripts, subtitles, chapters, metadata and frames from YouTube and 10+ video platforms",
-  "version": "1.2.3",
+  "version": "1.2.4",
   "websiteUrl": "https://github.com/samson-art/transcriptor-mcp#readme",
   "repository": {
     "url": "https://github.com/samson-art/transcriptor-mcp",
@@ -27,7 +27,7 @@
   "packages": [
     {
       "registryType": "oci",
-      "identifier": "docker.io/artsamsonov/transcriptor-mcp:1.2.3",
+      "identifier": "docker.io/artsamsonov/transcriptor-mcp:1.2.4",
       "transport": {
         "type": "stdio"
       },

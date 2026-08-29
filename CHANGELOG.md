@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.4] - 2026-08-29
+
+### Fixed
+
+- **All eight tools now declare `destructiveHint`:** the annotations set `readOnlyHint`, `idempotentHint` and `openWorldHint` but left `destructiveHint` unset, so clients had to fall back to the protocol default. ChatGPT Apps review reads what the server advertises rather than what the spec defaults to, and treats a missing hint as a submission blocker. `false` is correct for every tool — `get_transcript`, `get_raw_subtitles`, `get_available_subtitles`, `get_video_info`, `get_video_chapters`, `get_video_frame`, `get_playlist_transcripts` and `search_videos` only retrieve public captions, metadata, chapters, frames and search results. `openWorldHint` stays `true`: the tools do reach third-party platforms over the public internet, which is what the flag means in the MCP spec.
+- **Cursor and LM Studio install badges pointed at the old endpoint** in the README connect section, so a one-click install produced a configuration holding the retired path-based URL.
+
 ## [1.2.3] - 2026-08-28
 
 ### Changed
