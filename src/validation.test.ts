@@ -1,4 +1,4 @@
-import { NotFoundError, ValidationError } from './errors.js';
+import { NotFoundError, ValidationError, YtDlpError } from './errors.js';
 import {
   extractPlatformFromUrl,
   isValidYouTubeUrl,
@@ -313,6 +313,21 @@ describe('validation', () => {
   });
 
   describe('validateAndDownloadSubtitles', () => {
+    it('should surface a classified yt-dlp failure instead of "no subtitles"', async () => {
+      jest.spyOn(youtube, 'downloadSubtitles').mockRejectedValue(new YtDlpError('rate_limited'));
+      const whisperSpy = jest.spyOn(whisperJobs, 'startOrReuseWhisperJob');
+
+      await expect(
+        validateAndDownloadSubtitles({
+          url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+          type: 'auto',
+          lang: 'en',
+        })
+      ).rejects.toThrow(YtDlpError);
+      // The platform is throttling us; transcribing audio would hit the same wall.
+      expect(whisperSpy).not.toHaveBeenCalled();
+    });
+
     it('should throw ValidationError for invalid YouTube URL', async () => {
       const downloadSpy = jest.spyOn(youtube, 'downloadSubtitles').mockResolvedValue(null);
 
@@ -1101,16 +1116,19 @@ describe('validation', () => {
       );
     });
 
-    it('should map capture_failed to NotFoundError', async () => {
+    it('should map capture_failed to NotFoundError without the ffmpeg details', async () => {
       jest.spyOn(youtube, 'captureVideoFrame').mockResolvedValue({
         ok: false,
         reason: 'capture_failed',
         videoId: 'dQw4w9WgXcQ',
-        details: { message: 'boom' },
+        details: { message: 'Command failed: ffmpeg -i https://cdn.example/stream.mp4' },
       });
 
       await expect(validateAndCaptureVideoFrame({ url, seconds: 10 })).rejects.toThrow(
         NotFoundError
+      );
+      await expect(validateAndCaptureVideoFrame({ url, seconds: 10 })).rejects.toThrow(
+        'Failed to capture a frame for this video.'
       );
     });
   });

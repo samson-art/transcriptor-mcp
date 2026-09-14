@@ -58,6 +58,7 @@ export const cacheMissesTotal = new Counter({
 export const subtitlesExtractionFailuresTotal = new Counter({
   name: 'subtitles_extraction_failures_total',
   help: 'Videos where subtitles could not be obtained (neither YouTube nor Whisper)',
+  labelNames: ['reason'],
   registers: [register],
 });
 
@@ -87,7 +88,7 @@ export const mcpToolCallsTotal = new Counter({
 export const mcpToolErrorsTotal = new Counter({
   name: 'mcp_tool_errors_total',
   help: 'Total MCP tool errors',
-  labelNames: ['tool'],
+  labelNames: ['tool', 'reason'],
   registers: [register],
 });
 
@@ -133,8 +134,8 @@ export function recordCacheMiss(): void {
   cacheMissesTotal.inc();
 }
 
-export function recordSubtitlesFailure(url: string): void {
-  subtitlesExtractionFailuresTotal.inc();
+export function recordSubtitlesFailure(url: string, reason: string): void {
+  subtitlesExtractionFailuresTotal.inc({ reason });
   failuresTotalCount += 1;
   const entry = { url, timestamp: new Date().toISOString() };
   if (failuresBuffer.length >= FAILURES_BUFFER_SIZE) {
@@ -165,8 +166,8 @@ export function recordMcpToolCall(tool: string): void {
   mcpToolCallsTotal.inc({ tool });
 }
 
-export function recordMcpToolError(tool: string): void {
-  mcpToolErrorsTotal.inc({ tool });
+export function recordMcpToolError(tool: string, reason: string): void {
+  mcpToolErrorsTotal.inc({ tool, reason });
 }
 
 export function recordMcpRequestDuration(endpoint: string, durationSeconds: number): void {

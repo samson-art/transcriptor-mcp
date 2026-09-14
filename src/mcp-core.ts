@@ -13,15 +13,15 @@ import path from 'node:path';
 import { z } from 'zod/v3';
 import type { FastifyBaseLogger } from 'fastify';
 import pino from 'pino';
+import * as Sentry from '@sentry/node';
 import {
   detectSubtitleFormat,
   downloadPlaylistSubtitles,
-  formatPlaylistDownloadFailureMessage,
   parseSubtitles,
   searchVideos,
   type VideoChapter,
 } from './youtube.js';
-import { NotFoundError, ValidationError } from './errors.js';
+import { HttpError, NotFoundError, ValidationError, YtDlpError } from './errors.js';
 import {
   normalizeVideoInput,
   sanitizeLang,
@@ -337,6 +337,14 @@ type WithToolErrorHandlingOptions = {
   notFoundMessage?: string;
 };
 
+/** Bounded metric label: one of the failure classes, or the error kind. */
+function toolErrorReason(err: unknown): string {
+  if (err instanceof YtDlpError) return err.reason;
+  if (err instanceof NotFoundError) return 'not_found';
+  if (err instanceof ValidationError) return 'validation';
+  return 'unknown';
+}
+
 async function withToolErrorHandling(
   toolName: string,
   log: FastifyBaseLogger,
@@ -349,15 +357,19 @@ async function withToolErrorHandling(
     recordMcpToolCall(toolName);
     return result;
   } catch (err) {
-    recordMcpToolError(toolName);
+    recordMcpToolError(toolName, toolErrorReason(err));
     if (err instanceof NotFoundError) {
       return toolError(options?.notFoundMessage ?? err.message);
     }
-    if (err instanceof ValidationError) {
+    // Every error class we raise on purpose carries a message meant for the caller.
+    if (err instanceof HttpError && err.statusCode < 500) {
       return toolError(err.message);
     }
     log.error({ err, tool: toolName }, 'MCP tool unexpected error');
-    return toolError(err instanceof Error ? err.message : 'Tool failed.');
+    Sentry.captureException(err);
+    // An unplanned error's message can hold the yt-dlp command line, a cookies
+    // path or a proxy URL, so it never goes to the caller.
+    return toolError(err instanceof YtDlpError ? err.message : 'Tool failed. Please try again.');
   } finally {
     recordMcpRequestDuration(toolName, (performance.now() - start) / 1000);
   }
@@ -413,15 +425,9 @@ export function createMcpServer(opts?: CreateMcpServerOptions) {
           },
           log
         );
-        let plainText: string;
-        try {
-          plainText = parseSubtitles(result.subtitlesContent);
-        } catch (error) {
-          throw new Error(
-            error instanceof Error ? error.message : 'Failed to parse subtitles content.',
-            { cause: error }
-          );
-        }
+        // A parser failure is a bug, not a user error: let it reach the handler,
+        // which logs it with its stack and reports it, and answers with a safe line.
+        const plainText = parseSubtitles(result.subtitlesContent);
         const page = paginateText(plainText, resolved.responseLimit, resolved.nextCursor);
         return {
           content: [textContent(page.chunk)],
@@ -587,7 +593,7 @@ export function createMcpServer(opts?: CreateMcpServerOptions) {
           const result = await validateAndFetchVideoInfo({ url }, log);
           const { videoId, info } = result;
           if (!info) {
-            throw new Error('Failed to fetch video info.');
+            throw new NotFoundError('Failed to fetch video info.');
           }
           const textLines = [
             info.title ? `Title: ${info.title}` : null,
@@ -793,7 +799,7 @@ export function createMcpServer(opts?: CreateMcpServerOptions) {
         );
 
         if (!outcome.ok) {
-          throw new Error(formatPlaylistDownloadFailureMessage(outcome.failure));
+          throw new YtDlpError(outcome.failure.reason ?? 'unknown');
         }
 
         const rawResults = outcome.results;
@@ -866,7 +872,7 @@ export function createMcpServer(opts?: CreateMcpServerOptions) {
         });
 
         if (results === null) {
-          throw new Error('Failed to search videos.');
+          throw new NotFoundError('Failed to search videos.');
         }
 
         let text: string;
@@ -1249,7 +1255,9 @@ export function createMcpServer(opts?: CreateMcpServerOptions) {
 function resolveSubtitleArgs(args: z.infer<typeof subtitleInputSchema>) {
   const url = resolveVideoUrl(args.url);
   if (!url) {
-    throw new Error('Invalid video URL. Use a URL from a supported platform or YouTube video ID.');
+    throw new ValidationError(
+      'Invalid video URL. Use a URL from a supported platform or YouTube video ID.'
+    );
   }
 
   const isAutoDiscover = args.type === undefined && args.lang === undefined;
@@ -1267,7 +1275,7 @@ function resolveSubtitleArgs(args: z.infer<typeof subtitleInputSchema>) {
     } else {
       const sanitized = sanitizeLang(args.lang);
       if (!sanitized) {
-        throw new Error('Invalid language code.');
+        throw new ValidationError('Invalid language code.');
       }
       lang = sanitized;
     }
@@ -1290,7 +1298,7 @@ function paginateText(text: string, limit: number, nextCursor?: string) {
   const startOffset = nextCursor ? Number.parseInt(nextCursor, 10) : 0;
 
   if (Number.isNaN(startOffset) || startOffset < 0 || startOffset > totalLength) {
-    throw new Error('Invalid next_cursor value.');
+    throw new ValidationError('Invalid next_cursor value.');
   }
 
   const endOffset = Math.min(startOffset + limit, totalLength);
