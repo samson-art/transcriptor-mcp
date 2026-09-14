@@ -1,5 +1,5 @@
 import * as Sentry from '@sentry/node';
-import { NotFoundError, ValidationError, YtDlpError } from './errors.js';
+import { NotFoundError, ServerBusyError, ValidationError, YtDlpError } from './errors.js';
 import { createMcpServer } from './mcp-core.js';
 import * as youtube from './youtube.js';
 import * as validation from './validation.js';
@@ -454,6 +454,29 @@ describe('mcp-core tools', () => {
       expect(result.content[0].text).toBe(
         'The video platform is rate-limiting requests right now. Try again in a few minutes.'
       );
+    });
+
+    it('should answer a busy server with a retry line and no error log', async () => {
+      const logger = {
+        error: jest.fn(),
+        info: jest.fn(),
+        debug: jest.fn(),
+        warn: jest.fn(),
+        child: jest.fn(),
+      };
+      logger.child.mockReturnValue(logger);
+      const server = createMcpServer({ logger: logger as any }) as any;
+      const handler = getTool(server, 'get_video_info');
+
+      normalizeVideoInputMock.mockReturnValue(testUrl);
+      validateAndFetchVideoInfoMock.mockRejectedValue(new ServerBusyError());
+
+      const result = await handler({ url: testUrl }, {});
+
+      expect(result).toMatchObject({ isError: true });
+      expect(result.content[0].text).toBe('The server is busy, try again in a moment.');
+      expect(logger.warn).toHaveBeenCalled();
+      expect(logger.error).not.toHaveBeenCalled();
     });
 
     it('should answer a classified yt-dlp failure with its own sentence', async () => {

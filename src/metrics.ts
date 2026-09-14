@@ -77,6 +77,25 @@ export const whisperBackgroundJobsActive = new Gauge({
   registers: [register],
 });
 
+// Child processes (yt-dlp and ffmpeg share one cap; see youtube.ts)
+export const ytDlpProcessesActive = new Gauge({
+  name: 'yt_dlp_processes_active',
+  help: 'Child processes (yt-dlp/ffmpeg) running right now',
+  registers: [register],
+});
+
+export const ytDlpQueueLength = new Gauge({
+  name: 'yt_dlp_queue_length',
+  help: 'Calls waiting for a child-process slot',
+  registers: [register],
+});
+
+export const ytDlpRejectedTotal = new Counter({
+  name: 'yt_dlp_rejected_total',
+  help: 'Calls refused because the child-process queue was full',
+  registers: [register],
+});
+
 // MCP metrics (labels set when used from MCP)
 export const mcpToolCallsTotal = new Counter({
   name: 'mcp_tool_calls_total',
@@ -160,6 +179,15 @@ export function getFailedSubtitlesUrls(): {
     failures: [...failuresBuffer],
     total: failuresTotalCount,
   };
+}
+
+export function setYtDlpProcessGauges(active: number, queued: number): void {
+  ytDlpProcessesActive.set(active);
+  ytDlpQueueLength.set(queued);
+}
+
+export function recordYtDlpRejected(): void {
+  ytDlpRejectedTotal.inc();
 }
 
 export function recordMcpToolCall(tool: string): void {

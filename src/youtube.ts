@@ -1,4 +1,4 @@
-import { execFile, type ExecFileException } from 'node:child_process';
+import { execFile, type ExecFileException, type ExecFileOptions } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { promisify } from 'node:util';
 import { copyFile, readFile, stat, unlink } from 'node:fs/promises';
@@ -8,9 +8,72 @@ import { tmpdir } from 'node:os';
 import type { FastifyBaseLogger } from 'fastify';
 
 import { parseIntEnv } from './env.js';
-import { HttpError, YT_DLP_INFRA_REASONS, YtDlpError, type YtDlpFailureReason } from './errors.js';
+import {
+  HttpError,
+  ServerBusyError,
+  YT_DLP_INFRA_REASONS,
+  YtDlpError,
+  type YtDlpFailureReason,
+} from './errors.js';
+import { recordYtDlpRejected, setYtDlpProcessGauges } from './metrics.js';
 
-const execFileAsync = promisify(execFile);
+const execFileRaw = promisify(execFile);
+
+/** Waiters are resumed with the slot already theirs, so the cap cannot be overshot. */
+let activeProcesses = 0;
+const processWaiters: Array<() => void> = [];
+
+function syncProcessGauges(): void {
+  setYtDlpProcessGauges(activeProcesses, processWaiters.length);
+}
+
+/**
+ * Every yt-dlp and ffmpeg run in this process goes through here, so one cap covers
+ * the REST API, MCP over stdio and MCP over HTTP. Each run costs a python process,
+ * a JS runtime for the player script and sometimes ffmpeg, which is what makes an
+ * unbounded fan-out dangerous on a small box. Above the cap calls queue; above the
+ * queue they are refused at once rather than piling up past any client's patience.
+ *
+ * `timeout` and `maxBuffer` are passed through untouched — execFile only starts its
+ * timer at spawn, so waiting in the queue never eats into a call's own budget.
+ *
+ * ponytail: one cap shared by both binaries; split per binary only if frame capture
+ * ever starves transcripts.
+ */
+async function execFileAsync(
+  file: string,
+  args: string[],
+  options: Omit<ExecFileOptions, 'encoding'>
+): Promise<{ stdout: string; stderr: string }> {
+  const max = parseIntEnv('YT_DLP_MAX_CONCURRENCY', 4);
+  if (max > 0 && activeProcesses >= max) {
+    if (processWaiters.length >= parseIntEnv('YT_DLP_MAX_QUEUE', 8)) {
+      recordYtDlpRejected();
+      throw new ServerBusyError();
+    }
+    await new Promise<void>((resolve) => {
+      processWaiters.push(resolve);
+      syncProcessGauges();
+    });
+  } else {
+    activeProcesses += 1;
+  }
+  syncProcessGauges();
+
+  try {
+    // No caller sets `encoding`, so execFile keeps its utf8 default and both
+    // streams come back as strings; the promisified overload can't say that.
+    return (await execFileRaw(file, args, options)) as { stdout: string; stderr: string };
+  } finally {
+    const next = processWaiters.shift();
+    if (next) {
+      next();
+    } else {
+      activeProcesses -= 1;
+    }
+    syncProcessGauges();
+  }
+}
 
 /** Builds a safe base name for temp files from URL (hash + timestamp). Exported for tests. */
 export function urlToSafeBase(url: string, prefix: string): string {

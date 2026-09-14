@@ -41,6 +41,18 @@ export class NotFoundError extends HttpError {
 }
 
 /**
+ * Every child-process slot is taken and the queue is full. Shedding load here
+ * beats letting the box swap: yt-dlp, its JS runtime and ffmpeg are not cheap.
+ */
+export class ServerBusyError extends HttpError {
+  constructor() {
+    super(503, 'The server is busy, try again in a moment.', 'Server busy');
+    this.name = 'ServerBusyError';
+    Object.setPrototypeOf(this, new.target.prototype);
+  }
+}
+
+/**
  * What made a yt-dlp (or ffmpeg) run fail, as far as its output lets us tell.
  * `unknown` is the honest default: the classifier reads free-form stderr.
  */

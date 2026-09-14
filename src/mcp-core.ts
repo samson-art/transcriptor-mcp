@@ -21,7 +21,13 @@ import {
   searchVideos,
   type VideoChapter,
 } from './youtube.js';
-import { HttpError, NotFoundError, ValidationError, YtDlpError } from './errors.js';
+import {
+  HttpError,
+  NotFoundError,
+  ServerBusyError,
+  ValidationError,
+  YtDlpError,
+} from './errors.js';
 import {
   normalizeVideoInput,
   sanitizeLang,
@@ -339,6 +345,7 @@ type WithToolErrorHandlingOptions = {
 
 /** Bounded metric label: one of the failure classes, or the error kind. */
 function toolErrorReason(err: unknown): string {
+  if (err instanceof ServerBusyError) return 'busy';
   if (err instanceof YtDlpError) return err.reason;
   if (err instanceof NotFoundError) return 'not_found';
   if (err instanceof ValidationError) return 'validation';
@@ -360,6 +367,11 @@ async function withToolErrorHandling(
     recordMcpToolError(toolName, toolErrorReason(err));
     if (err instanceof NotFoundError) {
       return toolError(options?.notFoundMessage ?? err.message);
+    }
+    // Load shedding is a state of this server, not a fault: say so and move on.
+    if (err instanceof ServerBusyError) {
+      log.warn({ tool: toolName }, 'MCP tool rejected: server busy');
+      return toolError(err.message);
     }
     // Every error class we raise on purpose carries a message meant for the caller.
     if (err instanceof HttpError && err.statusCode < 500) {

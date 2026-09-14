@@ -3,6 +3,7 @@ import { tmpdir } from 'os';
 import { join, basename } from 'path';
 import { access, constants, writeFile, unlink } from 'node:fs/promises';
 import * as youtube from './youtube.js';
+import { renderPrometheus } from './metrics.js';
 
 jest.mock('node:child_process', () => ({
   execFile: jest.fn(),
@@ -1367,6 +1368,87 @@ today to pay our respects to MCP, which
       await expect(
         downloadSubtitles('https://www.youtube.com/watch?v=abc', 'auto', 'en')
       ).rejects.toThrow(/^(?!.*(Command failed|cookies|ERROR:)).*$/s);
+    });
+  });
+
+  describe('child-process concurrency limiter', () => {
+    const url = 'https://www.youtube.com/watch?v=limit123';
+    let releases: Array<() => void>;
+
+    /** Lets every pending promise advance to its next await. */
+    const tick = () => new Promise((resolve) => setImmediate(resolve));
+
+    beforeEach(() => {
+      jest.clearAllMocks();
+      releases = [];
+      process.env.YT_DLP_MAX_CONCURRENCY = '2';
+      process.env.YT_DLP_MAX_QUEUE = '1';
+      execFileMock.mockImplementation(
+        (
+          _file: string,
+          _args: string[],
+          _options: unknown,
+          callback: (error: Error | null, result: { stdout: string; stderr: string }) => void
+        ) => {
+          releases.push(() => callback(null, { stdout: '{"id":"limit123"}', stderr: '' }));
+        }
+      );
+    });
+
+    afterEach(async () => {
+      // Hand every slot back, or the rest of the file would queue behind this test.
+      while (releases.length > 0) {
+        releases.shift()?.();
+        await tick();
+      }
+      delete process.env.YT_DLP_MAX_CONCURRENCY;
+      delete process.env.YT_DLP_MAX_QUEUE;
+    });
+
+    it('should run up to the cap, queue the next, and refuse beyond the queue', async () => {
+      const started: Array<Promise<unknown>> = [];
+      for (let i = 0; i < 4; i += 1) {
+        started.push(fetchYtDlpJson(url).catch((err: unknown) => err));
+        await tick();
+      }
+
+      expect(execFileMock).toHaveBeenCalledTimes(2);
+      await expect(started[3]).resolves.toMatchObject({
+        name: 'ServerBusyError',
+        statusCode: 503,
+      });
+
+      releases.shift()?.();
+      await tick();
+      expect(execFileMock).toHaveBeenCalledTimes(3);
+
+      while (releases.length > 0) {
+        releases.shift()?.();
+        await tick();
+      }
+      await Promise.all(started.slice(0, 3));
+
+      const metrics = await renderPrometheus();
+      expect(metrics).toMatch(/^yt_dlp_rejected_total\{[^}]*\} 1$/m);
+      expect(metrics).toMatch(/^yt_dlp_processes_active\{[^}]*\} 0$/m);
+      expect(metrics).toMatch(/^yt_dlp_queue_length\{[^}]*\} 0$/m);
+    });
+
+    it('should not limit anything when YT_DLP_MAX_CONCURRENCY is 0', async () => {
+      process.env.YT_DLP_MAX_CONCURRENCY = '0';
+
+      const started: Array<Promise<unknown>> = [];
+      for (let i = 0; i < 5; i += 1) {
+        started.push(fetchYtDlpJson(url));
+        await tick();
+      }
+
+      expect(execFileMock).toHaveBeenCalledTimes(5);
+      while (releases.length > 0) {
+        releases.shift()?.();
+        await tick();
+      }
+      await Promise.all(started);
     });
   });
 

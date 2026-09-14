@@ -4,7 +4,7 @@
  * When SENTRY_DSN is not set, the SDK does not send events.
  */
 import * as Sentry from '@sentry/node';
-import { HttpError, YtDlpError } from './errors.js';
+import { HttpError, ServerBusyError, YtDlpError } from './errors.js';
 
 Sentry.init({
   dsn: process.env.SENTRY_DSN,
@@ -18,7 +18,8 @@ Sentry.init({
   beforeSend(event, hint) {
     const ex = hint.originalException;
     // 4xx means "this request/video", not "this server": noise, not a fault.
-    if (ex instanceof HttpError && ex.statusCode < 500) {
+    // Load shedding is expected under a burst; the metrics show it.
+    if ((ex instanceof HttpError && ex.statusCode < 500) || ex instanceof ServerBusyError) {
       return null;
     }
     // One issue per failure class, whichever tool or call site raised it.
