@@ -51,6 +51,12 @@ export function buildMcpImageRef(): string {
   return `${imageName}:${imageTag}`;
 }
 
+/** SMOKE_SKIP_TRANSCRIPT=1: skip the real-YouTube get_transcript call (CI without network egress to YouTube). */
+function getSkipTranscript(): boolean {
+  const v = process.env.SMOKE_SKIP_TRANSCRIPT;
+  return v === '1' || v === 'true' || v === 'yes';
+}
+
 function runCommandWithStdin(
   command: string,
   args: string[],
@@ -504,7 +510,12 @@ export async function runMcpSmokeTest(mcpImage: string): Promise<void> {
     await waitForMcpReady(mcpBaseUrl, 60000);
     await checkMcpStreamable(mcpBaseUrl);
     await checkMcpToolsList(mcpBaseUrl);
-    await checkMcpStreamableGetTranscript(mcpBaseUrl);
+    if (getSkipTranscript()) {
+      // eslint-disable-next-line no-console
+      console.log('[smoke] get_transcript skipped (SMOKE_SKIP_TRANSCRIPT)');
+    } else {
+      await checkMcpStreamableGetTranscript(mcpBaseUrl);
+    }
     await checkMcpGetRejected(mcpBaseUrl);
     await checkMcpStdio(mcpImage);
   } finally {
