@@ -312,7 +312,9 @@ await writeFile(path.join(out, 'llms.txt'), renderLlmsTxt());
 await writeFile(path.join(out, 'sitemap.xml'), renderSitemap());
 await cp(path.join(root, 'web/robots.txt'), path.join(out, 'robots.txt'));
 await cp(path.join(root, 'web/_headers'), path.join(out, '_headers'));
-console.log(`built / with ${clients.length} client panels, and /llms.txt`);
+await cp(path.join(root, 'web/404.html'), path.join(out, '404.html'));
+await cp(path.join(root, 'web/.well-known'), path.join(out, '.well-known'), { recursive: true });
+console.log(`built / with ${clients.length} client panels, /llms.txt, /404.html and /.well-known`);
 
 await cp(path.join(root, 'web/fonts'), path.join(out, 'fonts'), { recursive: true });
 // Brand assets: the SVG mark is the source of truth (web/brand/README.md

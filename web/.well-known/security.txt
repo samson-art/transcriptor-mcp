@@ -1,0 +1,6 @@
+Contact: mailto:contact@transcriptor-mcp.org
+Contact: mailto:legal@transcriptor-mcp.org
+Expires: 2027-09-01T00:00:00.000Z
+Preferred-Languages: en, ru
+Canonical: https://transcriptor-mcp.org/.well-known/security.txt
+Policy: https://transcriptor-mcp.org/support/
