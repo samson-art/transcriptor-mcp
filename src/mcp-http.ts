@@ -17,7 +17,8 @@ import { createLoggerWithSentryBreadcrumbs } from './logger-sentry-breadcrumbs.j
 import { renderPrometheus } from './metrics.js';
 import { parseIntEnv } from './env.js';
 import { setupLifecycle } from './lifecycle.js';
-import { checkYtDlpAtStartup } from './yt-dlp-check.js';
+import { checkYtDlpAtStartup, scheduleYtDlpVersionCheck } from './yt-dlp-check.js';
+import { startCanary } from './canary.js';
 import { close as closeCache } from './cache.js';
 
 /** Canonical Streamable HTTP endpoint. Clients POST JSON-RPC here. */
@@ -60,6 +61,10 @@ export type BuildMcpHttpAppOptions = {
 export function buildMcpHttpApp(opts?: BuildMcpHttpAppOptions): FastifyInstance {
   const app: FastifyInstance = Fastify({
     loggerInstance: opts?.loggerInstance ?? createLoggerWithSentryBreadcrumbs(),
+    // Adopt the gateway's request id so its logs, ours and Sentry share one key.
+    // Safe only because this port is reachable from the gateway alone and the
+    // gateway overwrites the header; never expose this listener publicly.
+    requestIdHeader: 'x-request-id',
   });
 
   app.setErrorHandler((error: FastifyError, request, reply) => {
@@ -166,6 +171,12 @@ export async function startMcpHttpServer(): Promise<FastifyInstance> {
   });
 
   await checkYtDlpAtStartup({
+    error: (msg) => app.log.error(msg),
+    warn: (msg) => app.log.warn(msg),
+  });
+
+  startCanary(app.log);
+  scheduleYtDlpVersionCheck({
     error: (msg) => app.log.error(msg),
     warn: (msg) => app.log.warn(msg),
   });

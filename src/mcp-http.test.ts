@@ -21,6 +21,8 @@ jest.mock('@modelcontextprotocol/ext-apps/server', () => ({
   RESOURCE_MIME_TYPE: 'text/html;profile=mcp-app',
 }));
 
+import pino from 'pino';
+
 import { buildMcpHttpApp } from './mcp-http.js';
 import { createLoggerWithSentryBreadcrumbs } from './logger-sentry-breadcrumbs.js';
 
@@ -82,6 +84,35 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await app.close();
+});
+
+describe('request id', () => {
+  it('adopts the gateway x-request-id so both sides log the same key', async () => {
+    const lines: string[] = [];
+    const scoped = buildMcpHttpApp({
+      loggerInstance: pino(
+        { level: 'info' },
+        {
+          write: (line: string) => {
+            lines.push(line);
+          },
+        }
+      ),
+    });
+
+    try {
+      const response = await scoped.inject({
+        method: 'GET',
+        url: '/health',
+        headers: { 'x-request-id': 'gw-abc-123' },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(lines.join('\n')).toContain('"reqId":"gw-abc-123"');
+    } finally {
+      await scoped.close();
+    }
+  });
 });
 
 describe('POST /mcp', () => {

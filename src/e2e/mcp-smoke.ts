@@ -490,6 +490,10 @@ export async function runMcpSmokeTest(mcpImage: string): Promise<void> {
     mcpContainerName,
     '-p',
     `${mcpPort}:4200`,
+    // The smoke decides for itself when it talks to YouTube; the background canary
+    // would otherwise fetch a transcript the moment the container boots.
+    '-e',
+    'CANARY_INTERVAL_MS=0',
     mcpImage,
   ];
 
