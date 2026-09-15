@@ -88,24 +88,22 @@ export function collectExecFileErrorDetails(error: unknown): ExecFileErrorDetail
   const err = error instanceof Error ? error : new Error(String(error));
   const execErr = isExecFileException(error) ? error : null;
   const details: ExecFileErrorDetails = { message: err.message };
-  if (!execErr) {
-    details.reason = classifyYtDlpFailure(details);
-    return details;
-  }
-  if (execErr.code !== undefined && execErr.code !== null) {
-    details.exitCode = execErr.code;
-  }
-  if (execErr.signal) {
-    details.signal = execErr.signal;
-  }
-  if (execErr.cmd) {
-    details.cmd = execErr.cmd;
-  }
-  if (typeof execErr.stdout === 'string' && execErr.stdout.length > 0) {
-    details.stdout = execErr.stdout;
-  }
-  if (typeof execErr.stderr === 'string' && execErr.stderr.length > 0) {
-    details.stderr = execErr.stderr;
+  if (execErr) {
+    if (execErr.code !== undefined && execErr.code !== null) {
+      details.exitCode = execErr.code;
+    }
+    if (execErr.signal) {
+      details.signal = execErr.signal;
+    }
+    if (execErr.cmd) {
+      details.cmd = execErr.cmd;
+    }
+    if (typeof execErr.stdout === 'string' && execErr.stdout.length > 0) {
+      details.stdout = execErr.stdout;
+    }
+    if (typeof execErr.stderr === 'string' && execErr.stderr.length > 0) {
+      details.stderr = execErr.stderr;
+    }
   }
   details.reason = classifyYtDlpFailure(details);
   return details;
@@ -264,16 +262,8 @@ async function runYtDlpAndExtractSubtitles(
     return await readAndReturnSubtitleIfValid(subtitleFile);
   } catch (error: unknown) {
     if (error instanceof HttpError) throw error;
-    const err = error instanceof Error ? error : new Error(String(error));
-    const execErr = isExecFileException(error) ? error : null;
     logger?.error(
-      {
-        error: err.message,
-        type,
-        lang,
-        reason: collectExecFileErrorDetails(error).reason,
-        ...(execErr && { stdout: execErr.stdout, stderr: execErr.stderr }),
-      },
+      { ...execDetailsToLogFields(collectExecFileErrorDetails(error)), type, lang },
       `Error downloading ${type} subtitles`
     );
 
@@ -372,10 +362,6 @@ export type PlaylistSubtitlesResult = {
   videoId: string;
   content: string;
 };
-
-export type DownloadPlaylistSubtitlesOutcome =
-  | { ok: true; results: PlaylistSubtitlesResult[] }
-  | { ok: false; failure: ExecFileErrorDetails };
 
 /** Options for downloadPlaylistSubtitles */
 export type DownloadPlaylistSubtitlesOptions = {
@@ -501,7 +487,7 @@ async function handlePlaylistDownloadError(
   buildFullArgs: (quiet: boolean, verbose: boolean) => string[],
   tempDir: string,
   logger?: FastifyBaseLogger
-): Promise<DownloadPlaylistSubtitlesOutcome> {
+): Promise<PlaylistSubtitlesResult[]> {
   const details = collectExecFileErrorDetails(error);
   logger?.error(execDetailsToLogFields(details), 'Error downloading playlist subtitles');
 
@@ -511,11 +497,11 @@ async function handlePlaylistDownloadError(
       { count: partial.length, tempDir },
       'Returning partial playlist subtitle results after yt-dlp error'
     );
-    return { ok: true, results: partial };
+    return partial;
   }
 
   await runPlaylistVerboseReplay(buildFullArgs, logger);
-  return { ok: false, failure: details };
+  throw new YtDlpError(details.reason ?? 'unknown');
 }
 
 /**
@@ -523,13 +509,14 @@ async function handlePlaylistDownloadError(
  * @param url - Playlist URL or watch URL with list= parameter
  * @param options - Optional type, lang, playlistItems, maxItems
  * @param logger - Fastify logger instance for structured logging
- * @returns Discriminated outcome: results on success or partial success; failure details if yt-dlp failed with no subtitle files
+ * @returns The subtitles that were downloaded, possibly a partial set
+ * @throws YtDlpError when yt-dlp failed and produced no subtitle files at all
  */
 export async function downloadPlaylistSubtitles(
   url: string,
   options: DownloadPlaylistSubtitlesOptions = {},
   logger?: FastifyBaseLogger
-): Promise<DownloadPlaylistSubtitlesOutcome> {
+): Promise<PlaylistSubtitlesResult[]> {
   const { type = 'auto', lang = 'en', format, playlistItems, maxItems } = options;
   const subFormat = resolveSubtitleFormat(format);
   const tempDir = join(
@@ -609,8 +596,7 @@ export async function downloadPlaylistSubtitles(
       });
       logger?.debug({ tempDir }, 'yt-dlp playlist subtitles completed');
 
-      const results = await readPlaylistSubtitleResults();
-      return { ok: true, results };
+      return await readPlaylistSubtitleResults();
     } catch (error: unknown) {
       if (error instanceof HttpError) throw error;
       return handlePlaylistDownloadError(
@@ -625,7 +611,7 @@ export async function downloadPlaylistSubtitles(
     if (outerError instanceof HttpError) throw outerError;
     const details = collectExecFileErrorDetails(outerError);
     logger?.error(execDetailsToLogFields(details), 'Error preparing playlist subtitle download');
-    return { ok: false, failure: details };
+    throw new YtDlpError(details.reason ?? 'unknown');
   } finally {
     await cookiesCleanup?.();
     const { rm } = await import('node:fs/promises');
@@ -1510,19 +1496,6 @@ function mapSearchEntryToResult(e: YtDlpSearchEntry): SearchVideoResult {
   };
 }
 
-function getSearchErrorPayload(error: unknown): {
-  message: string;
-  stdout?: string;
-  stderr?: string;
-} {
-  const err = error instanceof Error ? error : new Error(String(error));
-  const execErr = isExecFileException(error) ? error : null;
-  return {
-    message: err.message,
-    ...(execErr && { stdout: execErr.stdout, stderr: execErr.stderr }),
-  };
-}
-
 /**
  * Searches for videos on YouTube using yt-dlp (ytsearch).
  * @param query - Search query
@@ -1595,13 +1568,8 @@ export async function searchVideos(
     const all = entries.filter((e): e is YtDlpSearchEntry => e != null).map(mapSearchEntryToResult);
     return all.slice(offset, offset + sanitizedLimit);
   } catch (error: unknown) {
-    const { message, stdout, stderr } = getSearchErrorPayload(error);
     logger?.error(
-      {
-        error: message,
-        reason: collectExecFileErrorDetails(error).reason,
-        ...(stdout !== undefined && { stdout, stderr }),
-      },
+      execDetailsToLogFields(collectExecFileErrorDetails(error)),
       'Error searching videos via yt-dlp'
     );
     rethrowInfra(error);

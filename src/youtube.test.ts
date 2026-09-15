@@ -1389,7 +1389,7 @@ today to pay our respects to MCP, which
           setImmediate(() => cb(null, '', ''));
         }
       );
-      const outcome = await downloadPlaylistSubtitles(
+      const results = await downloadPlaylistSubtitles(
         'https://www.youtube.com/playlist?list=PLxxx',
         {
           playlistItems: '1:5',
@@ -1398,10 +1398,7 @@ today to pay our respects to MCP, which
           lang: 'en',
         }
       );
-      expect(outcome.ok).toBe(true);
-      if (outcome.ok) {
-        expect(outcome.results).toEqual([]);
-      }
+      expect(results).toEqual([]);
       expect(execFileMock).toHaveBeenCalled();
       expect(capturedArgs).toContain('--yes-playlist');
       expect(capturedArgs).toContain('--ignore-errors');
@@ -1426,15 +1423,11 @@ today to pay our respects to MCP, which
           setImmediate(() => cb(null, '', ''));
         }
       );
-      const outcome = await downloadPlaylistSubtitles(
-        'https://www.youtube.com/playlist?list=PLxxx',
-        {}
-      );
-      expect(outcome.ok).toBe(true);
+      await downloadPlaylistSubtitles('https://www.youtube.com/playlist?list=PLxxx', {});
       expect(capturedArgs).not.toContain('--ignore-errors');
     });
 
-    it('should return ok:false with failure details when yt-dlp exits with error', async () => {
+    it('should reject with the classified failure when yt-dlp exits with error', async () => {
       execFileMock.mockImplementation(
         (
           _file: string,
@@ -1451,17 +1444,9 @@ today to pay our respects to MCP, which
           setImmediate(() => cb(err, '', ''));
         }
       );
-      const outcome = await downloadPlaylistSubtitles(
-        'https://www.youtube.com/playlist?list=PLxxx',
-        {}
-      );
-      expect(outcome.ok).toBe(false);
-      if (!outcome.ok) {
-        expect(outcome.failure.message).toContain('Command failed');
-        expect(outcome.failure.exitCode).toBe(1);
-        expect(outcome.failure.stderr).toBe('private video');
-        expect(outcome.failure.reason).toBe('private');
-      }
+      await expect(
+        downloadPlaylistSubtitles('https://www.youtube.com/playlist?list=PLxxx', {})
+      ).rejects.toMatchObject({ name: 'YtDlpError', reason: 'private' });
     });
   });
 

@@ -434,7 +434,6 @@ describe('mcp-core tools', () => {
       expect(result).toMatchObject({ isError: true });
       // The raw message holds a cookies path: the caller gets a fixed sentence.
       expect(result.content[0].text).toBe('Tool failed. Please try again.');
-      expect(result.content[0].text).not.toContain('cookies');
       expect(logger.error).toHaveBeenCalledWith(
         expect.objectContaining({ err: expect.any(Error), tool: 'get_video_info' }),
         'MCP tool unexpected error'
@@ -442,29 +441,19 @@ describe('mcp-core tools', () => {
       expect(captureExceptionMock).toHaveBeenCalled();
     });
 
-    it('should keep the yt-dlp command line out of a playlist failure', async () => {
+    it('should answer a playlist failure with the classified sentence', async () => {
       const server = createMcpServer() as any;
       const handler = getTool(server, 'get_playlist_transcripts');
 
       normalizeVideoInputMock.mockReturnValue('https://www.youtube.com/playlist?list=PLxxx');
-      downloadPlaylistSubtitlesMock.mockResolvedValue({
-        ok: false,
-        failure: {
-          message: 'Command failed: yt-dlp --cookies /cookies.txt --proxy http://user:pw@host',
-          exitCode: 1,
-          stderr: 'ERROR: HTTP Error 429: Too Many Requests',
-          reason: 'rate_limited',
-        },
-      });
+      downloadPlaylistSubtitlesMock.mockRejectedValue(new YtDlpError('rate_limited'));
 
       const result = await handler({ url: 'https://www.youtube.com/playlist?list=PLxxx' }, {});
 
       expect(result).toMatchObject({ isError: true });
-      const text = result.content[0].text as string;
-      expect(text).toContain('rate-limiting');
-      expect(text).not.toContain('Command failed');
-      expect(text).not.toContain('cookies');
-      expect(text).not.toContain('proxy');
+      expect(result.content[0].text).toBe(
+        'The video platform is rate-limiting requests right now. Try again in a few minutes.'
+      );
     });
 
     it('should answer a classified yt-dlp failure with its own sentence', async () => {

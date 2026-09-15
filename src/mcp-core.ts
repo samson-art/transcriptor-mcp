@@ -786,7 +786,7 @@ export function createMcpServer(opts?: CreateMcpServerOptions) {
             ? args.format
             : undefined;
 
-        const outcome = await downloadPlaylistSubtitles(
+        const rawResults = await downloadPlaylistSubtitles(
           url,
           {
             type: args.type ?? 'auto',
@@ -797,12 +797,6 @@ export function createMcpServer(opts?: CreateMcpServerOptions) {
           },
           log
         );
-
-        if (!outcome.ok) {
-          throw new YtDlpError(outcome.failure.reason ?? 'unknown');
-        }
-
-        const rawResults = outcome.results;
 
         const results = rawResults.map((r) => ({
           videoId: r.videoId,

@@ -1124,12 +1124,10 @@ describe('validation', () => {
         details: { message: 'Command failed: ffmpeg -i https://cdn.example/stream.mp4' },
       });
 
-      await expect(validateAndCaptureVideoFrame({ url, seconds: 10 })).rejects.toThrow(
-        NotFoundError
-      );
-      await expect(validateAndCaptureVideoFrame({ url, seconds: 10 })).rejects.toThrow(
-        'Failed to capture a frame for this video.'
-      );
+      await expect(validateAndCaptureVideoFrame({ url, seconds: 10 })).rejects.toMatchObject({
+        name: 'NotFoundError',
+        message: 'Failed to capture a frame for this video.',
+      });
     });
   });
 });
