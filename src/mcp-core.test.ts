@@ -1,4 +1,5 @@
-import { NotFoundError, ValidationError } from './errors.js';
+import * as Sentry from '@sentry/node';
+import { NotFoundError, ValidationError, YtDlpError } from './errors.js';
 import { createMcpServer } from './mcp-core.js';
 import * as youtube from './youtube.js';
 import * as validation from './validation.js';
@@ -45,8 +46,13 @@ jest.mock('@modelcontextprotocol/sdk/server/mcp.js', () => {
   return { McpServer: FakeMcpServer, ResourceTemplate: FakeResourceTemplate };
 });
 
+jest.mock('@sentry/node', () => ({
+  captureException: jest.fn(),
+}));
+
 jest.mock('./youtube.js', () => ({
   detectSubtitleFormat: jest.fn(),
+  downloadPlaylistSubtitles: jest.fn(),
   parseSubtitles: jest.fn(),
   searchVideos: jest.fn(),
 }));
@@ -63,6 +69,8 @@ jest.mock('./validation.js', () => ({
   FRAME_MAX_WIDTH: 1920,
 }));
 
+const captureExceptionMock = Sentry.captureException as unknown as jest.Mock;
+const downloadPlaylistSubtitlesMock = youtube.downloadPlaylistSubtitles as jest.Mock;
 const detectSubtitleFormatMock = youtube.detectSubtitleFormat as jest.Mock;
 const parseSubtitlesMock = youtube.parseSubtitles as jest.Mock;
 const searchVideosMock = youtube.searchVideos as jest.Mock;
@@ -238,7 +246,7 @@ describe('mcp-core tools', () => {
       expect(result.content[0].text).toContain('No auto subtitles available');
     });
 
-    it('should return error when parsing subtitles fails', async () => {
+    it('should report a parse failure and answer with a safe line', async () => {
       const server = createMcpServer() as any;
       const handler = getTool(server, 'get_transcript');
 
@@ -256,7 +264,8 @@ describe('mcp-core tools', () => {
       const result = await handler({ url: testUrl }, {});
 
       expect(result).toMatchObject({ isError: true });
-      expect(result.content[0].text).toContain('parse error');
+      expect(result.content[0].text).toBe('Tool failed. Please try again.');
+      expect(captureExceptionMock).toHaveBeenCalled();
     });
 
     it('should return transcript with source whisper when validation returns whisper', async () => {
@@ -423,11 +432,41 @@ describe('mcp-core tools', () => {
       const result = await handler({ url: testUrl }, {});
 
       expect(result).toMatchObject({ isError: true });
-      expect(result.content[0].text).toBe(errMsg);
+      // The raw message holds a cookies path: the caller gets a fixed sentence.
+      expect(result.content[0].text).toBe('Tool failed. Please try again.');
       expect(logger.error).toHaveBeenCalledWith(
         expect.objectContaining({ err: expect.any(Error), tool: 'get_video_info' }),
         'MCP tool unexpected error'
       );
+      expect(captureExceptionMock).toHaveBeenCalled();
+    });
+
+    it('should answer a playlist failure with the classified sentence', async () => {
+      const server = createMcpServer() as any;
+      const handler = getTool(server, 'get_playlist_transcripts');
+
+      normalizeVideoInputMock.mockReturnValue('https://www.youtube.com/playlist?list=PLxxx');
+      downloadPlaylistSubtitlesMock.mockRejectedValue(new YtDlpError('rate_limited'));
+
+      const result = await handler({ url: 'https://www.youtube.com/playlist?list=PLxxx' }, {});
+
+      expect(result).toMatchObject({ isError: true });
+      expect(result.content[0].text).toBe(
+        'The video platform is rate-limiting requests right now. Try again in a few minutes.'
+      );
+    });
+
+    it('should answer a classified yt-dlp failure with its own sentence', async () => {
+      const server = createMcpServer() as any;
+      const handler = getTool(server, 'get_video_info');
+
+      normalizeVideoInputMock.mockReturnValue(testUrl);
+      validateAndFetchVideoInfoMock.mockRejectedValue(new YtDlpError('bot_check'));
+
+      const result = await handler({ url: testUrl }, {});
+
+      expect(result).toMatchObject({ isError: true });
+      expect(result.content[0].text).toContain('bot detection');
     });
 
     it('should return structured video info on success', async () => {

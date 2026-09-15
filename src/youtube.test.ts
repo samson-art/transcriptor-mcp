@@ -30,7 +30,7 @@ const {
   ensureWritableCookiesFile,
   urlToSafeBase,
   collectExecFileErrorDetails,
-  formatPlaylistDownloadFailureMessage,
+  classifyYtDlpFailure,
   captureVideoFrame,
   getImageWidth,
 } = youtube;
@@ -1273,17 +1273,100 @@ today to pay our respects to MCP, which
     });
   });
 
-  describe('formatPlaylistDownloadFailureMessage', () => {
-    it('should include exit code and stderr tail', () => {
-      const msg = formatPlaylistDownloadFailureMessage({
-        message: 'Command failed: yt-dlp',
-        exitCode: 1,
-        stderr: 'Sign in to confirm',
+  describe('classifyYtDlpFailure', () => {
+    const cases: Array<[string, string]> = [
+      ["ERROR: [youtube] x: Sign in to confirm you're not a bot. Use --cookies", 'bot_check'],
+      ['ERROR: Unable to download webpage: HTTP Error 429: Too Many Requests', 'rate_limited'],
+      ['ERROR: [youtube] x: Private video. Sign in if you have been granted access', 'private'],
+      ['ERROR: [youtube] x: Sign in to confirm your age', 'age_restricted'],
+      ['ERROR: The uploader has not made this video available in your country', 'geo_blocked'],
+      ['WARNING: [youtube] nsig extraction failed: Some players may not work', 'extractor'],
+      ['ERROR: [youtube] x: Video unavailable. This video has been removed', 'unavailable'],
+      ['ERROR: something we have never seen', 'unknown'],
+    ];
+
+    it.each(cases)('should classify %s as %s', (stderr, expected) => {
+      expect(classifyYtDlpFailure({ message: 'Command failed: yt-dlp', stderr })).toBe(expected);
+    });
+
+    it('should read a kill by our own timeout as a timeout', () => {
+      expect(classifyYtDlpFailure({ message: 'Command failed', signal: 'SIGTERM' })).toBe(
+        'timeout'
+      );
+    });
+
+    it('should prefer the stderr cause over the timeout signal', () => {
+      expect(
+        classifyYtDlpFailure({
+          message: 'Command failed',
+          signal: 'SIGTERM',
+          stderr: 'HTTP Error 429: Too Many Requests',
+        })
+      ).toBe('rate_limited');
+    });
+
+    it('should classify a bot check before an age check when both appear', () => {
+      expect(
+        classifyYtDlpFailure({
+          message: 'Command failed',
+          stderr: "Sign in to confirm you're not a bot; age-restricted",
+        })
+      ).toBe('bot_check');
+    });
+  });
+
+  describe('yt-dlp failures that are about the server, not the video', () => {
+    const botCheck = "ERROR: [youtube] x: Sign in to confirm you're not a bot";
+
+    function mockExecFileFailure(stderr: string) {
+      execFileMock.mockImplementation(
+        (
+          _file: string,
+          _args: string[],
+          _options: unknown,
+          callback: (error: Error | null, result?: { stdout: string; stderr: string }) => void
+        ) => {
+          const error = new Error('Command failed: yt-dlp --cookies /cookies.txt') as Error & {
+            code?: number;
+            stderr?: string;
+          };
+          error.code = 1;
+          error.stderr = stderr;
+          setImmediate(() => callback(error, { stdout: '', stderr }));
+        }
+      );
+    }
+
+    beforeEach(() => {
+      jest.clearAllMocks();
+    });
+
+    it('should reject fetchYtDlpJson with a classified error on a bot check', async () => {
+      mockExecFileFailure(botCheck);
+      await expect(fetchYtDlpJson('https://www.youtube.com/watch?v=abc')).rejects.toMatchObject({
+        name: 'YtDlpError',
+        reason: 'bot_check',
+        statusCode: 502,
       });
-      expect(msg).toContain('Command failed');
-      expect(msg).toContain('exit code: 1');
-      expect(msg).toContain('Sign in to confirm');
-      expect(msg).toContain('YT_DLP_VERBOSE_ON_ERROR');
+    });
+
+    it('should keep returning null from fetchYtDlpJson for a private video', async () => {
+      mockExecFileFailure('ERROR: [youtube] x: Private video');
+      await expect(fetchYtDlpJson('https://www.youtube.com/watch?v=abc')).resolves.toBeNull();
+    });
+
+    it('should reject downloadSubtitles with a classified error on rate limiting', async () => {
+      mockExecFileFailure('ERROR: HTTP Error 429: Too Many Requests');
+      await expect(
+        downloadSubtitles('https://www.youtube.com/watch?v=abc', 'auto', 'en')
+      ).rejects.toMatchObject({ name: 'YtDlpError', reason: 'rate_limited' });
+    });
+
+    it('should never put the command line or stderr in the error message', async () => {
+      mockExecFileFailure(botCheck);
+      await expect(
+        downloadSubtitles('https://www.youtube.com/watch?v=abc', 'auto', 'en')
+      ).rejects.toThrow(/^(?!.*(Command failed|cookies|ERROR:)).*$/s);
     });
   });
 
@@ -1306,7 +1389,7 @@ today to pay our respects to MCP, which
           setImmediate(() => cb(null, '', ''));
         }
       );
-      const outcome = await downloadPlaylistSubtitles(
+      const results = await downloadPlaylistSubtitles(
         'https://www.youtube.com/playlist?list=PLxxx',
         {
           playlistItems: '1:5',
@@ -1315,10 +1398,7 @@ today to pay our respects to MCP, which
           lang: 'en',
         }
       );
-      expect(outcome.ok).toBe(true);
-      if (outcome.ok) {
-        expect(outcome.results).toEqual([]);
-      }
+      expect(results).toEqual([]);
       expect(execFileMock).toHaveBeenCalled();
       expect(capturedArgs).toContain('--yes-playlist');
       expect(capturedArgs).toContain('--ignore-errors');
@@ -1343,15 +1423,11 @@ today to pay our respects to MCP, which
           setImmediate(() => cb(null, '', ''));
         }
       );
-      const outcome = await downloadPlaylistSubtitles(
-        'https://www.youtube.com/playlist?list=PLxxx',
-        {}
-      );
-      expect(outcome.ok).toBe(true);
+      await downloadPlaylistSubtitles('https://www.youtube.com/playlist?list=PLxxx', {});
       expect(capturedArgs).not.toContain('--ignore-errors');
     });
 
-    it('should return ok:false with failure details when yt-dlp exits with error', async () => {
+    it('should reject with the classified failure when yt-dlp exits with error', async () => {
       execFileMock.mockImplementation(
         (
           _file: string,
@@ -1368,16 +1444,9 @@ today to pay our respects to MCP, which
           setImmediate(() => cb(err, '', ''));
         }
       );
-      const outcome = await downloadPlaylistSubtitles(
-        'https://www.youtube.com/playlist?list=PLxxx',
-        {}
-      );
-      expect(outcome.ok).toBe(false);
-      if (!outcome.ok) {
-        expect(outcome.failure.message).toContain('Command failed');
-        expect(outcome.failure.exitCode).toBe(1);
-        expect(outcome.failure.stderr).toBe('private video');
-      }
+      await expect(
+        downloadPlaylistSubtitles('https://www.youtube.com/playlist?list=PLxxx', {})
+      ).rejects.toMatchObject({ name: 'YtDlpError', reason: 'private' });
     });
   });
 

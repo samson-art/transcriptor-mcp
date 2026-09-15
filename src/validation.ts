@@ -1,6 +1,6 @@
 import { FastifyBaseLogger } from 'fastify';
 import { Type, Static } from '@sinclair/typebox';
-import { NotFoundError, ValidationError } from './errors.js';
+import { NotFoundError, ValidationError, YtDlpError } from './errors.js';
 import {
   extractYouTubeVideoId,
   downloadSubtitles,
@@ -452,7 +452,7 @@ async function throwNoSubtitlesError(opts: {
   whisperTried: boolean;
   logger?: FastifyBaseLogger;
 }): Promise<never> {
-  if (opts.whisperTried) recordSubtitlesFailure(opts.url);
+  if (opts.whisperTried) recordSubtitlesFailure(opts.url, 'no_subtitles');
   const available = await validateAndFetchAvailableSubtitles({ url: opts.url }, opts.logger).catch(
     () => undefined
   );
@@ -559,7 +559,7 @@ async function handleExplicitRequestFlow(
           if (!text?.trim()) {
             return;
           }
-          const data = await fetchYtDlpJson(url, logger);
+          const data = await fetchYtDlpJson(url, logger).catch(() => null);
           const vid = data?.id ?? extractYouTubeVideoId(url) ?? 'unknown';
           const whisperResult = {
             videoId: vid,
@@ -588,7 +588,7 @@ async function handleExplicitRequestFlow(
     });
   }
 
-  const data = await fetchYtDlpJson(url, logger);
+  const data = await fetchYtDlpJson(url, logger).catch(() => null);
   const videoId = data?.id ?? extractYouTubeVideoId(url) ?? 'unknown';
 
   const result: SubtitleResult = {
@@ -616,10 +616,15 @@ export async function validateAndDownloadSubtitles(
   const validated = validateVideoRequest(request.url);
   const { url } = validated;
 
-  if (shouldAutoDiscoverSubtitles(request)) {
-    return handleAutoDiscoverFlow(request, url, logger);
+  try {
+    if (shouldAutoDiscoverSubtitles(request)) {
+      return await handleAutoDiscoverFlow(request, url, logger);
+    }
+    return await handleExplicitRequestFlow(request, url, logger);
+  } catch (err) {
+    if (err instanceof YtDlpError) recordSubtitlesFailure(url, err.reason);
+    throw err;
   }
-  return handleExplicitRequestFlow(request, url, logger);
 }
 
 /**
@@ -873,10 +878,7 @@ export async function validateAndCaptureVideoFrame(
         'Invalid timestamp'
       );
     }
-    throw new NotFoundError(
-      `Failed to capture frame: ${outcome.details.message}`,
-      'Frame capture failed'
-    );
+    throw new NotFoundError('Failed to capture a frame for this video.', 'Frame capture failed');
   }
 
   return {

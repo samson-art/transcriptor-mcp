@@ -4,7 +4,7 @@
  * When SENTRY_DSN is not set, the SDK does not send events.
  */
 import * as Sentry from '@sentry/node';
-import { NotFoundError, ValidationError } from './errors.js';
+import { HttpError, YtDlpError } from './errors.js';
 
 Sentry.init({
   dsn: process.env.SENTRY_DSN,
@@ -17,8 +17,14 @@ Sentry.init({
   sendDefaultPii: process.env.SENTRY_SEND_DEFAULT_PII === 'true',
   beforeSend(event, hint) {
     const ex = hint.originalException;
-    if (ex instanceof NotFoundError || ex instanceof ValidationError) {
+    // 4xx means "this request/video", not "this server": noise, not a fault.
+    if (ex instanceof HttpError && ex.statusCode < 500) {
       return null;
+    }
+    // One issue per failure class, whichever tool or call site raised it.
+    if (ex instanceof YtDlpError) {
+      event.fingerprint = ['yt-dlp', ex.reason];
+      event.tags = { ...event.tags, yt_dlp_reason: ex.reason };
     }
     return event;
   },
