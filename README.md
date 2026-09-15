@@ -248,7 +248,7 @@ The server starts with no environment variables. Each variable below is optional
 | `COOKIES_FILE_PATH` | — | A Netscape cookies file for videos that need an account. See [cookies.example.txt](cookies.example.txt) |
 | `WHISPER_MODE` | `off` | Set `local` or `api` to transcribe the audio when a video has no subtitles. Then set `WHISPER_BASE_URL` or `WHISPER_API_KEY` |
 | `CACHE_MODE` | `off` | Set `redis` and `CACHE_REDIS_URL` to cache subtitles and metadata |
-| `YT_DLP_MAX_CONCURRENCY` | `4` | How many yt-dlp/ffmpeg processes may run at once. `YT_DLP_MAX_QUEUE` (`8`) is how many calls may wait; beyond that a call is refused at once with "server busy" |
+| `YT_DLP_MAX_CONCURRENCY` | `4` | How many yt-dlp/ffmpeg processes may run at once. `YT_DLP_MAX_QUEUE` (`8`) is how many calls may wait; beyond that a call is refused at once with "server busy". A call peaks at ~40 MiB, so the cap bounds platform throttling and latency, not memory |
 | `YT_DLP_*` | — | Timeouts, proxy, and JS runtimes. See [.env.example](.env.example) |
 
 The same port serves `GET /health` and `GET /metrics`. The metrics are in Prometheus format and include the `mcp_*` counters.

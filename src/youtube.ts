@@ -33,10 +33,13 @@ function syncProcessGauges(): void {
 
 /**
  * Every yt-dlp and ffmpeg run in this process goes through here, so one cap covers
- * the REST API, MCP over stdio and MCP over HTTP. Each run costs a python process,
- * a JS runtime for the player script and sometimes ffmpeg, which is what makes an
- * unbounded fan-out dangerous on a small box. Above the cap calls queue; above the
- * queue they are refused at once rather than piling up past any client's patience.
+ * the REST API, MCP over stdio and MCP over HTTP. Above the cap calls queue; above
+ * the queue they are refused at once rather than piling up past any client's patience.
+ *
+ * The cap is not really about memory. Measured on the hosted deployment, a call peaks
+ * at about 40 MiB and scales linearly, so sixteen at once cost well under a gigabyte.
+ * It is about the video platform, which throttles and then bot-checks a single address
+ * that fans out, and about keeping the wait for a queued call bounded.
  *
  * `timeout` and `maxBuffer` are passed through untouched — execFile only starts its
  * timer at spawn, so waiting in the queue never eats into a call's own budget.
