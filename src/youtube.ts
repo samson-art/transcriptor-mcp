@@ -15,7 +15,7 @@ import {
   YtDlpError,
   type YtDlpFailureReason,
 } from './errors.js';
-import { recordYtDlpRejected, setYtDlpProcessGauges } from './metrics.js';
+import { setYtDlpProcessGauges } from './metrics.js';
 
 const execFileRaw = promisify(execFile);
 
@@ -23,6 +23,10 @@ const execFileRaw = promisify(execFile);
 let activeProcesses = 0;
 const processWaiters: Array<() => void> = [];
 
+// prom-client's pull-style `collect` hook would be the natural fit, but it is
+// only typed on the constructor config, and declaring these gauges here (or
+// having metrics.ts read this module) breaks the partial metrics mocks the test
+// suites use. Two pushes on a path that already spawns a process are cheap.
 function syncProcessGauges(): void {
   setYtDlpProcessGauges(activeProcesses, processWaiters.length);
 }
@@ -48,7 +52,6 @@ async function execFileAsync(
   const max = parseIntEnv('YT_DLP_MAX_CONCURRENCY', 4);
   if (max > 0 && activeProcesses >= max) {
     if (processWaiters.length >= parseIntEnv('YT_DLP_MAX_QUEUE', 8)) {
-      recordYtDlpRejected();
       throw new ServerBusyError();
     }
     await new Promise<void>((resolve) => {
@@ -61,9 +64,7 @@ async function execFileAsync(
   syncProcessGauges();
 
   try {
-    // No caller sets `encoding`, so execFile keeps its utf8 default and both
-    // streams come back as strings; the promisified overload can't say that.
-    return (await execFileRaw(file, args, options)) as { stdout: string; stderr: string };
+    return await execFileRaw(file, args, options);
   } finally {
     const next = processWaiters.shift();
     if (next) {

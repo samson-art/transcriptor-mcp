@@ -1429,7 +1429,6 @@ today to pay our respects to MCP, which
       await Promise.all(started.slice(0, 3));
 
       const metrics = await renderPrometheus();
-      expect(metrics).toMatch(/^yt_dlp_rejected_total\{[^}]*\} 1$/m);
       expect(metrics).toMatch(/^yt_dlp_processes_active\{[^}]*\} 0$/m);
       expect(metrics).toMatch(/^yt_dlp_queue_length\{[^}]*\} 0$/m);
     });

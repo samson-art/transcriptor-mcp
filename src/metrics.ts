@@ -90,12 +90,6 @@ export const ytDlpQueueLength = new Gauge({
   registers: [register],
 });
 
-export const ytDlpRejectedTotal = new Counter({
-  name: 'yt_dlp_rejected_total',
-  help: 'Calls refused because the child-process queue was full',
-  registers: [register],
-});
-
 // MCP metrics (labels set when used from MCP)
 export const mcpToolCallsTotal = new Counter({
   name: 'mcp_tool_calls_total',
@@ -184,10 +178,6 @@ export function getFailedSubtitlesUrls(): {
 export function setYtDlpProcessGauges(active: number, queued: number): void {
   ytDlpProcessesActive.set(active);
   ytDlpQueueLength.set(queued);
-}
-
-export function recordYtDlpRejected(): void {
-  ytDlpRejectedTotal.inc();
 }
 
 export function recordMcpToolCall(tool: string): void {
