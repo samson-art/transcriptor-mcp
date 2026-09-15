@@ -12,7 +12,7 @@ import {
   getShouldBuildDockerImages,
   runCommand,
 } from './docker-utils.js';
-import { getEnvVar } from './smoke-env.js';
+import { getEnvVar, isFlagSet } from './smoke-env.js';
 
 const DEFAULT_MCP_IMAGE_NAME = 'artsamsonov/transcriptor-mcp';
 const DEFAULT_MCP_PORT = 4200;
@@ -49,12 +49,6 @@ export function buildMcpImageRef(): string {
   const imageName = getEnvVar('DOCKER_MCP_IMAGE', DEFAULT_MCP_IMAGE_NAME);
   const imageTag = getEnvVar('TAG', 'latest');
   return `${imageName}:${imageTag}`;
-}
-
-/** SMOKE_SKIP_TRANSCRIPT=1: skip the real-YouTube get_transcript call (CI without network egress to YouTube). */
-function getSkipTranscript(): boolean {
-  const v = process.env.SMOKE_SKIP_TRANSCRIPT;
-  return v === '1' || v === 'true' || v === 'yes';
 }
 
 function runCommandWithStdin(
@@ -510,12 +504,7 @@ export async function runMcpSmokeTest(mcpImage: string): Promise<void> {
     await waitForMcpReady(mcpBaseUrl, 60000);
     await checkMcpStreamable(mcpBaseUrl);
     await checkMcpToolsList(mcpBaseUrl);
-    if (getSkipTranscript()) {
-      // eslint-disable-next-line no-console
-      console.log('[smoke] get_transcript skipped (SMOKE_SKIP_TRANSCRIPT)');
-    } else {
-      await checkMcpStreamableGetTranscript(mcpBaseUrl);
-    }
+    if (!isFlagSet('SMOKE_SKIP_TRANSCRIPT')) await checkMcpStreamableGetTranscript(mcpBaseUrl);
     await checkMcpGetRejected(mcpBaseUrl);
     await checkMcpStdio(mcpImage);
   } finally {

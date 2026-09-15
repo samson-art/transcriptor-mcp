@@ -57,12 +57,7 @@ jobs:
           elif [ "${{ github.event_name }}" = "schedule" ]; then
             # Newest v* tag; runs before checkout, so ask the remote directly.
             tag=$(git ls-remote --tags --refs "${{ github.server_url }}/${{ github.repository }}.git" 'refs/tags/v*' | awk -F/ '{print $NF}' | sort -V | tail -1)
-            if [ -z "$tag" ]; then
-              echo "::error::no v* tag found to rebuild"
-              exit 1
-            fi
             echo "ref=refs/tags/$tag" >> $GITHUB_OUTPUT
-            echo "tag=$tag" >> $GITHUB_OUTPUT
           else
             echo "ref=${{ github.ref }}" >> $GITHUB_OUTPUT
           fi
@@ -94,26 +89,23 @@ jobs:
       - name: Extract tag and image tags
         id: tag
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.latest_only }}" = "true" ]; then
+          # A scheduled refresh republishes only :latest from the newest release tag,
+          # so the released :<version> tag stays immutable.
+          if [ "${{ github.event_name }}" = "schedule" ] || { [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.latest_only }}" = "true" ]; }; then
             version=$(jq -r .version package.json)
             echo "latest_only=true" >> $GITHUB_OUTPUT
             echo "api_tags=artsamsonov/transcriptor-mcp-api:latest" >> $GITHUB_OUTPUT
             echo "mcp_tags=artsamsonov/transcriptor-mcp:latest" >> $GITHUB_OUTPUT
           else
             echo "latest_only=false" >> $GITHUB_OUTPUT
-            suffix=""
             if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
               v="${{ inputs.version }}"
             elif [ "${{ github.event_name }}" = "release" ]; then
               v="${{ github.event.release.tag_name }}"
-            elif [ "${{ github.event_name }}" = "schedule" ]; then
-              # Weekly refresh: dated tag + latest. The plain release tag stays immutable.
-              v="${{ steps.ref.outputs.tag }}"
-              suffix="-$(date -u +%Y%m%d)"
             else
               v="${{ github.ref_name }}"
             fi
-            version="${v#v}${suffix}"
+            version="${v#v}"
             {
               echo "api_tags<<EOF"
               echo "artsamsonov/transcriptor-mcp-api:$version"

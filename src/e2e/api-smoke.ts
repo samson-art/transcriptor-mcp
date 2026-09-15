@@ -3,7 +3,7 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import { parseIntFromString } from '../env.js';
 import { buildDockerImagesIfNeeded, runCommand } from './docker-utils.js';
 import { buildMcpImageRef, runMcpSmokeTest } from './mcp-smoke.js';
-import { getEnvVar } from './smoke-env.js';
+import { getEnvVar, isFlagSet } from './smoke-env.js';
 
 const DEFAULT_IMAGE_NAME = 'artsamsonov/transcriptor-mcp-api';
 const DEFAULT_IMAGE_TAG = 'latest';
@@ -21,11 +21,6 @@ function buildImageRef(): string {
   const imageTag = getEnvVar('TAG', DEFAULT_IMAGE_TAG);
 
   return `${imageName}:${imageTag}`;
-}
-
-function getSkipMcp(): boolean {
-  const v = process.env.SMOKE_SKIP_MCP;
-  return v === '1' || v === 'true' || v === 'yes';
 }
 
 async function waitForApiReady(baseUrl: string, timeoutMs: number): Promise<void> {
@@ -176,7 +171,7 @@ async function main(): Promise<void> {
 
   const baseUrl = getEnvVar('SMOKE_API_URL', `http://127.0.0.1:${port}`);
 
-  const skipMcp = getSkipMcp();
+  const skipMcp = isFlagSet('SMOKE_SKIP_MCP');
   const mcpImage = buildMcpImageRef();
 
   try {
@@ -223,4 +218,6 @@ async function main(): Promise<void> {
 // Top-level await is fine here because this script is only used in tooling
 await main();
 // eslint-disable-next-line no-console
-console.log('[smoke] API smoke test succeeded' + (getSkipMcp() ? '' : ' (MCP checks passed)'));
+console.log(
+  '[smoke] API smoke test succeeded' + (isFlagSet('SMOKE_SKIP_MCP') ? '' : ' (MCP checks passed)')
+);
