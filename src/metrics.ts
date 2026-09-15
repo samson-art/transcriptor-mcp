@@ -213,9 +213,7 @@ export function setYtDlpVersionInfo(installed: string | null, outdated: boolean)
 
 export function setCanaryResult(ok: boolean): void {
   canaryOk.set(ok ? 1 : 0);
-  if (ok) {
-    canaryLastSuccessTimestampSeconds.set(Date.now() / 1000);
-  }
+  if (ok) canaryLastSuccessTimestampSeconds.setToCurrentTime();
 }
 
 export function setYtDlpProcessGauges(active: number, queued: number): void {

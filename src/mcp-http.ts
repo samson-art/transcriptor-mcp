@@ -17,7 +17,7 @@ import { createLoggerWithSentryBreadcrumbs } from './logger-sentry-breadcrumbs.j
 import { renderPrometheus } from './metrics.js';
 import { parseIntEnv } from './env.js';
 import { setupLifecycle } from './lifecycle.js';
-import { checkYtDlpAtStartup, scheduleYtDlpVersionCheck } from './yt-dlp-check.js';
+import { checkYtDlpAtStartup, checkYtDlpVersion } from './yt-dlp-check.js';
 import { startCanary } from './canary.js';
 import { close as closeCache } from './cache.js';
 
@@ -170,16 +170,16 @@ export async function startMcpHttpServer(): Promise<FastifyInstance> {
     shutdownSuccessMessage: 'MCP HTTP server closed successfully',
   });
 
-  await checkYtDlpAtStartup({
-    error: (msg) => app.log.error(msg),
-    warn: (msg) => app.log.warn(msg),
-  });
+  const ytDlpLog = {
+    error: (msg: string) => app.log.error(msg),
+    warn: (msg: string) => app.log.warn(msg),
+  };
+  await checkYtDlpAtStartup(ytDlpLog);
 
   startCanary(app.log);
-  scheduleYtDlpVersionCheck({
-    error: (msg) => app.log.error(msg),
-    warn: (msg) => app.log.warn(msg),
-  });
+  // yt-dlp is frozen in the image at build time, so a server that has been up for
+  // weeks drifts behind the releases that keep extraction working. Unref'd.
+  setInterval(() => void checkYtDlpVersion(ytDlpLog), 24 * 60 * 60 * 1000).unref();
 
   const port = parseIntEnv('MCP_PORT', DEFAULT_MCP_PORT);
   const host = process.env.MCP_HOST || DEFAULT_MCP_HOST;

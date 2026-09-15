@@ -73,22 +73,15 @@ export async function fetchLatestYtDlpVersion(): Promise<string | null> {
   }
 }
 
-export type YtDlpVersionCheck = {
-  /** Installed version, or null when yt-dlp could not be run at all. */
-  installed: string | null;
-  /** Latest released version, or null when GitHub was unreachable or the check was skipped. */
-  latest: string | null;
-};
-
-const DAY_MS = 24 * 60 * 60 * 1000;
-
 /**
  * Reads the installed yt-dlp version, compares it with the latest release and
  * publishes both to the metrics. Never exits: the caller decides what a missing
  * yt-dlp means. Safe to run repeatedly — the image freezes yt-dlp at build time,
  * so a long-lived server drifts behind and only a re-run notices.
+ *
+ * @returns the installed version, or null when yt-dlp could not be run at all
  */
-export async function checkYtDlpVersion(log?: YtDlpCheckLogger): Promise<YtDlpVersionCheck> {
+export async function checkYtDlpVersion(log?: YtDlpCheckLogger): Promise<string | null> {
   const out = log ?? {
     error: (msg: string) => console.error(msg),
     warn: (msg: string) => console.warn(msg),
@@ -115,27 +108,23 @@ export async function checkYtDlpVersion(log?: YtDlpCheckLogger): Promise<YtDlpVe
         ? 'yt-dlp not found in system (not in PATH or not installed)'
         : 'yt-dlp failed to run or returned an error';
     out.error(message);
-    return { installed: null, latest: null };
+    return null;
   }
 
-  setYtDlpVersionInfo(installedVersion, false);
-  if (skipVersionCheck) return { installed: installedVersion, latest: null };
-
-  const latestTag = await fetchLatestYtDlpVersion();
-  if (latestTag === null) return { installed: installedVersion, latest: null };
-
-  const installed = parseYtDlpVersion(installedVersion);
-  const latest = parseYtDlpVersion(latestTag);
-  if (!installed || !latest) return { installed: installedVersion, latest: latestTag };
-
-  const outdated = compareYtDlpVersions(installed, latest) < 0;
+  let outdated = false;
+  if (!skipVersionCheck) {
+    const latestTag = await fetchLatestYtDlpVersion();
+    const installed = parseYtDlpVersion(installedVersion);
+    const latest = latestTag === null ? null : parseYtDlpVersion(latestTag);
+    if (installed && latest && compareYtDlpVersions(installed, latest) < 0) {
+      outdated = true;
+      out.warn(
+        `yt-dlp version ${installedVersion} is older than latest ${latestTag}; consider upgrading`
+      );
+    }
+  }
   setYtDlpVersionInfo(installedVersion, outdated);
-  if (outdated) {
-    out.warn(
-      `yt-dlp version ${installedVersion} is older than latest ${latestTag}; consider upgrading`
-    );
-  }
-  return { installed: installedVersion, latest: latestTag };
+  return installedVersion;
 }
 
 /**
@@ -145,26 +134,9 @@ export async function checkYtDlpVersion(log?: YtDlpCheckLogger): Promise<YtDlpVe
  *
  * @param log - Optional logger; if omitted, uses console.error/warn/info.
  */
-export async function checkYtDlpAtStartup(log?: YtDlpCheckLogger): Promise<YtDlpVersionCheck> {
-  const result = await checkYtDlpVersion(log);
-  if (result.installed === null && process.env.YT_DLP_REQUIRED !== '0') {
+export async function checkYtDlpAtStartup(log?: YtDlpCheckLogger): Promise<void> {
+  const installed = await checkYtDlpVersion(log);
+  if (installed === null && process.env.YT_DLP_REQUIRED !== '0') {
     process.exit(1);
   }
-  return result;
-}
-
-/**
- * Re-runs the version check once a day so a server that has been up for weeks
- * still reports whether its yt-dlp has fallen behind. Unref'd: never holds the
- * process open.
- */
-export function scheduleYtDlpVersionCheck(
-  log?: YtDlpCheckLogger,
-  intervalMs: number = DAY_MS
-): NodeJS.Timeout {
-  const timer = setInterval(() => {
-    void checkYtDlpVersion(log);
-  }, intervalMs);
-  timer.unref();
-  return timer;
 }

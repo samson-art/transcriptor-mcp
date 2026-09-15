@@ -5,7 +5,6 @@ import {
   fetchLatestYtDlpVersion,
   checkYtDlpAtStartup,
   checkYtDlpVersion,
-  scheduleYtDlpVersionCheck,
 } from './yt-dlp-check.js';
 import { renderPrometheus } from './metrics.js';
 
@@ -109,7 +108,7 @@ describe('yt-dlp-check', () => {
       );
     }
 
-    it('publishes the installed and latest versions without exiting', async () => {
+    it('publishes the installed version and the outdated flag without exiting', async () => {
       mockInstalledVersion('2026.1.1');
       global.fetch = jest.fn().mockResolvedValue({
         ok: true,
@@ -118,7 +117,7 @@ describe('yt-dlp-check', () => {
 
       const result = await checkYtDlpVersion({ error: jest.fn(), warn: jest.fn() });
 
-      expect(result).toEqual({ installed: '2026.1.1', latest: '2026.08.19' });
+      expect(result).toBe('2026.1.1');
       const metrics = await renderPrometheus();
       expect(metrics).toMatch(/^yt_dlp_outdated\{[^}]*\} 1$/m);
       expect(metrics).toContain('yt_dlp_version="2026.1.1"');
@@ -137,7 +136,7 @@ describe('yt-dlp-check', () => {
       expect(metrics).toMatch(/^yt_dlp_outdated\{[^}]*\} 0$/m);
     });
 
-    it('reports a missing yt-dlp as installed: null and leaves the exit to the caller', async () => {
+    it('reports a missing yt-dlp as null and leaves the exit to the caller', async () => {
       const err = new Error('not found') as NodeJS.ErrnoException;
       err.code = 'ENOENT';
       execFileMock.mockImplementation(
@@ -149,39 +148,9 @@ describe('yt-dlp-check', () => {
 
       const result = await checkYtDlpVersion({ error: jest.fn(), warn: jest.fn() });
 
-      expect(result).toEqual({ installed: null, latest: null });
+      expect(result).toBeNull();
       expect(exitSpy).not.toHaveBeenCalled();
       exitSpy.mockRestore();
-    });
-  });
-
-  describe('scheduleYtDlpVersionCheck', () => {
-    afterEach(() => {
-      jest.useRealTimers();
-      process.env = { ...originalEnv };
-    });
-
-    it('re-runs the check on the interval without holding the process open', () => {
-      jest.useFakeTimers();
-      execFileMock.mockReset();
-      execFileMock.mockImplementation(
-        (
-          _f: string,
-          _a: string[],
-          _o: unknown,
-          cb: (e: Error | null, r: { stdout: string; stderr: string }) => void
-        ) => {
-          cb(null, { stdout: '2026.08.19\n', stderr: '' });
-        }
-      );
-
-      const timer = scheduleYtDlpVersionCheck({ error: jest.fn(), warn: jest.fn() }, 1000);
-
-      expect(execFileMock).not.toHaveBeenCalled();
-      jest.advanceTimersByTime(2000);
-      expect(execFileMock).toHaveBeenCalledTimes(2);
-
-      clearInterval(timer);
     });
   });
 

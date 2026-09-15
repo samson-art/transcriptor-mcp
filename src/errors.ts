@@ -110,3 +110,15 @@ export class YtDlpError extends HttpError {
     Object.setPrototypeOf(this, new.target.prototype);
   }
 }
+
+/**
+ * Bounded label for an error, for a metric label or a Sentry tag. Keep it a
+ * closed set: these values become time series.
+ */
+export function errorReason(err: unknown): string {
+  if (err instanceof YtDlpError) return err.reason;
+  if (err instanceof ServerBusyError) return 'busy';
+  if (err instanceof NotFoundError) return 'not_found';
+  if (err instanceof ValidationError) return 'validation';
+  return 'unknown';
+}

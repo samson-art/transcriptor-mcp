@@ -12,7 +12,7 @@ import * as Sentry from '@sentry/node';
 import type { FastifyBaseLogger } from 'fastify';
 
 import { parseIntEnv } from './env.js';
-import { HttpError, ServerBusyError, YtDlpError } from './errors.js';
+import { errorReason, ServerBusyError } from './errors.js';
 import { setCanaryResult } from './metrics.js';
 import { validateAndDownloadSubtitles } from './validation.js';
 
@@ -23,12 +23,6 @@ const DEFAULT_INTERVAL_MS = 15 * 60 * 1000;
 const FAILURES_BEFORE_ALERT = 2;
 
 let consecutiveFailures = 0;
-
-function failureReason(err: unknown): string {
-  if (err instanceof YtDlpError) return err.reason;
-  if (err instanceof HttpError) return err.name;
-  return 'unknown';
-}
 
 /** Runs one canary probe and records its outcome. Never throws. */
 export async function runCanary(log: FastifyBaseLogger): Promise<void> {
@@ -51,7 +45,7 @@ export async function runCanary(log: FastifyBaseLogger): Promise<void> {
     }
     consecutiveFailures += 1;
     setCanaryResult(false);
-    const reason = failureReason(err);
+    const reason = errorReason(err);
     if (consecutiveFailures === FAILURES_BEFORE_ALERT) {
       log.error({ err, url, reason }, 'canary: transcript path failing');
       Sentry.captureMessage('canary: transcript path failing', {
@@ -65,23 +59,20 @@ export async function runCanary(log: FastifyBaseLogger): Promise<void> {
 }
 
 /**
- * Starts the periodic probe. Returns undefined when disabled, so callers can tell
- * "off" from "running". Only the HTTP server starts it: the stdio server is a
- * short-lived per-client process with no one to alert.
+ * Starts the periodic probe. Only the HTTP server starts it: the stdio server is
+ * a short-lived per-client process with no one to alert.
  */
-export function startCanary(log: FastifyBaseLogger): NodeJS.Timeout | undefined {
+export function startCanary(log: FastifyBaseLogger): void {
   const intervalMs = parseIntEnv('CANARY_INTERVAL_MS', DEFAULT_INTERVAL_MS);
-  if (intervalMs <= 0 || process.env.NODE_ENV === 'test') {
-    return undefined;
+  if (intervalMs <= 0) {
+    return;
   }
   // Probe once at boot: otherwise the gauge reads 0 for the first interval and
   // looks like a failure.
   void runCanary(log);
-  const timer = setInterval(() => {
+  setInterval(() => {
     void runCanary(log);
-  }, intervalMs);
-  timer.unref();
-  return timer;
+  }, intervalMs).unref();
 }
 
 /** Test helper: clears the failure streak between cases. */
