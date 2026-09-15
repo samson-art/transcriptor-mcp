@@ -5,7 +5,7 @@ import swagger from '@fastify/swagger';
 import swaggerUi from '@fastify/swagger-ui';
 import { TypeBoxTypeProvider } from '@fastify/type-provider-typebox';
 import { Type } from '@sinclair/typebox';
-import { HttpError, NotFoundError } from './errors.js';
+import { HttpError, NotFoundError, ServerBusyError } from './errors.js';
 import { parseSubtitles, detectSubtitleFormat } from './youtube.js';
 import {
   GetAvailableSubtitlesRequest,
@@ -108,7 +108,8 @@ fastify.setErrorHandler((error, request, reply) => {
   const errorLabel = error instanceof HttpError ? error.errorLabel : 'Internal server error';
   const route = request.routeOptions?.url ?? request.url?.split('?')[0] ?? 'unknown';
 
-  if (statusCode >= 500) {
+  // Load shedding is a known state under a burst, not a fault to page on.
+  if (statusCode >= 500 && !(error instanceof ServerBusyError)) {
     fastify.log.error(error);
   } else {
     fastify.log.warn({ err: error }, message);

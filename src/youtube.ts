@@ -1,4 +1,4 @@
-import { execFile, type ExecFileException } from 'node:child_process';
+import { execFile, type ExecFileException, type ExecFileOptions } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { promisify } from 'node:util';
 import { copyFile, readFile, stat, unlink } from 'node:fs/promises';
@@ -8,9 +8,76 @@ import { tmpdir } from 'node:os';
 import type { FastifyBaseLogger } from 'fastify';
 
 import { parseIntEnv } from './env.js';
-import { HttpError, YT_DLP_INFRA_REASONS, YtDlpError, type YtDlpFailureReason } from './errors.js';
+import {
+  HttpError,
+  ServerBusyError,
+  YT_DLP_INFRA_REASONS,
+  YtDlpError,
+  type YtDlpFailureReason,
+} from './errors.js';
+import { setYtDlpProcessGauges } from './metrics.js';
 
-const execFileAsync = promisify(execFile);
+const execFileRaw = promisify(execFile);
+
+/** Waiters are resumed with the slot already theirs, so the cap cannot be overshot. */
+let activeProcesses = 0;
+const processWaiters: Array<() => void> = [];
+
+// prom-client's pull-style `collect` hook would be the natural fit, but it is
+// only typed on the constructor config, and declaring these gauges here (or
+// having metrics.ts read this module) breaks the partial metrics mocks the test
+// suites use. Two pushes on a path that already spawns a process are cheap.
+function syncProcessGauges(): void {
+  setYtDlpProcessGauges(activeProcesses, processWaiters.length);
+}
+
+/**
+ * Every yt-dlp and ffmpeg run in this process goes through here, so one cap covers
+ * the REST API, MCP over stdio and MCP over HTTP. Above the cap calls queue; above
+ * the queue they are refused at once rather than piling up past any client's patience.
+ *
+ * The cap is not really about memory. Measured on the hosted deployment, a call peaks
+ * at about 40 MiB and scales linearly, so sixteen at once cost well under a gigabyte.
+ * It is about the video platform, which throttles and then bot-checks a single address
+ * that fans out, and about keeping the wait for a queued call bounded.
+ *
+ * `timeout` and `maxBuffer` are passed through untouched — execFile only starts its
+ * timer at spawn, so waiting in the queue never eats into a call's own budget.
+ *
+ * ponytail: one cap shared by both binaries; split per binary only if frame capture
+ * ever starves transcripts.
+ */
+async function execFileAsync(
+  file: string,
+  args: string[],
+  options: Omit<ExecFileOptions, 'encoding'>
+): Promise<{ stdout: string; stderr: string }> {
+  const max = parseIntEnv('YT_DLP_MAX_CONCURRENCY', 4);
+  if (max > 0 && activeProcesses >= max) {
+    if (processWaiters.length >= parseIntEnv('YT_DLP_MAX_QUEUE', 8)) {
+      throw new ServerBusyError();
+    }
+    await new Promise<void>((resolve) => {
+      processWaiters.push(resolve);
+      syncProcessGauges();
+    });
+  } else {
+    activeProcesses += 1;
+  }
+  syncProcessGauges();
+
+  try {
+    return await execFileRaw(file, args, options);
+  } finally {
+    const next = processWaiters.shift();
+    if (next) {
+      next();
+    } else {
+      activeProcesses -= 1;
+    }
+    syncProcessGauges();
+  }
+}
 
 /** Builds a safe base name for temp files from URL (hash + timestamp). Exported for tests. */
 export function urlToSafeBase(url: string, prefix: string): string {
