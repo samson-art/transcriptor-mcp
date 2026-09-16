@@ -12,7 +12,7 @@ import {
   getShouldBuildDockerImages,
   runCommand,
 } from './docker-utils.js';
-import { getEnvVar } from './smoke-env.js';
+import { getEnvVar, isFlagSet } from './smoke-env.js';
 
 const DEFAULT_MCP_IMAGE_NAME = 'artsamsonov/transcriptor-mcp';
 const DEFAULT_MCP_PORT = 4200;
@@ -504,7 +504,7 @@ export async function runMcpSmokeTest(mcpImage: string): Promise<void> {
     await waitForMcpReady(mcpBaseUrl, 60000);
     await checkMcpStreamable(mcpBaseUrl);
     await checkMcpToolsList(mcpBaseUrl);
-    await checkMcpStreamableGetTranscript(mcpBaseUrl);
+    if (!isFlagSet('SMOKE_SKIP_TRANSCRIPT')) await checkMcpStreamableGetTranscript(mcpBaseUrl);
     await checkMcpGetRejected(mcpBaseUrl);
     await checkMcpStdio(mcpImage);
   } finally {

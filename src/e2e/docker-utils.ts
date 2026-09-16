@@ -1,5 +1,7 @@
 import { spawn } from 'node:child_process';
 
+import { isFlagSet } from './smoke-env.js';
+
 export type RunCommandResult = {
   code: number | null;
   signal: NodeJS.Signals | null;
@@ -27,8 +29,7 @@ export function runCommand(
 
 /** When true, run `docker build` for images before starting containers. */
 export function getShouldBuildDockerImages(): boolean {
-  const skip = process.env.SMOKE_SKIP_BUILD;
-  if (skip === '1' || skip === 'true' || skip === 'yes') {
+  if (isFlagSet('SMOKE_SKIP_BUILD')) {
     return false;
   }
   const build = process.env.SMOKE_BUILD;
