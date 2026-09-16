@@ -93,7 +93,10 @@ function renderPanelBody(client) {
     parts.push(`<ol class="steps">\n${client.steps.map((s) => `          <li>${s}</li>`).join('\n')}\n        </ol>`);
     // These clients take the endpoint through their own UI, so the URL is the
     // thing to copy here — the same block the other panels use for a config.
-    parts.push(renderCopyBlock(`url-${client.id}`, SERVER_URL, 'Copy endpoint'));
+    // Clients installed from a directory (`endpoint: false`) have nothing to paste.
+    if (client.endpoint !== false) {
+      parts.push(renderCopyBlock(`url-${client.id}`, SERVER_URL, 'Copy endpoint'));
+    }
   }
   if (client.install) {
     parts.push(

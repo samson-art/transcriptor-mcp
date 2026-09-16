@@ -52,15 +52,16 @@ export const clients = [
     id: 'chatgpt',
     label: 'ChatGPT',
     kind: 'steps',
+    // Listed in the plugin directory, so there is no endpoint to paste.
+    endpoint: false,
     steps: [
-      `Open <a href="${CHATGPT_LISTING}">Transcriptor in the ChatGPT app directory</a> and select <b>Connect</b>`,
-      'Or in ChatGPT: <b>Apps</b> → search <b>Transcriptor</b> → <b>Connect</b>',
+      `Open <a href="${CHATGPT_LISTING}">Transcriptor in the ChatGPT plugin directory</a> and select <b>Install plugin</b>; sign in when asked`,
+      'Or in ChatGPT: <b>Plugins</b> → search <b>Transcriptor</b> → <b>Install plugin</b>',
     ],
-    after:
-      'The endpoint below is only for adding the server by hand as a custom connector in <a href="https://help.openai.com/en/articles/12584461-developer-mode-apps-and-full-mcp-connectors-in-chatgpt-beta">developer mode</a> (web, paid plans).',
-    llms: `Apps -> search "Transcriptor" -> Connect (${CHATGPT_LISTING}); or paste the endpoint as a custom connector in developer mode`,
+    after: 'Then mention <code>@Transcriptor</code> in a chat, or open <b>+</b> → <b>More</b>.',
+    llms: `Plugins -> search "Transcriptor" -> Install plugin (${CHATGPT_LISTING}), then mention @Transcriptor in a chat`,
     docs: CHATGPT_LISTING,
-    docsLabel: 'Transcriptor in the ChatGPT app directory',
+    docsLabel: 'Transcriptor in the ChatGPT plugin directory',
   },
   {
     id: 'claude-code',
@@ -131,16 +132,17 @@ export const clients = [
   {
     id: 'codex',
     label: 'Codex',
-    kind: 'text',
-    // `codex mcp add` covers stdio servers only; a streamable HTTP server goes
-    // into config.toml, which the CLI, the IDE extension and the ChatGPT
-    // desktop app all read.
-    file: '~/.codex/config.toml',
-    text: `[mcp_servers.${SERVER_NAME}]\nurl = "${SERVER_URL}"\nauth = "oauth"`,
-    after: `Then run <code>codex mcp login ${SERVER_NAME}</code> to sign in. The CLI, the IDE extension and the ChatGPT desktop app share this configuration.`,
-    llms: `add [mcp_servers.${SERVER_NAME}] with url = "${SERVER_URL}" and auth = "oauth" to ~/.codex/config.toml, then run codex mcp login ${SERVER_NAME}`,
-    docs: 'https://learn.chatgpt.com/docs/extend/mcp?surface=cli',
-    docsLabel: 'Codex MCP docs',
+    kind: 'steps',
+    // ChatGPT and Codex share one plugin directory; one install covers both.
+    endpoint: false,
+    steps: [
+      `Install <a href="${CHATGPT_LISTING}">Transcriptor from the plugin directory</a> — ChatGPT and Codex share it, one install covers both`,
+      'In a Codex task: <b>Sources</b> → <b>Use plugins</b> → <b>Transcriptor</b>; in the CLI, <code>/plugins</code>',
+    ],
+    after: 'A new directory listing can take up to 6 hours to appear in Codex.',
+    llms: `install Transcriptor from the ChatGPT plugin directory (${CHATGPT_LISTING}), shared with Codex; then Sources -> Use plugins -> Transcriptor, or /plugins in the CLI`,
+    docs: 'https://help.openai.com/en/articles/20001256-plugins-in-chatgpt-and-codex',
+    docsLabel: 'Plugins in ChatGPT and Codex',
   },
   {
     id: 'gemini',
