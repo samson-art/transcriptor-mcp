@@ -8,7 +8,7 @@ import { cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { marked } from 'marked';
-import { SERVER_URL, clients, installLinks, tools } from './clients.mjs';
+import {SERVER_URL, clients, installLinks, tools, CHATGPT_LISTING } from './clients.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const { version } = JSON.parse(
@@ -93,7 +93,10 @@ function renderPanelBody(client) {
     parts.push(`<ol class="steps">\n${client.steps.map((s) => `          <li>${s}</li>`).join('\n')}\n        </ol>`);
     // These clients take the endpoint through their own UI, so the URL is the
     // thing to copy here — the same block the other panels use for a config.
-    parts.push(renderCopyBlock(`url-${client.id}`, SERVER_URL, 'Copy endpoint'));
+    // Clients installed from a directory (`endpoint: false`) have nothing to paste.
+    if (client.endpoint !== false) {
+      parts.push(renderCopyBlock(`url-${client.id}`, SERVER_URL, 'Copy endpoint'));
+    }
   }
   if (client.install) {
     parts.push(
@@ -117,7 +120,9 @@ function renderPanelBody(client) {
     parts.push(renderCopyBlock(`cfg-${client.id}`, text, label));
   }
   if (client.after) parts.push(`<p class="cfg-after">${client.after}</p>`);
-  parts.push(`<div class="docs-row"><a class="docs-link" href="${client.docs}">${client.docsLabel}</a></div>`);
+  if (client.docs) {
+    parts.push(`<div class="docs-row"><a class="docs-link" href="${client.docs}">${client.docsLabel}</a></div>`);
+  }
   return parts.map((p) => `        ${p}`).join('\n');
 }
 
@@ -153,7 +158,7 @@ function renderLlmsTxt() {
   const connect = clients
     .map((c) => {
       const how = c.llms ?? (c.kind === 'command' ? c.command.replace(/\n/g, ' && ') : `add ${JSON.stringify(c.config)} to ${c.file}`);
-      return `- [${c.label}](${c.docs}): ${how}`;
+      return `- ${c.docs ? `[${c.label}](${c.docs})` : c.label}: ${how}`;
     })
     .join('\n');
   return `# Transcriptor MCP
@@ -222,6 +227,7 @@ function renderJsonLd() {
     },
     sameAs: [
       REPO_URL,
+      CHATGPT_LISTING,
       'https://hub.docker.com/r/artsamsonov/transcriptor-mcp',
       'https://registry.modelcontextprotocol.io/v0/servers?search=transcriptor',
     ],

@@ -7,6 +7,7 @@
 **Connect one server. Then ask Claude, ChatGPT or etc about a video:** the transcript, the chapters, the metadata, or a single frame. It works with 11 platforms, not only YouTube.
 
 [![Website](https://img.shields.io/badge/Website-transcriptor--mcp.org-C15F3C)](https://transcriptor-mcp.org)
+[![ChatGPT](https://img.shields.io/badge/ChatGPT-plugin%20directory-10A37F)](https://chatgpt.com/plugins/plugin_asdk_app_6a92e6e7ec10819189c404c0721c3207)
 [![MCP Registry](https://img.shields.io/badge/MCP%20Registry-transcriptor--mcp-6E56CF)](https://registry.modelcontextprotocol.io/v0/servers?search=transcriptor)
 [![Docker](https://img.shields.io/badge/Docker-artsamsonov/transcriptor--mcp-2496ED?logo=docker&logoColor=white)](https://hub.docker.com/r/artsamsonov/transcriptor-mcp)
 [![MCP Apps](https://img.shields.io/badge/MCP%20Apps-4%20interactive%20widgets-8A63D2)](#-widgets)
@@ -45,18 +46,10 @@ Then run `/mcp` and approve the sign-in in the browser. After this, `claude mcp 
 | Client | What to do |
 | --- | --- |
 | **Claude** (web and desktop) | Open [Settings → Customize → Connectors](https://claude.ai/settings/connectors). Select **Add** → **Add custom connector**, paste `https://transcriptor.gateway.mcpal.io/mcp`, then select **Add**. |
-| **ChatGPT** | Open [Settings → **Security and login**](https://chatgpt.com/#settings) and turn on **Developer mode**. Then open Plugins, select **+**, and paste `https://transcriptor.gateway.mcpal.io/mcp`. |
-| **Codex** | Add the block below to `~/.codex/config.toml`, then run `codex mcp login transcriptor`. The CLI, the IDE extension and the ChatGPT desktop app share this file. |
+| **ChatGPT** | Open [Transcriptor in the ChatGPT plugin directory](https://chatgpt.com/plugins/plugin_asdk_app_6a92e6e7ec10819189c404c0721c3207) and select **Install plugin**; sign in when asked. Or in ChatGPT open **Plugins**, search **Transcriptor**, select **Install plugin**. Then mention `@Transcriptor` in a chat. |
+| **Codex** | Same directory, one install: ChatGPT and Codex share it. In a Codex task open **Sources** → **Use plugins** → **Transcriptor**; in the CLI, `/plugins`. |
 
-```toml
-[mcp_servers.transcriptor]
-url = "https://transcriptor.gateway.mcpal.io/mcp"
-auth = "oauth"
-```
-
-> **Note:** ChatGPT developer mode is available on the web, for paid plans. Some releases show this control as Settings → Apps & Connectors → Advanced.
->
-> **Note:** `codex mcp add` registers stdio servers only, so a hosted server goes into `config.toml`. See the [Codex MCP docs](https://learn.chatgpt.com/docs/extend/mcp?surface=cli).
+> **Note:** a new directory listing can take up to 6 hours to appear in Codex ([Plugins in ChatGPT and Codex](https://help.openai.com/en/articles/20001256-plugins-in-chatgpt-and-codex)).
 
 ### 🧩 Any other MCP client
 

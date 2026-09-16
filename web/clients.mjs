@@ -11,6 +11,8 @@
  */
 
 export const SERVER_URL = 'https://transcriptor.gateway.mcpal.io/mcp';
+export const CHATGPT_LISTING =
+  'https://chatgpt.com/plugins/plugin_asdk_app_6a92e6e7ec10819189c404c0721c3207';
 export const SERVER_NAME = 'transcriptor';
 
 export const installLinks = {
@@ -30,8 +32,36 @@ export const installLinks = {
  * or 'json' (config object rendered with JSON.stringify).
  * install: key into installLinks for a one-click button.
  * llms: plain-text one-liner for llms.txt; falls back to command/config.
+ * endpoint: false hides the endpoint copy block (installed from a directory).
+ * docs/docsLabel: optional help link under the panel.
  */
 export const clients = [
+  {
+    id: 'chatgpt',
+    label: 'ChatGPT',
+    kind: 'steps',
+    // Listed in the plugin directory, so there is no endpoint to paste.
+    endpoint: false,
+    steps: [
+      `Open <a href="${CHATGPT_LISTING}">Transcriptor in the ChatGPT plugin directory</a> and select <b>Install plugin</b>; sign in when asked`,
+      'Or in ChatGPT: <b>Plugins</b> → search <b>Transcriptor</b> → <b>Install plugin</b>',
+    ],
+    after: 'Then mention <code>@Transcriptor</code> in a chat, or open <b>+</b> → <b>More</b>.',
+    llms: `Plugins -> search "Transcriptor" -> Install plugin (${CHATGPT_LISTING}), then mention @Transcriptor in a chat`,
+  },
+  {
+    id: 'codex',
+    label: 'Codex',
+    kind: 'steps',
+    // ChatGPT and Codex share one plugin directory; one install covers both.
+    endpoint: false,
+    steps: [
+      `Install <a href="${CHATGPT_LISTING}">Transcriptor from the plugin directory</a> — ChatGPT and Codex share it, one install covers both`,
+      'In a Codex task: <b>Sources</b> → <b>Use plugins</b> → <b>Transcriptor</b>; in the CLI, <code>/plugins</code>',
+    ],
+    after: 'A new directory listing can take up to 6 hours to appear in Codex.',
+    llms: `install Transcriptor from the ChatGPT plugin directory (${CHATGPT_LISTING}), shared with Codex; then Sources -> Use plugins -> Transcriptor, or /plugins in the CLI`,
+  },
   {
     id: 'claude',
     label: 'Claude',
@@ -45,19 +75,6 @@ export const clients = [
     llms: 'Settings -> Customize -> Connectors -> Add -> Add custom connector -> paste the endpoint',
     docs: 'https://support.claude.com/en/articles/11175166-get-started-with-custom-connectors-using-remote-mcp',
     docsLabel: 'Claude connectors help',
-  },
-  {
-    id: 'chatgpt',
-    label: 'ChatGPT',
-    kind: 'steps',
-    steps: [
-      'Open <a href="https://chatgpt.com/#settings">Settings</a> → <b>Security and login</b> → turn on <b>Developer mode</b>',
-      'Open Plugins, select <b>+</b>, paste the endpoint',
-    ],
-    after: 'Available on the web, for paid plans.',
-    llms: 'Settings -> Security and login -> enable Developer mode -> Plugins -> + -> paste the endpoint (web, paid plans)',
-    docs: 'https://help.openai.com/en/articles/12584461-developer-mode-apps-and-full-mcp-connectors-in-chatgpt-beta',
-    docsLabel: 'ChatGPT developer mode help',
   },
   {
     id: 'claude-code',
@@ -124,20 +141,6 @@ export const clients = [
     config: { context_servers: { [SERVER_NAME]: { url: SERVER_URL } } },
     docs: 'https://zed.dev/docs/ai/mcp',
     docsLabel: 'Zed MCP docs',
-  },
-  {
-    id: 'codex',
-    label: 'Codex',
-    kind: 'text',
-    // `codex mcp add` covers stdio servers only; a streamable HTTP server goes
-    // into config.toml, which the CLI, the IDE extension and the ChatGPT
-    // desktop app all read.
-    file: '~/.codex/config.toml',
-    text: `[mcp_servers.${SERVER_NAME}]\nurl = "${SERVER_URL}"\nauth = "oauth"`,
-    after: `Then run <code>codex mcp login ${SERVER_NAME}</code> to sign in. The CLI, the IDE extension and the ChatGPT desktop app share this configuration.`,
-    llms: `add [mcp_servers.${SERVER_NAME}] with url = "${SERVER_URL}" and auth = "oauth" to ~/.codex/config.toml, then run codex mcp login ${SERVER_NAME}`,
-    docs: 'https://learn.chatgpt.com/docs/extend/mcp?surface=cli',
-    docsLabel: 'Codex MCP docs',
   },
   {
     id: 'gemini',
