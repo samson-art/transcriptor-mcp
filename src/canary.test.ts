@@ -38,7 +38,7 @@ describe('canary', () => {
       expect(validateAndDownloadSubtitlesMock).toHaveBeenCalledWith(
         expect.objectContaining({
           url: 'https://www.youtube.com/watch?v=other123',
-          type: 'auto',
+          type: 'official',
           lang: 'en',
         }),
         expect.anything(),

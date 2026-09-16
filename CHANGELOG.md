@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.1] - 2026-09-17
+
+### Fixed
+
+- **The canary asked for an auto-generated track of a video that only has official captions:** the default fixture (`jNQXAC9IVRw`) carries official `en` captions and no auto track the server can serve, so every probe failed with `not_found`, `transcriptor_canary_ok` read `0` from the first boot of 1.3.0 on, and the second probe raised the "transcript path failing" alert on a healthy server. The probe now requests `type=official`. A custom `CANARY_URL` must point at a video with an official English track.
+
 ## [1.3.0] - 2026-09-16
 
 ### Added
