@@ -15,7 +15,7 @@ import { errorReason, ServerBusyError } from './errors.js';
 import { setCanaryResult } from './metrics.js';
 import { validateAndDownloadSubtitles } from './validation.js';
 
-/** "Me at the zoo": public since 2005, 19 seconds, official captions. */
+/** "Me at the zoo": public since 2005, 19 seconds, official English captions (no auto track). */
 const DEFAULT_CANARY_URL = 'https://www.youtube.com/watch?v=jNQXAC9IVRw';
 const DEFAULT_INTERVAL_MS = 15 * 60 * 1000;
 /** One failure is noise (a flaky run, a slow platform); two in a row is a pattern. */
@@ -29,7 +29,9 @@ export async function runCanary(log: FastifyBaseLogger): Promise<void> {
   try {
     // Explicit type and lang keep this to one caption download plus the id lookup;
     // omitting them would fan out over the auto-discovery ladder.
-    await validateAndDownloadSubtitles({ url, type: 'auto', lang: 'en' }, log, { skipCache: true });
+    await validateAndDownloadSubtitles({ url, type: 'official', lang: 'en' }, log, {
+      skipCache: true,
+    });
     setCanaryResult(true);
     if (consecutiveFailures >= FAILURES_BEFORE_ALERT) {
       log.info({ url }, 'canary: transcript path recovered');
