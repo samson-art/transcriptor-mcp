@@ -32,8 +32,36 @@ export const installLinks = {
  * or 'json' (config object rendered with JSON.stringify).
  * install: key into installLinks for a one-click button.
  * llms: plain-text one-liner for llms.txt; falls back to command/config.
+ * endpoint: false hides the endpoint copy block (installed from a directory).
+ * docs/docsLabel: optional help link under the panel.
  */
 export const clients = [
+  {
+    id: 'chatgpt',
+    label: 'ChatGPT',
+    kind: 'steps',
+    // Listed in the plugin directory, so there is no endpoint to paste.
+    endpoint: false,
+    steps: [
+      `Open <a href="${CHATGPT_LISTING}">Transcriptor in the ChatGPT plugin directory</a> and select <b>Install plugin</b>; sign in when asked`,
+      'Or in ChatGPT: <b>Plugins</b> → search <b>Transcriptor</b> → <b>Install plugin</b>',
+    ],
+    after: 'Then mention <code>@Transcriptor</code> in a chat, or open <b>+</b> → <b>More</b>.',
+    llms: `Plugins -> search "Transcriptor" -> Install plugin (${CHATGPT_LISTING}), then mention @Transcriptor in a chat`,
+  },
+  {
+    id: 'codex',
+    label: 'Codex',
+    kind: 'steps',
+    // ChatGPT and Codex share one plugin directory; one install covers both.
+    endpoint: false,
+    steps: [
+      `Install <a href="${CHATGPT_LISTING}">Transcriptor from the plugin directory</a> — ChatGPT and Codex share it, one install covers both`,
+      'In a Codex task: <b>Sources</b> → <b>Use plugins</b> → <b>Transcriptor</b>; in the CLI, <code>/plugins</code>',
+    ],
+    after: 'A new directory listing can take up to 6 hours to appear in Codex.',
+    llms: `install Transcriptor from the ChatGPT plugin directory (${CHATGPT_LISTING}), shared with Codex; then Sources -> Use plugins -> Transcriptor, or /plugins in the CLI`,
+  },
   {
     id: 'claude',
     label: 'Claude',
@@ -47,21 +75,6 @@ export const clients = [
     llms: 'Settings -> Customize -> Connectors -> Add -> Add custom connector -> paste the endpoint',
     docs: 'https://support.claude.com/en/articles/11175166-get-started-with-custom-connectors-using-remote-mcp',
     docsLabel: 'Claude connectors help',
-  },
-  {
-    id: 'chatgpt',
-    label: 'ChatGPT',
-    kind: 'steps',
-    // Listed in the plugin directory, so there is no endpoint to paste.
-    endpoint: false,
-    steps: [
-      `Open <a href="${CHATGPT_LISTING}">Transcriptor in the ChatGPT plugin directory</a> and select <b>Install plugin</b>; sign in when asked`,
-      'Or in ChatGPT: <b>Plugins</b> → search <b>Transcriptor</b> → <b>Install plugin</b>',
-    ],
-    after: 'Then mention <code>@Transcriptor</code> in a chat, or open <b>+</b> → <b>More</b>.',
-    llms: `Plugins -> search "Transcriptor" -> Install plugin (${CHATGPT_LISTING}), then mention @Transcriptor in a chat`,
-    docs: CHATGPT_LISTING,
-    docsLabel: 'Transcriptor in the ChatGPT plugin directory',
   },
   {
     id: 'claude-code',
@@ -128,21 +141,6 @@ export const clients = [
     config: { context_servers: { [SERVER_NAME]: { url: SERVER_URL } } },
     docs: 'https://zed.dev/docs/ai/mcp',
     docsLabel: 'Zed MCP docs',
-  },
-  {
-    id: 'codex',
-    label: 'Codex',
-    kind: 'steps',
-    // ChatGPT and Codex share one plugin directory; one install covers both.
-    endpoint: false,
-    steps: [
-      `Install <a href="${CHATGPT_LISTING}">Transcriptor from the plugin directory</a> — ChatGPT and Codex share it, one install covers both`,
-      'In a Codex task: <b>Sources</b> → <b>Use plugins</b> → <b>Transcriptor</b>; in the CLI, <code>/plugins</code>',
-    ],
-    after: 'A new directory listing can take up to 6 hours to appear in Codex.',
-    llms: `install Transcriptor from the ChatGPT plugin directory (${CHATGPT_LISTING}), shared with Codex; then Sources -> Use plugins -> Transcriptor, or /plugins in the CLI`,
-    docs: 'https://help.openai.com/en/articles/20001256-plugins-in-chatgpt-and-codex',
-    docsLabel: 'Plugins in ChatGPT and Codex',
   },
   {
     id: 'gemini',

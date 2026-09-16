@@ -120,7 +120,9 @@ function renderPanelBody(client) {
     parts.push(renderCopyBlock(`cfg-${client.id}`, text, label));
   }
   if (client.after) parts.push(`<p class="cfg-after">${client.after}</p>`);
-  parts.push(`<div class="docs-row"><a class="docs-link" href="${client.docs}">${client.docsLabel}</a></div>`);
+  if (client.docs) {
+    parts.push(`<div class="docs-row"><a class="docs-link" href="${client.docs}">${client.docsLabel}</a></div>`);
+  }
   return parts.map((p) => `        ${p}`).join('\n');
 }
 
@@ -156,7 +158,7 @@ function renderLlmsTxt() {
   const connect = clients
     .map((c) => {
       const how = c.llms ?? (c.kind === 'command' ? c.command.replace(/\n/g, ' && ') : `add ${JSON.stringify(c.config)} to ${c.file}`);
-      return `- [${c.label}](${c.docs}): ${how}`;
+      return `- ${c.docs ? `[${c.label}](${c.docs})` : c.label}: ${how}`;
     })
     .join('\n');
   return `# Transcriptor MCP
