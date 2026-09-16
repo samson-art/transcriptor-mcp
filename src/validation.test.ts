@@ -16,7 +16,7 @@ import {
   validateAndCaptureVideoFrame,
 } from './validation.js';
 import * as youtube from './youtube.js';
-import { set as cacheSet } from './cache.js';
+import { get as cacheGet, set as cacheSet } from './cache.js';
 import * as whisper from './whisper.js';
 import * as whisperJobs from './whisper-jobs.js';
 
@@ -430,6 +430,24 @@ describe('validation', () => {
         subtitlesContent: 'subtitle content',
         source: 'youtube',
       });
+    });
+
+    it('skips the cache when asked, so the canary always exercises yt-dlp', async () => {
+      (cacheGet as jest.Mock).mockClear();
+      (cacheSet as jest.Mock).mockClear();
+      const downloadSpy = jest.spyOn(youtube, 'downloadSubtitles').mockResolvedValue('fresh');
+      jest.spyOn(youtube, 'fetchYtDlpJson').mockResolvedValue({ id: 'dQw4w9WgXcQ' });
+
+      const result = await validateAndDownloadSubtitles(
+        { url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ', type: 'auto', lang: 'en' } as any,
+        undefined,
+        { skipCache: true }
+      );
+
+      expect(result.subtitlesContent).toBe('fresh');
+      expect(downloadSpy).toHaveBeenCalled();
+      expect(cacheGet).not.toHaveBeenCalled();
+      expect(cacheSet).not.toHaveBeenCalled();
     });
 
     it('should return subtitles from Whisper fallback when YouTube has none', async () => {

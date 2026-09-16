@@ -4,9 +4,8 @@
  * failing. This runs the real transcript path on a fixed video at a fixed interval
  * so the failure shows up as a metric and one alert instead of user reports.
  *
- * ponytail: with CACHE_MODE=redis the fixture would come from cache after the first
- * hit (7-day TTL). Add a cache bypass to validateAndDownloadSubtitles if the hosted
- * deployment ever turns caching on.
+ * The probe bypasses the response cache: a cached fixture would prove Redis works,
+ * not that yt-dlp still reaches YouTube.
  */
 import * as Sentry from '@sentry/node';
 import type { FastifyBaseLogger } from 'fastify';
@@ -28,9 +27,9 @@ let consecutiveFailures = 0;
 export async function runCanary(log: FastifyBaseLogger): Promise<void> {
   const url = process.env.CANARY_URL?.trim() || DEFAULT_CANARY_URL;
   try {
-    // Explicit type and lang pin this to a single yt-dlp call; omitting them would
-    // fan out over the auto-discovery ladder and cost six.
-    await validateAndDownloadSubtitles({ url, type: 'auto', lang: 'en' }, log);
+    // Explicit type and lang keep this to one caption download plus the id lookup;
+    // omitting them would fan out over the auto-discovery ladder.
+    await validateAndDownloadSubtitles({ url, type: 'auto', lang: 'en' }, log, { skipCache: true });
     setCanaryResult(true);
     if (consecutiveFailures >= FAILURES_BEFORE_ALERT) {
       log.info({ url }, 'canary: transcript path recovered');
