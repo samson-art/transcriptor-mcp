@@ -31,7 +31,7 @@ If GitHub is not your thing: [contact@transcriptor-mcp.org](mailto:contact@trans
 ## Known limitations
 
 - YouTube may temporarily throttle or block automated access — retry later;
-  a fresh yt-dlp ships in the hosted image weekly.
+  the hosted image is rebuilt with a fresh yt-dlp soon after each yt-dlp release.
 - Private, members-only, age-gated and geo-blocked videos are not supported.
 - Very long transcripts arrive in pages — ask for the next page.
 - `search_videos` searches YouTube only.
