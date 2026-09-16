@@ -29,7 +29,7 @@ describe('canary', () => {
   });
 
   describe('runCanary', () => {
-    it('probes CANARY_URL with one explicit language, so it costs a single yt-dlp call', async () => {
+    it('probes CANARY_URL with one explicit language and skips the cache', async () => {
       process.env.CANARY_URL = 'https://www.youtube.com/watch?v=other123';
       validateAndDownloadSubtitlesMock.mockResolvedValue({ subtitlesContent: 'hello' });
 
@@ -41,7 +41,8 @@ describe('canary', () => {
           type: 'auto',
           lang: 'en',
         }),
-        expect.anything()
+        expect.anything(),
+        { skipCache: true }
       );
     });
 

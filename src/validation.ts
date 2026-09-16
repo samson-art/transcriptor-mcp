@@ -458,7 +458,7 @@ async function throwNoSubtitlesError(opts: {
   );
   const whisperHint = opts.whisperTried ? `${opts.whisperHintPrefix}${WHISPER_HINT}` : '';
   throw new NotFoundError(
-    `${opts.baseMsg}${whisperHint} Use /subtitles/available to list supported languages, or omit type/lang for auto-discovery.`,
+    `${opts.baseMsg}${whisperHint} Use get_available_subtitles (or GET /subtitles/available) to list supported languages, or omit type and lang for auto-discovery.`,
     'Subtitles not found',
     available ? { official: available.official, auto: available.auto } : undefined
   );
@@ -514,7 +514,8 @@ async function handleAutoDiscoverFlow(
 async function handleExplicitRequestFlow(
   request: GetSubtitlesRequest,
   url: string,
-  logger?: FastifyBaseLogger
+  logger?: FastifyBaseLogger,
+  skipCache = false
 ): Promise<SubtitleResult> {
   const type = request.type ?? 'auto';
   const lang = request.lang ?? 'en';
@@ -527,7 +528,8 @@ async function handleExplicitRequestFlow(
 
   const cacheConfig = getCacheConfig();
   const cacheKey = buildCacheKey('sub', url, type, sanitizedLang, format ?? 'default');
-  const cached = await get(cacheKey);
+  // The canary skips the cache: a cached fixture proves Redis works, not yt-dlp.
+  const cached = skipCache ? undefined : await get(cacheKey);
   if (cached !== undefined) {
     try {
       const parsed = JSON.parse(cached) as SubtitleResult;
@@ -537,7 +539,7 @@ async function handleExplicitRequestFlow(
       logger?.warn({ err: e, cacheKey }, 'Corrupted cache entry, treating as miss');
     }
   }
-  recordCacheMiss();
+  if (!skipCache) recordCacheMiss();
 
   let subtitlesContent = await downloadSubtitles(url, type, sanitizedLang, format, logger);
   let source: string = extractPlatformFromUrl(url);
@@ -598,7 +600,7 @@ async function handleExplicitRequestFlow(
     subtitlesContent: subtitlesContent as string,
     source,
   };
-  await set(cacheKey, JSON.stringify(result), cacheConfig.ttlSubtitlesSeconds);
+  if (!skipCache) await set(cacheKey, JSON.stringify(result), cacheConfig.ttlSubtitlesSeconds);
   return result;
 }
 
@@ -611,7 +613,8 @@ async function handleExplicitRequestFlow(
  */
 export async function validateAndDownloadSubtitles(
   request: GetSubtitlesRequest,
-  logger?: FastifyBaseLogger
+  logger?: FastifyBaseLogger,
+  opts?: { skipCache?: boolean }
 ): Promise<SubtitleResult> {
   const validated = validateVideoRequest(request.url);
   const { url } = validated;
@@ -620,7 +623,7 @@ export async function validateAndDownloadSubtitles(
     if (shouldAutoDiscoverSubtitles(request)) {
       return await handleAutoDiscoverFlow(request, url, logger);
     }
-    return await handleExplicitRequestFlow(request, url, logger);
+    return await handleExplicitRequestFlow(request, url, logger, opts?.skipCache);
   } catch (err) {
     if (err instanceof YtDlpError) recordSubtitlesFailure(url, err.reason);
     throw err;
