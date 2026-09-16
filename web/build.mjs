@@ -8,7 +8,7 @@ import { cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { marked } from 'marked';
-import { SERVER_URL, clients, installLinks, tools } from './clients.mjs';
+import {SERVER_URL, clients, installLinks, tools, CHATGPT_LISTING } from './clients.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const { version } = JSON.parse(
@@ -222,6 +222,7 @@ function renderJsonLd() {
     },
     sameAs: [
       REPO_URL,
+      CHATGPT_LISTING,
       'https://hub.docker.com/r/artsamsonov/transcriptor-mcp',
       'https://registry.modelcontextprotocol.io/v0/servers?search=transcriptor',
     ],

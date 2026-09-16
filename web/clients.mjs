@@ -11,6 +11,8 @@
  */
 
 export const SERVER_URL = 'https://transcriptor.gateway.mcpal.io/mcp';
+export const CHATGPT_LISTING =
+  'https://chatgpt.com/plugins/plugin_asdk_app_6a92e6e7ec10819189c404c0721c3207';
 export const SERVER_NAME = 'transcriptor';
 
 export const installLinks = {
@@ -51,13 +53,14 @@ export const clients = [
     label: 'ChatGPT',
     kind: 'steps',
     steps: [
-      'Open <a href="https://chatgpt.com/#settings">Settings</a> → <b>Security and login</b> → turn on <b>Developer mode</b>',
-      'Open Plugins, select <b>+</b>, paste the endpoint',
+      `Open <a href="${CHATGPT_LISTING}">Transcriptor in the ChatGPT app directory</a> and select <b>Connect</b>`,
+      'Or in ChatGPT: <b>Apps</b> → search <b>Transcriptor</b> → <b>Connect</b>',
     ],
-    after: 'Available on the web, for paid plans.',
-    llms: 'Settings -> Security and login -> enable Developer mode -> Plugins -> + -> paste the endpoint (web, paid plans)',
-    docs: 'https://help.openai.com/en/articles/12584461-developer-mode-apps-and-full-mcp-connectors-in-chatgpt-beta',
-    docsLabel: 'ChatGPT developer mode help',
+    after:
+      'The endpoint below is only for adding the server by hand as a custom connector in <a href="https://help.openai.com/en/articles/12584461-developer-mode-apps-and-full-mcp-connectors-in-chatgpt-beta">developer mode</a> (web, paid plans).',
+    llms: `Apps -> search "Transcriptor" -> Connect (${CHATGPT_LISTING}); or paste the endpoint as a custom connector in developer mode`,
+    docs: CHATGPT_LISTING,
+    docsLabel: 'Transcriptor in the ChatGPT app directory',
   },
   {
     id: 'claude-code',
