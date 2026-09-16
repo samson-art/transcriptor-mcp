@@ -1,8 +1,8 @@
 # Privacy Policy — Transcriptor MCP (hosted service)
 
-**Version:** 1.0
-**Last updated:** August 13, 2026
-**Effective date:** August 13, 2026
+**Version:** 1.1
+**Last updated:** September 16, 2026
+**Effective date:** September 16, 2026
 
 Companion document: [Terms of Service](./TERMS_OF_SERVICE.md). "Output" has the meaning given to it in section 3 of the Terms.
 
@@ -29,9 +29,11 @@ The Service is free, so we take no payment and process no payment or billing dat
 
 ## 4. What happens to your requests
 
-Every tool call travels through the MCPal gateway to our server, so what you submit and the Output pass through both systems. Our server writes temporary files while it works and deletes them as soon as the call ends. If the server stops in the middle of a call, a file can stay until the server restarts and its temporary storage is replaced. We keep no Output. Both systems produce ordinary operational logs, so we do not promise that nothing about a request is written down.
+Every tool call travels through the MCPal gateway to our server, so what you submit and the Output pass through both systems. Our server writes temporary files while it works and deletes them as soon as the call ends. If the server stops in the middle of a call, a file can stay until the server restarts and its temporary storage is replaced. We keep no Output beyond the cache described next. Both systems produce ordinary operational logs, so we do not promise that nothing about a request is written down.
 
-Response caching and the optional Whisper audio transcription are switched off on the hosted Service, so it downloads no audio and stores no transcript. If we switch either on, we will update this policy first and state the storage period.
+The hosted Service keeps a response cache so that a repeated request is answered without asking the source platform again. A cache entry holds Output — caption text, video metadata, the list of available subtitles or a chapter list — under the video address and the request parameters. It carries no identifier of the person whose request created it, and the same entry is served to anyone who makes the same request. Entries expire on their own after no more than 30 days. Search results and frames are not cached.
+
+The optional Whisper audio transcription is switched off on the hosted Service, so it downloads no audio and produces no transcript of its own. If we switch it on, we will update this policy first and state the storage period.
 
 If that optional transcription is switched on, our server keeps in memory the addresses of up to the last 100 subtitle requests that failed, with the time of failure, so that we can diagnose faults. It is off on the hosted Service, so the list stays empty. The list is in memory only, it is lost when the server restarts, and no endpoint returns it: the hosted server answers only a health check, a metrics endpoint that reports counts and timings, and the MCP endpoint.
 
@@ -59,7 +61,8 @@ Our server requests captions, metadata and frames from the source platform over 
 
 ## 7. How long data is kept
 
-- **Output**: not kept beyond the call. Temporary files are deleted at the end of the call, and at the latest when the server restarts.
+- **Output**: not kept beyond the call, except in the response cache. Temporary files are deleted at the end of the call, and at the latest when the server restarts.
+- **Response cache**: no more than 30 days per entry, then expired automatically. Entries hold Output under the video address and request parameters, with no identifier of any user.
 - **Failed-request list**: in memory only, empty while optional transcription is off, replaced after 100 entries, lost on restart.
 - **Usage records that identify you**: 45 days, then deleted automatically. Before deletion they are rolled up into daily totals per server and per tool and into counts of distinct users per day, week and month. Those totals carry no identifier and are kept for the life of the Service.
 - **Account and identity records**: kept by MCPal while your account exists, for the periods in its policy.
