@@ -6,6 +6,8 @@
 
 import { Counter, Gauge, Histogram, Registry } from 'prom-client';
 
+import { version } from './version.js';
+
 const register = new Registry();
 
 const defaultLabels = { service: 'api' };
@@ -37,7 +39,7 @@ export const httpRequestDurationSeconds = new Histogram({
   name: 'http_request_duration_seconds',
   help: 'HTTP request duration in seconds',
   labelNames: ['method', 'route'],
-  buckets: [0.01, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10],
+  buckets: [0.1, 0.5, 1, 2.5, 5, 10, 20, 30, 60, 120],
   registers: [register],
 });
 
@@ -109,7 +111,34 @@ export const mcpRequestDurationSeconds = new Histogram({
   name: 'mcp_request_duration_seconds',
   help: 'MCP request duration in seconds',
   labelNames: ['endpoint'],
-  buckets: [0.01, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10],
+  buckets: [0.5, 1, 2.5, 5, 10, 20, 30, 60, 120],
+  registers: [register],
+});
+
+// Build and dependency versions. Cardinality is fine: these change on deploy only.
+export const buildInfo = new Gauge({
+  name: 'transcriptor_build_info',
+  help: 'Always 1; the labels carry the server and yt-dlp versions',
+  labelNames: ['version', 'yt_dlp_version'],
+  registers: [register],
+});
+
+export const ytDlpOutdated = new Gauge({
+  name: 'yt_dlp_outdated',
+  help: '1 when the installed yt-dlp is older than the latest release',
+  registers: [register],
+});
+
+// Canary: does the transcript path still work end to end from this host?
+export const canaryOk = new Gauge({
+  name: 'transcriptor_canary_ok',
+  help: '1 when the last canary transcript fetch succeeded',
+  registers: [register],
+});
+
+export const canaryLastSuccessTimestampSeconds = new Gauge({
+  name: 'transcriptor_canary_last_success_timestamp_seconds',
+  help: 'Unix time of the last successful canary transcript fetch',
   registers: [register],
 });
 
@@ -173,6 +202,18 @@ export function getFailedSubtitlesUrls(): {
     failures: [...failuresBuffer],
     total: failuresTotalCount,
   };
+}
+
+export function setYtDlpVersionInfo(installed: string | null, outdated: boolean): void {
+  // Reset first: an in-place upgrade must not leave the old version as a second series.
+  buildInfo.reset();
+  buildInfo.set({ version, yt_dlp_version: installed ?? 'unknown' }, 1);
+  ytDlpOutdated.set(outdated ? 1 : 0);
+}
+
+export function setCanaryResult(ok: boolean): void {
+  canaryOk.set(ok ? 1 : 0);
+  if (ok) canaryLastSuccessTimestampSeconds.setToCurrentTime();
 }
 
 export function setYtDlpProcessGauges(active: number, queued: number): void {

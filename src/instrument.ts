@@ -5,11 +5,13 @@
  */
 import * as Sentry from '@sentry/node';
 import { HttpError, ServerBusyError, YtDlpError } from './errors.js';
+import { version } from './version.js';
 
 Sentry.init({
   dsn: process.env.SENTRY_DSN,
   environment: process.env.SENTRY_ENVIRONMENT,
-  release: process.env.SENTRY_RELEASE,
+  // Without this every deploy lands in Sentry as the same release.
+  release: process.env.SENTRY_RELEASE || version,
   maxBreadcrumbs: 100,
   tracesSampleRate: process.env.SENTRY_TRACES_SAMPLE_RATE
     ? Number(process.env.SENTRY_TRACES_SAMPLE_RATE)

@@ -22,6 +22,7 @@ import {
   type VideoChapter,
 } from './youtube.js';
 import {
+  errorReason,
   HttpError,
   NotFoundError,
   ServerBusyError,
@@ -343,15 +344,6 @@ type WithToolErrorHandlingOptions = {
   notFoundMessage?: string;
 };
 
-/** Bounded metric label: one of the failure classes, or the error kind. */
-function toolErrorReason(err: unknown): string {
-  if (err instanceof ServerBusyError) return 'busy';
-  if (err instanceof YtDlpError) return err.reason;
-  if (err instanceof NotFoundError) return 'not_found';
-  if (err instanceof ValidationError) return 'validation';
-  return 'unknown';
-}
-
 async function withToolErrorHandling(
   toolName: string,
   log: FastifyBaseLogger,
@@ -364,7 +356,7 @@ async function withToolErrorHandling(
     recordMcpToolCall(toolName);
     return result;
   } catch (err) {
-    recordMcpToolError(toolName, toolErrorReason(err));
+    recordMcpToolError(toolName, errorReason(err));
     if (err instanceof NotFoundError) {
       return toolError(options?.notFoundMessage ?? err.message);
     }

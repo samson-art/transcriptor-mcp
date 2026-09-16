@@ -4,7 +4,9 @@ import {
   compareYtDlpVersions,
   fetchLatestYtDlpVersion,
   checkYtDlpAtStartup,
+  checkYtDlpVersion,
 } from './yt-dlp-check.js';
+import { renderPrometheus } from './metrics.js';
 
 jest.mock('node:child_process', () => ({
   execFile: jest.fn(),
@@ -80,6 +82,75 @@ describe('yt-dlp-check', () => {
     it('returns null when fetch throws', async () => {
       global.fetch = jest.fn().mockRejectedValue(new Error('network error'));
       expect(await fetchLatestYtDlpVersion()).toBeNull();
+    });
+  });
+
+  describe('checkYtDlpVersion', () => {
+    beforeEach(() => {
+      process.env = { ...originalEnv };
+      execFileMock.mockReset();
+    });
+
+    afterAll(() => {
+      process.env = originalEnv;
+    });
+
+    function mockInstalledVersion(version: string) {
+      execFileMock.mockImplementation(
+        (
+          _f: string,
+          _a: string[],
+          _o: unknown,
+          cb: (e: Error | null, r: { stdout: string; stderr: string }) => void
+        ) => {
+          cb(null, { stdout: `${version}\n`, stderr: '' });
+        }
+      );
+    }
+
+    it('publishes the installed version and the outdated flag without exiting', async () => {
+      mockInstalledVersion('2026.1.1');
+      global.fetch = jest.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ tag_name: '2026.08.19' }),
+      }) as unknown as typeof fetch;
+
+      const result = await checkYtDlpVersion({ error: jest.fn(), warn: jest.fn() });
+
+      expect(result).toBe('2026.1.1');
+      const metrics = await renderPrometheus();
+      expect(metrics).toMatch(/^yt_dlp_outdated\{[^}]*\} 1$/m);
+      expect(metrics).toContain('yt_dlp_version="2026.1.1"');
+    });
+
+    it('clears the outdated flag once the versions match', async () => {
+      mockInstalledVersion('2026.08.19');
+      global.fetch = jest.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ tag_name: '2026.08.19' }),
+      }) as unknown as typeof fetch;
+
+      await checkYtDlpVersion({ error: jest.fn(), warn: jest.fn() });
+
+      const metrics = await renderPrometheus();
+      expect(metrics).toMatch(/^yt_dlp_outdated\{[^}]*\} 0$/m);
+    });
+
+    it('reports a missing yt-dlp as null and leaves the exit to the caller', async () => {
+      const err = new Error('not found') as NodeJS.ErrnoException;
+      err.code = 'ENOENT';
+      execFileMock.mockImplementation(
+        (_f: string, _a: string[], _o: unknown, cb: (e: Error | null, s?: string) => void) => {
+          cb(err);
+        }
+      );
+      const exitSpy = jest.spyOn(process, 'exit').mockImplementation((() => {}) as () => never);
+
+      const result = await checkYtDlpVersion({ error: jest.fn(), warn: jest.fn() });
+
+      expect(result).toBeNull();
+      expect(exitSpy).not.toHaveBeenCalled();
+      exitSpy.mockRestore();
     });
   });
 
