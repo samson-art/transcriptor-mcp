@@ -48,7 +48,7 @@
     "type": "git",
     "url": "git+https://github.com/samson-art/transcriptor-mcp.git"
   },
-  "homepage": "https://github.com/samson-art/transcriptor-mcp#readme",
+  "homepage": "https://transcriptor-mcp.org",
   "bugs": {
     "url": "https://github.com/samson-art/transcriptor-mcp/issues"
   },

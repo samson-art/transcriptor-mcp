@@ -310,9 +310,27 @@ landing = landing.replace('<!-- build:jsonld -->', () => renderJsonLd());
 await writeFile(path.join(out, 'index.html'), openExternalLinksInNewTab(landing));
 await writeFile(path.join(out, 'llms.txt'), renderLlmsTxt());
 await writeFile(path.join(out, 'sitemap.xml'), renderSitemap());
+// Cloudflare Pages serves this for any unknown path. Rendering it through the
+// same template as every other page keeps it on the site's fonts, header and
+// footer; a standalone copy of the shell only drifts away from them.
+const notFound = template
+  .replaceAll('{{title}}', () => 'Page not found — Transcriptor MCP')
+  .replaceAll('{{path}}', () => '/404.html')
+  .replace(
+    '{{content}}',
+    () =>
+      '<h1>Page not found</h1>\n' +
+      '<p>That page does not exist. Try the <a href="/">home page</a> or <a href="/support/">Support</a>.</p>'
+  )
+  .replace(
+    '<meta name="robots" content="index, follow, max-image-preview:large" />',
+    () => '<meta name="robots" content="noindex" />'
+  );
+await writeFile(path.join(out, '404.html'), openExternalLinksInNewTab(notFound));
 await cp(path.join(root, 'web/robots.txt'), path.join(out, 'robots.txt'));
 await cp(path.join(root, 'web/_headers'), path.join(out, '_headers'));
-console.log(`built / with ${clients.length} client panels, and /llms.txt`);
+await cp(path.join(root, 'web/.well-known'), path.join(out, '.well-known'), { recursive: true });
+console.log(`built / with ${clients.length} client panels, /llms.txt, /404.html and /.well-known`);
 
 await cp(path.join(root, 'web/fonts'), path.join(out, 'fonts'), { recursive: true });
 // Brand assets: the SVG mark is the source of truth (web/brand/README.md

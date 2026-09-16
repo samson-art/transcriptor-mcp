@@ -15,6 +15,7 @@ A useful report names the client (Claude, ChatGPT, Cursor, …), the tool that
 failed (for example `get_transcript`), the video URL you asked about, and the
 error text as the assistant showed it. The server never needs your password or
 tokens for any video platform, so a report never has to include secrets.
+Expect a first reply within two working days — this is a one-person project.
 
 ## Ask by email
 
@@ -26,6 +27,14 @@ If GitHub is not your thing: [contact@transcriptor-mcp.org](mailto:contact@trans
 - [What you can ask](/#ask) — the eight tools with example prompts.
 - [README](https://github.com/samson-art/transcriptor-mcp#readme) — full
   documentation, self-hosting included.
+
+## Known limitations
+
+- YouTube may temporarily throttle or block automated access — retry later;
+  the hosted image is rebuilt with a fresh yt-dlp soon after each yt-dlp release.
+- Private, members-only, age-gated and geo-blocked videos are not supported.
+- Very long transcripts arrive in pages — ask for the next page.
+- `search_videos` searches YouTube only.
 
 ## Account and sign-in
 
