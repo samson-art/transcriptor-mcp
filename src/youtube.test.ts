@@ -272,6 +272,109 @@ today to pay our respects to MCP, which
     });
   });
 
+  describe('downloadSubtitleTrackDirect', () => {
+    const TIMEDTEXT = 'https://www.youtube.com/api/timedtext?v=x&fmt=vtt&lang=en';
+    const data = {
+      id: 'x',
+      subtitles: { en: [{ ext: 'vtt', url: TIMEDTEXT }] },
+      automatic_captions: {
+        en: [
+          // YouTube lists the auto track as an HLS manifest as well; it must be skipped.
+          {
+            ext: 'vtt',
+            url: 'https://manifest.googlevideo.com/api/manifest/hls/playlist/index.m3u8',
+          },
+          { ext: 'vtt', url: TIMEDTEXT },
+        ],
+      },
+    };
+    let fetchMock: jest.Mock;
+
+    beforeEach(() => {
+      jest.clearAllMocks();
+      fetchMock = jest.fn();
+      globalThis.fetch = fetchMock as unknown as typeof fetch;
+    });
+
+    function answer(body: string, status = 200) {
+      fetchMock.mockResolvedValue({ ok: status < 400, status, text: () => Promise.resolve(body) });
+    }
+
+    it('should fetch the track listed for the language and skip the HLS manifest', async () => {
+      answer('WEBVTT\n\n00:00:01.000 --> 00:00:02.000\nhi');
+      await expect(
+        youtube.downloadSubtitleTrackDirect(data, 'auto', 'en', 'vtt')
+      ).resolves.toContain('WEBVTT');
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(fetchMock.mock.calls[0][0]).toBe(TIMEDTEXT);
+    });
+
+    it('should give up when the answer is not the requested subtitles', async () => {
+      answer('<html>sign in</html>');
+      await expect(
+        youtube.downloadSubtitleTrackDirect(data, 'official', 'en', 'vtt')
+      ).resolves.toBeNull();
+
+      answer('WEBVTT', 403);
+      await expect(
+        youtube.downloadSubtitleTrackDirect(data, 'official', 'en', 'vtt')
+      ).resolves.toBeNull();
+
+      fetchMock.mockRejectedValue(new Error('network down'));
+      await expect(
+        youtube.downloadSubtitleTrackDirect(data, 'official', 'en', 'vtt')
+      ).resolves.toBeNull();
+    });
+
+    it('should not fetch anything when the format or language is not listed', async () => {
+      await expect(
+        youtube.downloadSubtitleTrackDirect(data, 'official', 'en', 'srt')
+      ).resolves.toBeNull();
+      await expect(
+        youtube.downloadSubtitleTrackDirect(data, 'official', 'ru', 'vtt')
+      ).resolves.toBeNull();
+      await expect(
+        youtube.downloadSubtitleTrackDirect(null, 'official', 'en', 'vtt')
+      ).resolves.toBeNull();
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it('should let downloadSubtitles answer without running yt-dlp', async () => {
+      answer('WEBVTT\n\n00:00:01.000 --> 00:00:02.000\nhi');
+      const content = await youtube.downloadSubtitles(
+        'https://www.youtube.com/watch?v=x',
+        'official',
+        'en',
+        'vtt',
+        undefined,
+        data
+      );
+      expect(content).toContain('WEBVTT');
+      expect(execFileMock).not.toHaveBeenCalled();
+    });
+
+    it('should fall back to yt-dlp when the direct fetch gives nothing', async () => {
+      answer('nope', 500);
+      execFileMock.mockImplementation(
+        (
+          _file: string,
+          _args: string[],
+          _options: unknown,
+          callback: (error: Error | null, result?: { stdout: string; stderr: string }) => void
+        ) => callback(new Error('yt-dlp ran'))
+      );
+      await youtube.downloadSubtitles(
+        'https://www.youtube.com/watch?v=x',
+        'official',
+        'en',
+        'vtt',
+        undefined,
+        data
+      );
+      expect(execFileMock).toHaveBeenCalled();
+    });
+  });
+
   describe('downloadSubtitles', () => {
     beforeEach(() => {
       jest.clearAllMocks();

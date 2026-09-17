@@ -412,9 +412,13 @@ export async function downloadSubtitles(
   type: 'official' | 'auto' = 'auto',
   lang: string = 'en',
   format?: SubtitleFormat | null,
-  logger?: FastifyBaseLogger
+  logger?: FastifyBaseLogger,
+  /** The JSON this track was listed in; with it the track is fetched without yt-dlp. */
+  preFetchedData?: YtDlpVideoInfo | null
 ): Promise<string | null> {
   const subFormat = resolveSubtitleFormat(format);
+  const direct = await downloadSubtitleTrackDirect(preFetchedData, type, lang, subFormat, logger);
+  if (direct) return direct;
   const tempDir = tmpdir();
   const outputPath = join(tempDir, urlToSafeBase(url, 'subtitles'));
   const { jsRuntimes, remoteComponents, cookiesFilePathFromEnv } = getYtDlpEnv();
@@ -469,6 +473,71 @@ export async function downloadSubtitles(
     return null;
   } finally {
     await cookiesCleanup?.();
+  }
+}
+
+/** A listed track we can fetch ourselves: not an HLS manifest, and an absolute https URL. */
+function directTrackUrl(
+  track: { ext?: string; url?: string },
+  format: SubtitleFormat
+): string | null {
+  if (track.ext !== format || !track.url?.startsWith('https://')) return null;
+  try {
+    const { hostname, pathname } = new URL(track.url);
+    // YouTube lists the auto track as an HLS manifest too; ffmpeg-free code cannot read it.
+    if (hostname.startsWith('manifest.') || pathname.endsWith('.m3u8')) return null;
+  } catch {
+    return null;
+  }
+  return track.url;
+}
+
+/**
+ * Downloads one listed track by its own URL: ~0.2 s against the 4–7 s a second yt-dlp
+ * run costs. Returns null whenever anything is off, and the yt-dlp path takes over.
+ */
+export async function downloadSubtitleTrackDirect(
+  data: YtDlpVideoInfo | null | undefined,
+  type: 'official' | 'auto',
+  lang: string,
+  format: SubtitleFormat,
+  logger?: FastifyBaseLogger
+): Promise<string | null> {
+  const tracks = (type === 'official' ? data?.subtitles : data?.automatic_captions)?.[lang];
+  const trackUrl = tracks
+    ?.map((t) => directTrackUrl(t, format))
+    .find((u): u is string => u != null);
+  if (!trackUrl) return null;
+
+  const started = Date.now();
+  try {
+    const response = await fetch(trackUrl, {
+      signal: AbortSignal.timeout(parseIntEnv('SUBTITLE_FETCH_TIMEOUT_MS', 15000)),
+    });
+    if (!response.ok) {
+      logger?.warn({ type, lang, status: response.status }, 'Direct subtitle track fetch failed');
+      return null;
+    }
+    const content = await response.text();
+    // The URL is signed and can answer with an HTML error page or an empty body.
+    if (
+      detectSubtitleFormat(content) !== format ||
+      (format === 'srt' && !content.includes('-->'))
+    ) {
+      logger?.warn(
+        { type, lang, length: content.length },
+        'Direct subtitle track is not subtitles'
+      );
+      return null;
+    }
+    logger?.info({ type, lang, format, ms: Date.now() - started }, 'Downloaded subtitles directly');
+    return content;
+  } catch (error) {
+    logger?.warn(
+      { type, lang, error: error instanceof Error ? error.message : String(error) },
+      'Direct subtitle track fetch failed'
+    );
+    return null;
   }
 }
 
@@ -738,10 +807,11 @@ export async function fetchVideoInfo(
   logger?: FastifyBaseLogger
 ): Promise<VideoInfo | null> {
   const data = await fetchYtDlpJson(url, logger);
-  if (!data) {
-    return null;
-  }
+  return data ? mapVideoInfo(data) : null;
+}
 
+/** Shapes one yt-dlp JSON object into the tool's video info. */
+export function mapVideoInfo(data: YtDlpVideoInfo): VideoInfo {
   return {
     id: data.id ?? null,
     title: data.title ?? null,

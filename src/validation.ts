@@ -9,7 +9,9 @@ import {
   fetchYtDlpJson,
   captureVideoFrame,
   getImageWidth,
+  mapVideoInfo,
   type SubtitleFormat,
+  type YtDlpVideoInfo,
   type VideoFrameFormat,
 } from './youtube.js';
 import { getWhisperConfig } from './whisper.js';
@@ -359,15 +361,15 @@ async function downloadWithAutoDiscover(
   subtitlesContent: string;
   source: string;
 } | null> {
-  const available = await validateAndFetchAvailableSubtitles({ url }, logger);
-  const { videoId, official, auto } = available;
+  const available = await loadAvailableSubtitles(url, logger);
+  const { videoId, official, auto, data } = available;
   const isYouTube = extractYouTubeVideoId(url) !== null;
   const platform = extractPlatformFromUrl(url);
 
   // 1. Try official subtitles (limit to first 3 to avoid O(N) yt-dlp calls)
   const officialToTry = official.slice(0, 3);
   for (const lang of officialToTry) {
-    const content = await downloadSubtitles(url, 'official', lang, format, logger);
+    const content = await downloadSubtitles(url, 'official', lang, format, logger, data);
     if (content && content.trim().length > 0) {
       return {
         videoId,
@@ -383,7 +385,7 @@ async function downloadWithAutoDiscover(
   const orderedAuto = isYouTube ? orderAutoForYouTube(auto) : auto;
   const autoToTry = orderedAuto.slice(0, 3);
   for (const lang of autoToTry) {
-    const content = await downloadSubtitles(url, 'auto', lang, format, logger);
+    const content = await downloadSubtitles(url, 'auto', lang, format, logger, data);
     if (content && content.trim().length > 0) {
       return {
         videoId,
@@ -441,6 +443,94 @@ async function downloadWithAutoDiscover(
   }
 
   return null;
+}
+
+type AvailableSubtitles = { videoId: string; official: string[]; auto: string[] };
+type VideoJson = {
+  data: YtDlpVideoInfo;
+  avail: AvailableSubtitles;
+  info: { videoId: string; info: Awaited<ReturnType<typeof fetchVideoInfo>> };
+  chapters: { videoId: string; chapters: Awaited<ReturnType<typeof fetchVideoChapters>> };
+};
+
+/** One in-flight yt-dlp JSON run per URL; the widgets ask three tools about one video at once. */
+const videoJsonInFlight = new Map<string, Promise<VideoJson | null>>();
+
+function sortedTrackLangs(tracks?: Record<string, unknown>): string[] {
+  return tracks ? Object.keys(tracks).sort((a, b) => a.localeCompare(b)) : [];
+}
+
+/**
+ * One yt-dlp run answers info, the track list and chapters, and hands the JSON to the
+ * caller for the tracks' own URLs. All three cache entries are filled, so the next tool
+ * asking about this video is a cache hit.
+ */
+async function buildVideoJson(
+  url: string,
+  logger?: FastifyBaseLogger,
+  /** The canary proves yt-dlp works; a probe must not leave cache entries behind. */
+  skipCache = false
+): Promise<VideoJson | null> {
+  const data = await fetchYtDlpJson(url, logger);
+  if (!data) return null;
+  const videoId = data.id ?? extractYouTubeVideoId(url) ?? 'unknown';
+  const result: VideoJson = {
+    data,
+    avail: {
+      videoId,
+      official: sortedTrackLangs(data.subtitles),
+      auto: sortedTrackLangs(data.automatic_captions),
+    },
+    info: { videoId, info: mapVideoInfo(data) },
+    chapters: { videoId, chapters: await fetchVideoChapters(url, logger, data) },
+  };
+  if (!skipCache) {
+    const ttl = getCacheConfig().ttlMetadataSeconds;
+    await Promise.all([
+      set(buildCacheKey('avail', url), JSON.stringify(result.avail), ttl),
+      set(buildCacheKey('info', url), JSON.stringify(result.info), ttl),
+      set(buildCacheKey('chapters', url), JSON.stringify(result.chapters), ttl),
+    ]);
+  }
+  return result;
+}
+
+async function loadVideoJson(url: string, logger?: FastifyBaseLogger): Promise<VideoJson | null> {
+  const running = videoJsonInFlight.get(url);
+  if (running) return running;
+  const started = buildVideoJson(url, logger).finally(() => videoJsonInFlight.delete(url));
+  videoJsonInFlight.set(url, started);
+  return started;
+}
+
+/** For tests: the in-flight map must not leak a rejected run between cases. */
+export function resetVideoJsonInFlight(): void {
+  videoJsonInFlight.clear();
+}
+
+/** Reads the track list, and returns the JSON it came from when this call fetched it. */
+async function loadAvailableSubtitles(
+  url: string,
+  logger?: FastifyBaseLogger
+): Promise<AvailableSubtitles & { data?: YtDlpVideoInfo }> {
+  const cacheKey = buildCacheKey('avail', url);
+  const cached = await get(cacheKey);
+  if (cached !== undefined) {
+    try {
+      const parsed = JSON.parse(cached) as AvailableSubtitles;
+      recordCacheHit('avail');
+      return parsed;
+    } catch (e) {
+      logger?.warn({ err: e, cacheKey }, 'Corrupted cache entry, treating as miss');
+    }
+  }
+  recordCacheMiss('avail');
+
+  const loaded = await loadVideoJson(url, logger);
+  if (!loaded) {
+    throw new NotFoundError('Could not fetch video data for the provided URL', 'Video not found');
+  }
+  return { ...loaded.avail, data: loaded.data };
 }
 
 /** Told to the caller when Whisper is on and produced nothing; operator settings stay out of it. */
@@ -552,7 +642,19 @@ async function handleExplicitRequestFlow(
   }
   if (!skipCache) recordCacheMiss('sub');
 
-  let subtitlesContent = await downloadSubtitles(url, type, sanitizedLang, format, logger);
+  // The JSON carries the track's own URL and the video id, and fills the info, track-list
+  // and chapters caches that the widgets ask for right after a transcript.
+  const loaded = skipCache
+    ? await buildVideoJson(url, logger, true)
+    : await loadVideoJson(url, logger);
+  let subtitlesContent = await downloadSubtitles(
+    url,
+    type,
+    sanitizedLang,
+    format,
+    logger,
+    loaded?.data
+  );
   let source: string = extractPlatformFromUrl(url);
 
   if (!subtitlesContent) {
@@ -572,10 +674,7 @@ async function handleExplicitRequestFlow(
           if (!text?.trim()) {
             return;
           }
-          const vid =
-            extractYouTubeVideoId(url) ??
-            (await fetchYtDlpJson(url, logger).catch(() => null))?.id ??
-            'unknown';
+          const vid = loaded?.info.videoId ?? extractYouTubeVideoId(url) ?? 'unknown';
           const whisperResult = {
             videoId: vid,
             type,
@@ -603,11 +702,7 @@ async function handleExplicitRequestFlow(
     });
   }
 
-  // A YouTube URL already carries the id: no second yt-dlp run just for it.
-  const videoId =
-    extractYouTubeVideoId(url) ??
-    (await fetchYtDlpJson(url, logger).catch(() => null))?.id ??
-    'unknown';
+  const videoId = loaded?.info.videoId ?? extractYouTubeVideoId(url) ?? 'unknown';
 
   const result: SubtitleResult = {
     videoId,
@@ -655,48 +750,10 @@ export async function validateAndDownloadSubtitles(
 export async function validateAndFetchAvailableSubtitles(
   request: GetAvailableSubtitlesRequest,
   logger?: FastifyBaseLogger
-): Promise<{
-  videoId: string;
-  official: string[];
-  auto: string[];
-}> {
-  const validated = validateVideoRequest(request.url);
-  const { url } = validated;
-
-  const cacheConfig = getCacheConfig();
-  const cacheKey = buildCacheKey('avail', url);
-  const cached = await get(cacheKey);
-  if (cached !== undefined) {
-    try {
-      const parsed = JSON.parse(cached) as {
-        videoId: string;
-        official: string[];
-        auto: string[];
-      };
-      recordCacheHit('avail');
-      return parsed;
-    } catch (e) {
-      logger?.warn({ err: e, cacheKey }, 'Corrupted cache entry, treating as miss');
-    }
-  }
-  recordCacheMiss('avail');
-
-  const data = await fetchYtDlpJson(url, logger);
-  if (!data) {
-    throw new NotFoundError('Could not fetch video data for the provided URL', 'Video not found');
-  }
-
-  const videoId = data.id ?? extractYouTubeVideoId(url) ?? 'unknown';
-  const official = data.subtitles
-    ? Object.keys(data.subtitles).sort((a, b) => a.localeCompare(b))
-    : [];
-  const auto = data.automatic_captions
-    ? Object.keys(data.automatic_captions).sort((a, b) => a.localeCompare(b))
-    : [];
-
-  const result = { videoId, official, auto };
-  await set(cacheKey, JSON.stringify(result), cacheConfig.ttlMetadataSeconds);
-  return result;
+): Promise<AvailableSubtitles> {
+  const { url } = validateVideoRequest(request.url);
+  const { videoId, official, auto } = await loadAvailableSubtitles(url, logger);
+  return { videoId, official, auto };
 }
 
 /**
@@ -710,7 +767,6 @@ export async function validateAndFetchVideoInfo(
   const validated = validateVideoRequest(request.url);
   const { url } = validated;
 
-  const cacheConfig = getCacheConfig();
   const cacheKey = buildCacheKey('info', url);
   const cached = await get(cacheKey);
   if (cached !== undefined) {
@@ -727,15 +783,11 @@ export async function validateAndFetchVideoInfo(
   }
   recordCacheMiss('info');
 
-  const info = await fetchVideoInfo(url, logger);
-  if (!info) {
+  const loaded = await loadVideoJson(url, logger);
+  if (!loaded?.info.info) {
     throw new NotFoundError('Could not fetch video info for the provided URL', 'Video not found');
   }
-
-  const videoId = info.id ?? extractYouTubeVideoId(url) ?? 'unknown';
-  const result = { videoId, info };
-  await set(cacheKey, JSON.stringify(result), cacheConfig.ttlMetadataSeconds);
-  return result;
+  return loaded.info;
 }
 
 /**
@@ -749,7 +801,6 @@ export async function validateAndFetchVideoChapters(
   const validated = validateVideoRequest(request.url);
   const { url } = validated;
 
-  const cacheConfig = getCacheConfig();
   const cacheKey = buildCacheKey('chapters', url);
   const cached = await get(cacheKey);
   if (cached !== undefined) {
@@ -766,16 +817,11 @@ export async function validateAndFetchVideoChapters(
   }
   recordCacheMiss('chapters');
 
-  const data = await fetchYtDlpJson(url, logger);
-  const videoId = data?.id ?? extractYouTubeVideoId(url) ?? 'unknown';
-  const chapters = await fetchVideoChapters(url, logger, data);
-  if (chapters === null) {
+  const loaded = await loadVideoJson(url, logger);
+  if (!loaded || loaded.chapters.chapters === null) {
     throw new NotFoundError('Could not fetch chapters for the provided URL', 'Video not found');
   }
-
-  const result = { videoId, chapters };
-  await set(cacheKey, JSON.stringify(result), cacheConfig.ttlMetadataSeconds);
-  return result;
+  return loaded.chapters;
 }
 
 export const FRAME_MIN_WIDTH = 64;

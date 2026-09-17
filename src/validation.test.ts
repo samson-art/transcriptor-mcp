@@ -14,6 +14,7 @@ import {
   validateAndFetchVideoInfo,
   validateAndFetchVideoChapters,
   validateAndCaptureVideoFrame,
+  resetVideoJsonInFlight,
 } from './validation.js';
 import * as youtube from './youtube.js';
 import { get as cacheGet, set as cacheSet } from './cache.js';
@@ -42,8 +43,15 @@ jest.mock('./cache.js', () => {
   };
 });
 
+// Every path that reads metadata now goes through fetchYtDlpJson: without a default spy a
+// test that does not mock it would run the real yt-dlp against YouTube.
+beforeEach(() => {
+  jest.spyOn(youtube, 'fetchYtDlpJson').mockResolvedValue(null);
+});
+
 afterEach(() => {
   jest.restoreAllMocks();
+  resetVideoJsonInFlight();
 });
 
 describe('validation', () => {
@@ -596,15 +604,18 @@ describe('validation', () => {
         'auto',
         'en',
         undefined,
-        undefined
+        undefined,
+        expect.objectContaining({ id: '123' })
       );
       // No id in the URL, so the id still costs one yt-dlp run.
       expect(youtube.fetchYtDlpJson).toHaveBeenCalled();
     });
 
-    it('should take the videoId from a YouTube URL without another yt-dlp run', async () => {
+    it('should read one JSON for the track URL, the id and the metadata caches', async () => {
       jest.spyOn(youtube, 'downloadSubtitles').mockResolvedValue('content');
-      const jsonSpy = jest.spyOn(youtube, 'fetchYtDlpJson');
+      const jsonSpy = jest
+        .spyOn(youtube, 'fetchYtDlpJson')
+        .mockResolvedValue({ id: 'dQw4w9WgXcQ' });
 
       const result = await validateAndDownloadSubtitles({
         url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
@@ -613,7 +624,11 @@ describe('validation', () => {
       } as any);
 
       expect(result.videoId).toBe('dQw4w9WgXcQ');
-      expect(jsonSpy).not.toHaveBeenCalled();
+      expect(jsonSpy).toHaveBeenCalledTimes(1);
+      // info, tracks and chapters are filled from that one run
+      expect((cacheSet as jest.Mock).mock.calls.map((c) => String(c[0]).split(':')[0])).toEqual(
+        expect.arrayContaining(['avail', 'info', 'chapters'])
+      );
     });
 
     it('should answer a private video with its reason, not "no subtitles for en"', async () => {
@@ -658,7 +673,8 @@ describe('validation', () => {
           'official',
           'en',
           undefined,
-          undefined
+          undefined,
+          expect.objectContaining({ id: 'dQw4w9WgXcQ' })
         );
         expect(downloadSpy).toHaveBeenNthCalledWith(
           2,
@@ -666,7 +682,8 @@ describe('validation', () => {
           'official',
           'ru',
           undefined,
-          undefined
+          undefined,
+          expect.objectContaining({ id: 'dQw4w9WgXcQ' })
         );
       });
 
@@ -694,7 +711,8 @@ describe('validation', () => {
           'auto',
           'en-orig',
           undefined,
-          undefined
+          undefined,
+          expect.objectContaining({ id: 'dQw4w9WgXcQ' })
         );
       });
 
@@ -724,7 +742,8 @@ describe('validation', () => {
           'auto',
           'en',
           undefined,
-          undefined
+          undefined,
+          expect.objectContaining({ id: 'dQw4w9WgXcQ' })
         );
         expect(downloadSpy).toHaveBeenNthCalledWith(
           2,
@@ -732,7 +751,8 @@ describe('validation', () => {
           'auto',
           'ru',
           undefined,
-          undefined
+          undefined,
+          expect.objectContaining({ id: 'dQw4w9WgXcQ' })
         );
       });
 
@@ -854,7 +874,8 @@ describe('validation', () => {
           'auto',
           'en',
           undefined,
-          undefined
+          undefined,
+          expect.objectContaining({ id: 'dQw4w9WgXcQ' })
         );
       });
     });
@@ -949,7 +970,7 @@ describe('validation', () => {
     });
 
     it('should throw NotFoundError when video info is not found', async () => {
-      jest.spyOn(youtube, 'fetchVideoInfo').mockResolvedValue(null);
+      jest.spyOn(youtube, 'fetchYtDlpJson').mockResolvedValue(null);
 
       await expect(
         validateAndFetchVideoInfo({
@@ -964,35 +985,40 @@ describe('validation', () => {
     });
 
     it('should return video info on success', async () => {
-      const mockInfo = {
+      jest.spyOn(youtube, 'fetchYtDlpJson').mockResolvedValue({
         id: 'dQw4w9WgXcQ',
         title: 'Test Video',
         channel: 'Test Channel',
         duration: 120,
-      } as any;
-      jest.spyOn(youtube, 'fetchVideoInfo').mockResolvedValue(mockInfo);
+      });
 
       const result = await validateAndFetchVideoInfo({
         url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
       } as any);
 
-      expect(result).toEqual({ videoId: 'dQw4w9WgXcQ', info: mockInfo });
+      expect(result.videoId).toBe('dQw4w9WgXcQ');
+      expect(result.info).toMatchObject({
+        id: 'dQw4w9WgXcQ',
+        title: 'Test Video',
+        channel: 'Test Channel',
+        duration: 120,
+      });
     });
 
     it('should return video info on success for non-YouTube URL (e.g. Vimeo)', async () => {
       const vimeoUrl = 'https://vimeo.com/123';
-      const mockInfo = {
+      jest.spyOn(youtube, 'fetchYtDlpJson').mockResolvedValue({
         id: '123',
         title: 'Vimeo Video',
         channel: 'Vimeo Channel',
         duration: 60,
-      } as any;
-      jest.spyOn(youtube, 'fetchVideoInfo').mockResolvedValue(mockInfo);
+      });
 
       const result = await validateAndFetchVideoInfo({ url: vimeoUrl } as any);
 
-      expect(result).toEqual({ videoId: '123', info: mockInfo });
-      expect(youtube.fetchVideoInfo).toHaveBeenCalledWith(vimeoUrl, undefined);
+      expect(result.videoId).toBe('123');
+      expect(result.info).toMatchObject({ title: 'Vimeo Video', duration: 60 });
+      expect(youtube.fetchYtDlpJson).toHaveBeenCalledWith(vimeoUrl, undefined);
     });
   });
 
