@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [1.3.2] - 2026-09-17
 
+### Added
+
+- **`WHISPER_MAX_DURATION_SECONDS`:** when set, the Whisper fallback only downloads the audio of videos up to that length; a longer video, or one whose length is unknown (a live stream), is skipped before any audio is fetched, and the call answers that there are no subtitles. Unset or `0` keeps the old behavior, no limit. It keeps a server that enables Whisper for short clips from spending minutes of CPU on an hour-long video without captions.
+
 ### Fixed
 
 - **TikTok videos, and some Dailymotion videos, could not be opened at all:** the image installed yt-dlp without `curl_cffi`, so no browser impersonation target was available. TikTok's extractor needs one and failed every request with `Unexpected response from webpage request`, which callers saw as "not found". The image now installs `yt-dlp[default,curl-cffi]`, and `get_video_info` and `get_video_frame` work for TikTok. Most TikTok videos expose no subtitle track, so without a Whisper fallback `get_transcript` still answers that there are no subtitles for them.
@@ -16,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The "no subtitles" message no longer gives callers an operator setting:** with Whisper on, it said the fallback failed and to raise `WHISPER_TIMEOUT`. It now says that speech-to-text produced nothing and, with `WHISPER_MAX_DURATION_SECONDS` set, names the limit and asks not to repeat the call; without the limit, it says a timed-out transcription may still finish in the background and one retry a few minutes later may succeed.
 - **yt-dlp's `default` extra is installed as well:** `requests`, `brotli`, `websockets`, `mutagen`, `pycryptodomex`, `certifi` and the bundled `yt-dlp-ejs` challenge solver. yt-dlp now uses its `requests` transport instead of `urllib`.
 - **The publish workflow checks impersonation before pushing:** a step runs `yt-dlp --list-impersonate-targets` in the freshly built image and stops the release unless a Chrome target backed by `curl_cffi` is available. The check does not use the network.
 

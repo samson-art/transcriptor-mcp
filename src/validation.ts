@@ -13,6 +13,7 @@ import {
   type VideoFrameFormat,
 } from './youtube.js';
 import { getWhisperConfig } from './whisper.js';
+import { parseIntEnv } from './env.js';
 import { startOrReuseWhisperJob } from './whisper-jobs.js';
 import { getCacheConfig, get, set, buildCacheKey } from './cache.js';
 import { recordCacheHit, recordCacheMiss, recordSubtitlesFailure } from './metrics.js';
@@ -442,8 +443,13 @@ async function downloadWithAutoDiscover(
   return null;
 }
 
-const WHISPER_HINT =
-  'Whisper fallback was attempted but failed (timeout or service error). For long videos, set WHISPER_TIMEOUT higher (e.g. 3600000 for 1-hour videos).';
+/** Told to the caller when Whisper is on and produced nothing; operator settings stay out of it. */
+function whisperHint(): string {
+  const maxSeconds = parseIntEnv('WHISPER_MAX_DURATION_SECONDS', 0);
+  return maxSeconds > 0
+    ? `Speech-to-text produced nothing either; this server transcribes only videos up to ${maxSeconds} seconds long. Do not repeat the same call.`
+    : 'Speech-to-text was also tried and produced nothing; if it timed out it may still finish in the background, so you may retry the same call once in a few minutes.';
+}
 
 async function throwNoSubtitlesError(opts: {
   url: string;
@@ -456,9 +462,9 @@ async function throwNoSubtitlesError(opts: {
   const available = await validateAndFetchAvailableSubtitles({ url: opts.url }, opts.logger).catch(
     () => undefined
   );
-  const whisperHint = opts.whisperTried ? `${opts.whisperHintPrefix}${WHISPER_HINT}` : '';
+  const hint = opts.whisperTried ? `${opts.whisperHintPrefix}${whisperHint()}` : '';
   throw new NotFoundError(
-    `${opts.baseMsg}${whisperHint} Use get_available_subtitles (or GET /subtitles/available) to list supported languages, or omit type and lang for auto-discovery.`,
+    `${opts.baseMsg}${hint} Use get_available_subtitles (or GET /subtitles/available) to list supported languages, or omit type and lang for auto-discovery.`,
     'Subtitles not found',
     available ? { official: available.official, auto: available.auto } : undefined
   );

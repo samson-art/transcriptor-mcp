@@ -542,6 +542,36 @@ describe('validation', () => {
       ).rejects.toMatchObject({ errorLabel: 'Subtitles not found' });
     });
 
+    it('should name the Whisper length limit when Whisper produced nothing', async () => {
+      jest.spyOn(youtube, 'downloadSubtitles').mockResolvedValue(null);
+      jest.spyOn(youtube, 'fetchYtDlpJson').mockResolvedValue({
+        id: 'dQw4w9WgXcQ',
+        subtitles: {},
+        automatic_captions: {},
+      });
+      (whisper.getWhisperConfig as jest.Mock).mockReturnValue({ mode: 'local', timeout: 600_000 });
+      (whisperJobs.startOrReuseWhisperJob as jest.Mock).mockResolvedValue(null);
+      const request = {
+        url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+        type: 'auto',
+        lang: 'en',
+      } as any;
+
+      await expect(validateAndDownloadSubtitles(request)).rejects.toThrow(
+        /retry the same call once in a few minutes/
+      );
+
+      process.env.WHISPER_MAX_DURATION_SECONDS = '120';
+      try {
+        const err = await validateAndDownloadSubtitles(request).catch((e: Error) => e);
+        expect((err as Error).message).toContain('only videos up to 120 seconds long');
+        expect((err as Error).message).toContain('Do not repeat the same call');
+        expect((err as Error).message).not.toContain('WHISPER_TIMEOUT');
+      } finally {
+        delete process.env.WHISPER_MAX_DURATION_SECONDS;
+      }
+    });
+
     it('should return subtitles data on success for non-YouTube URL (e.g. Vimeo)', async () => {
       const vimeoUrl = 'https://vimeo.com/123';
 
