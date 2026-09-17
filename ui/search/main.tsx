@@ -18,6 +18,7 @@ import { styles } from '@shared/styles';
 import type { Cue, CuesStatus, VideoMeta } from '@shared/types';
 import { VideoCarouselCard } from '@shared/VideoCarouselCard';
 import { VideoDetailPanel } from '@shared/VideoDetailPanel';
+import { WIDGET_CALL_META } from '@shared/widgetCall';
 
 function parseSearchResults(result: CallToolResult): VideoMeta[] {
   const structured = result.structuredContent as { results?: VideoMeta[] } | undefined;
@@ -113,6 +114,7 @@ function SearchApp() {
       try {
         const result = await appRef.callServerTool({
           name: 'get_raw_subtitles',
+          _meta: WIDGET_CALL_META,
           arguments: {
             url: videoId,
             format: 'srt',
@@ -174,6 +176,7 @@ function SearchApp() {
       try {
         const result = await appRef.callServerTool({
           name: 'get_available_subtitles',
+          _meta: WIDGET_CALL_META,
           arguments: { url: selectedId },
         });
         if (cancelled) return;

@@ -598,6 +598,35 @@ describe('validation', () => {
         undefined,
         undefined
       );
+      // No id in the URL, so the id still costs one yt-dlp run.
+      expect(youtube.fetchYtDlpJson).toHaveBeenCalled();
+    });
+
+    it('should take the videoId from a YouTube URL without another yt-dlp run', async () => {
+      jest.spyOn(youtube, 'downloadSubtitles').mockResolvedValue('content');
+      const jsonSpy = jest.spyOn(youtube, 'fetchYtDlpJson');
+
+      const result = await validateAndDownloadSubtitles({
+        url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+        type: 'auto',
+        lang: 'en',
+      } as any);
+
+      expect(result.videoId).toBe('dQw4w9WgXcQ');
+      expect(jsonSpy).not.toHaveBeenCalled();
+    });
+
+    it('should answer a private video with its reason, not "no subtitles for en"', async () => {
+      jest.spyOn(youtube, 'downloadSubtitles').mockResolvedValue(null);
+      jest.spyOn(youtube, 'fetchYtDlpJson').mockRejectedValue(new YtDlpError('private'));
+
+      await expect(
+        validateAndDownloadSubtitles({
+          url: 'https://vimeo.com/123',
+          type: 'auto',
+          lang: 'en',
+        } as any)
+      ).rejects.toMatchObject({ name: 'YtDlpError', reason: 'private' });
     });
 
     describe('auto-discover (lang and type omitted)', () => {

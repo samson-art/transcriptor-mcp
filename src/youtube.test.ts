@@ -919,6 +919,14 @@ today to pay our respects to MCP, which
       ]);
     });
 
+    it('should return an empty list for a video without chapters', async () => {
+      const result = await fetchVideoChapters('https://www.youtube.com/watch?v=x', undefined, {
+        id: 'x',
+        chapters: null as unknown as undefined,
+      });
+      expect(result).toEqual([]);
+    });
+
     it('should return null when preFetchedData is null', async () => {
       const result = await fetchVideoChapters('https://www.youtube.com/watch?v=x', undefined, null);
       expect(execFileMock).not.toHaveBeenCalled();
@@ -1322,6 +1330,20 @@ today to pay our respects to MCP, which
       ['WARNING: [youtube] nsig extraction failed: Some players may not work', 'extractor'],
       ['ERROR: [youtube] x: Video unavailable. This video has been removed', 'unavailable'],
       ['ERROR: something we have never seen', 'unknown'],
+      [
+        'WARNING: [TikTok] The extractor specified to use impersonation for this download, but no impersonate target is available.\nERROR: [TikTok] 123: Unexpected response from webpage request',
+        'extractor',
+      ],
+      [
+        'ERROR: [dailymotion] x5: The extractor is attempting impersonation, but none of these impersonate targets are available: firefox.',
+        'extractor',
+      ],
+      ['ERROR: [youtube] x: Video is unavailable', 'unavailable'],
+      [
+        "ERROR: [youtube] x: Video unavailable. This content isn't available, try again later. The current session has been rate-limited by YouTube for up to an hour.",
+        'rate_limited',
+      ],
+      ['ERROR: [TikTok] 123: Your IP address is blocked from accessing this post', 'geo_blocked'],
     ];
 
     it.each(cases)('should classify %s as %s', (stderr, expected) => {
@@ -1342,6 +1364,16 @@ today to pay our respects to MCP, which
           stderr: 'HTTP Error 429: Too Many Requests',
         })
       ).toBe('rate_limited');
+    });
+
+    it('should keep a removed video unavailable when the impersonation warning is also there', () => {
+      expect(
+        classifyYtDlpFailure({
+          message: 'Command failed',
+          stderr:
+            'WARNING: [youtube] x: no impersonate target is available\nERROR: [youtube] x: Video unavailable. This video has been removed',
+        })
+      ).toBe('unavailable');
     });
 
     it('should classify a bot check before an age check when both appear', () => {
@@ -1389,9 +1421,101 @@ today to pay our respects to MCP, which
       });
     });
 
-    it('should keep returning null from fetchYtDlpJson for a private video', async () => {
+    it('should reject fetchYtDlpJson with the per-video reason for a private video', async () => {
       mockExecFileFailure('ERROR: [youtube] x: Private video');
+      await expect(fetchYtDlpJson('https://www.youtube.com/watch?v=abc')).rejects.toMatchObject({
+        name: 'YtDlpError',
+        reason: 'private',
+        statusCode: 404,
+      });
+    });
+
+    it('should keep returning null from fetchYtDlpJson when the reason is unknown', async () => {
+      mockExecFileFailure('ERROR: something we have never seen');
       await expect(fetchYtDlpJson('https://www.youtube.com/watch?v=abc')).resolves.toBeNull();
+    });
+
+    it('should reject a frame capture of a private video after one yt-dlp run', async () => {
+      mockExecFileFailure('ERROR: [youtube] x: Private video');
+      await expect(
+        captureVideoFrame('https://www.youtube.com/watch?v=abc', 10)
+      ).rejects.toMatchObject({ name: 'YtDlpError', reason: 'private' });
+      expect(execFileMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('should reject a refusal that yt-dlp reports as a warning with exit code 0', async () => {
+      // --ignore-no-formats-error: exit 0, a JSON stub without formats, the reason in stderr.
+      const cases: Array<[string, string]> = [
+        ['WARNING: [youtube] Private video\nWARNING: No video formats found!', 'private'],
+        [
+          'WARNING: [youtube] This video is unavailable\nWARNING: Requested format is not available',
+          'unavailable',
+        ],
+      ];
+      for (const [stderr, reason] of cases) {
+        execFileMock.mockImplementation(
+          (
+            _file: string,
+            _args: string[],
+            _options: unknown,
+            callback: (error: Error | null, result?: { stdout: string; stderr: string }) => void
+          ) => {
+            callback(null, {
+              stdout: JSON.stringify({ id: 'x', title: 'youtube video #x', formats: [] }),
+              stderr,
+            });
+          }
+        );
+        await expect(fetchYtDlpJson('https://www.youtube.com/watch?v=x')).rejects.toMatchObject({
+          name: 'YtDlpError',
+          reason,
+        });
+      }
+    });
+
+    it('should keep a video whose formats failed but whose subtitle tracks are listed', async () => {
+      execFileMock.mockImplementation(
+        (
+          _file: string,
+          _args: string[],
+          _options: unknown,
+          callback: (error: Error | null, result?: { stdout: string; stderr: string }) => void
+        ) => {
+          callback(null, {
+            stdout: JSON.stringify({
+              id: 'x',
+              title: 'Real title',
+              formats: [],
+              automatic_captions: { en: [{ ext: 'vtt' }] },
+            }),
+            stderr:
+              'WARNING: [youtube] x: nsig extraction failed\nWARNING: No video formats found!',
+          });
+        }
+      );
+      await expect(fetchYtDlpJson('https://www.youtube.com/watch?v=x')).resolves.toMatchObject({
+        title: 'Real title',
+      });
+    });
+
+    it('should keep the metadata of an age-restricted video that yt-dlp still described', async () => {
+      execFileMock.mockImplementation(
+        (
+          _file: string,
+          _args: string[],
+          _options: unknown,
+          callback: (error: Error | null, result?: { stdout: string; stderr: string }) => void
+        ) => {
+          callback(null, {
+            stdout: JSON.stringify({ id: 'x', title: 'Real title', formats: [] }),
+            stderr:
+              'WARNING: [youtube] x: Sign in to confirm your age\nWARNING: No video formats found!',
+          });
+        }
+      );
+      await expect(fetchYtDlpJson('https://www.youtube.com/watch?v=x')).resolves.toMatchObject({
+        title: 'Real title',
+      });
     });
 
     it('should reject downloadSubtitles with a classified error on rate limiting', async () => {

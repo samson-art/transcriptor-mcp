@@ -6,6 +6,7 @@
 
 import { Counter, Gauge, Histogram, Registry } from 'prom-client';
 
+import type { CacheKeyType } from './cache.js';
 import { version } from './version.js';
 
 const register = new Registry();
@@ -27,10 +28,10 @@ export const httpRequestErrorsTotal = new Counter({
   registers: [register],
 });
 
-// Expected 404 (NotFoundError) — subtitles not found, video not found, etc.
+// Expected 404 — subtitles not found, video not found, private or removed video, etc.
 export const http404ExpectedTotal = new Counter({
   name: 'http_404_expected_total',
-  help: 'Expected 404 responses (NotFoundError: subtitles/video not found)',
+  help: 'Expected 404 responses (subtitles or video not found, private/removed video)',
   labelNames: ['method', 'route'],
   registers: [register],
 });
@@ -47,12 +48,14 @@ export const httpRequestDurationSeconds = new Histogram({
 export const cacheHitsTotal = new Counter({
   name: 'cache_hits_total',
   help: 'Total cache hits',
+  labelNames: ['kind'],
   registers: [register],
 });
 
 export const cacheMissesTotal = new Counter({
   name: 'cache_misses_total',
   help: 'Total cache misses',
+  labelNames: ['kind'],
   registers: [register],
 });
 
@@ -95,7 +98,7 @@ export const ytDlpQueueLength = new Gauge({
 // MCP metrics (labels set when used from MCP)
 export const mcpToolCallsTotal = new Counter({
   name: 'mcp_tool_calls_total',
-  help: 'Total MCP tool calls',
+  help: 'MCP tool calls, counted when the call starts (failed calls included)',
   labelNames: ['tool'],
   registers: [register],
 });
@@ -109,8 +112,8 @@ export const mcpToolErrorsTotal = new Counter({
 
 export const mcpRequestDurationSeconds = new Histogram({
   name: 'mcp_request_duration_seconds',
-  help: 'MCP request duration in seconds',
-  labelNames: ['endpoint'],
+  help: 'MCP tool call duration in seconds; outcome is ok or error',
+  labelNames: ['endpoint', 'outcome'],
   buckets: [0.5, 1, 2.5, 5, 10, 20, 30, 60, 120],
   registers: [register],
 });
@@ -168,12 +171,12 @@ export function recordExpected404(method: string, route: string): void {
   http404ExpectedTotal.inc({ method, route });
 }
 
-export function recordCacheHit(): void {
-  cacheHitsTotal.inc();
+export function recordCacheHit(kind: CacheKeyType): void {
+  cacheHitsTotal.inc({ kind });
 }
 
-export function recordCacheMiss(): void {
-  cacheMissesTotal.inc();
+export function recordCacheMiss(kind: CacheKeyType): void {
+  cacheMissesTotal.inc({ kind });
 }
 
 export function recordSubtitlesFailure(url: string, reason: string): void {
@@ -229,8 +232,12 @@ export function recordMcpToolError(tool: string, reason: string): void {
   mcpToolErrorsTotal.inc({ tool, reason });
 }
 
-export function recordMcpRequestDuration(endpoint: string, durationSeconds: number): void {
-  mcpRequestDurationSeconds.observe({ endpoint }, durationSeconds);
+export function recordMcpRequestDuration(
+  endpoint: string,
+  durationSeconds: number,
+  outcome: 'ok' | 'error'
+): void {
+  mcpRequestDurationSeconds.observe({ endpoint, outcome }, durationSeconds);
 }
 
 /**
