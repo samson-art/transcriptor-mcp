@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-09-17
+
+### Changed
+
+- **A listed subtitle track is fetched by its own URL instead of a second yt-dlp run:** the track list already carries the track's address, and downloading it directly takes about 0.2 s where yt-dlp took 4–7 s (measured on the production host). The yt-dlp path stays as the fallback and runs whenever the track is not listed with its own address (YouTube lists some auto tracks only as an HLS manifest), the answer is not the subtitle format that was asked for, or the request fails.
+- **One yt-dlp run answers video info, the track list and chapters:** whichever of the three is asked for first runs yt-dlp once, fills all three cache entries and hands the JSON to the transcript path for the track address. Calls for the same video that arrive together share that one run instead of each starting their own. The canary keeps its own single probe: it skips this run, writes nothing to the cache and still exercises the yt-dlp caption download.
+- **A transcript request with an explicit `type`/`lang` reads that JSON before downloading**, so when the track has no address of its own the call costs one metadata run more than it did in 1.3.3. In exchange the video's info, track list and chapters are already cached for the calls that usually follow a transcript. `SUBTITLE_FETCH_TIMEOUT_MS` (default 15000) bounds the direct request; `YT_DLP_PROXY`, when set, turns the direct path off, because a plain fetch would go around the proxy.
+
 ## [1.3.3] - 2026-09-17
 
 ### Added
