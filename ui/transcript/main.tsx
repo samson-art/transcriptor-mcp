@@ -1,7 +1,7 @@
 import { useApp, useHostStyles } from '@modelcontextprotocol/ext-apps/react';
 import type { App } from '@modelcontextprotocol/ext-apps';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
-import React, { StrictMode, useCallback, useEffect, useState } from 'react';
+import React, { StrictMode, useCallback, useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { AppShell } from '@shared/AppShell';
 import { youtubeWatchUrl, youtubeWatchUrlAt } from '@shared/format';
@@ -54,26 +54,33 @@ function TranscriptApp() {
   const [status, setStatus] = useState<'waiting' | 'ready'>('waiting');
   const [appRef, setAppRef] = useState<App | null>(null);
 
-  const subtitles = useSubtitles(appRef, video?.videoId, { preferredTrack });
+  // The url the model passed to the tool: set by `ontoolinput`, read from the
+  // `ontoolresult` closure. The id alone only works for YouTube.
+  const sourceRef = useRef<string | null>(null);
+
+  const subtitles = useSubtitles(appRef, video?.url ?? video?.videoId, { preferredTrack });
 
   // Takes the app instead of reading `appRef`: this runs from the `ontoolresult`
   // handler installed in `onAppCreated`, whose closure still sees `appRef` as null.
   const loadVideoMeta = useCallback(
-    async (app: App, videoId: string): Promise<VideoMeta | null> => {
+    async (app: App, videoId: string, source: string): Promise<VideoMeta | null> => {
+      const isYouTube = !/^https?:\/\//i.test(source) || /youtu\.?be/i.test(source);
       const fallback: VideoMeta = {
         videoId,
         title: null,
-        url: `https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}`,
+        url: isYouTube ? `https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}` : source,
         duration: null,
         uploader: null,
         viewCount: null,
-        thumbnail: `https://i.ytimg.com/vi/${encodeURIComponent(videoId)}/hqdefault.jpg`,
+        thumbnail: isYouTube
+          ? `https://i.ytimg.com/vi/${encodeURIComponent(videoId)}/hqdefault.jpg`
+          : null,
       };
 
       try {
         const result = await app.callServerTool({
           name: 'get_video_info',
-          arguments: { url: videoId },
+          arguments: { url: source },
         });
 
         if (result.isError) return fallback;
@@ -92,7 +99,7 @@ function TranscriptApp() {
       setStatus('ready');
       subtitles.reset();
       setPreferredTrack({ type: parsed.type, lang: parsed.lang });
-      const meta = await loadVideoMeta(app, parsed.videoId);
+      const meta = await loadVideoMeta(app, parsed.videoId, sourceRef.current ?? parsed.videoId);
       if (meta) setVideo(meta);
       notifyHostAboutResize();
     },
@@ -104,6 +111,12 @@ function TranscriptApp() {
     capabilities: {},
     onAppCreated: (createdApp) => {
       setAppRef(createdApp);
+      createdApp.ontoolinput = (input) => {
+        const url = input.arguments?.url;
+        if (typeof url === 'string' && url.trim()) {
+          sourceRef.current = url.trim();
+        }
+      };
       createdApp.ontoolresult = (result) => {
         const structured = result.structuredContent as Record<string, unknown> | undefined;
         if (structured?.results) return;
