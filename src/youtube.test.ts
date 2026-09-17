@@ -739,13 +739,60 @@ today to pay our respects to MCP, which
       const result = await downloadAudio('https://www.youtube.com/watch?v=capped1', logger as any);
 
       const idx = capturedArgs.indexOf('--match-filter');
-      expect(capturedArgs[idx + 1]).toBe('duration <= 120');
+      expect(capturedArgs[idx + 1]).toBe('!is_live & duration <=? 120');
       expect(result).toBeNull();
       expect(logger.error).not.toHaveBeenCalled();
       expect(logger.info).toHaveBeenCalledWith(
         { maxDuration: 120 },
         'No audio for Whisper: video too long or of unknown length'
       );
+    });
+
+    it('measures the downloaded audio with ffprobe when the platform reports no length', async () => {
+      process.env.WHISPER_MAX_DURATION_SECONDS = '120';
+      const dateSpy = jest.spyOn(Date, 'now').mockReturnValue(1234567895);
+      const reel = 'https://www.instagram.com/reel/abc123/';
+      const audioFilePath = join(tmpdir(), `${urlToSafeBase(reel, 'audio')}.m4a`);
+      const logger = { info: jest.fn(), error: jest.fn(), warn: jest.fn(), debug: jest.fn() };
+      let probeArgs: string[] = [];
+      const run = (probeStdout: string) => {
+        execFileMock.mockImplementation(
+          (
+            file: string,
+            args: string[],
+            _options: unknown,
+            callback: (error: Error | null, result: { stdout: string; stderr: string }) => void
+          ) => {
+            if (file === 'ffprobe') {
+              probeArgs = args;
+              callback(null, { stdout: probeStdout, stderr: '' });
+              return;
+            }
+            void writeFile(audioFilePath, 'fake audio', 'utf-8').then(() =>
+              callback(null, { stdout: '', stderr: '' })
+            );
+          }
+        );
+        return downloadAudio(reel, logger as any);
+      };
+
+      // Longer than the cap: the file is dropped and the caller sees "no audio".
+      expect(await run('200.5\n')).toBeNull();
+      expect(probeArgs[probeArgs.length - 1]).toBe(audioFilePath);
+      await expect(access(audioFilePath, constants.F_OK)).rejects.toThrow();
+      expect(logger.info).toHaveBeenCalledWith(
+        { maxDuration: 120, duration: 200.5 },
+        'No audio for Whisper: video too long or of unknown length'
+      );
+
+      // ffprobe cannot read it either: still dropped, the cap stays honest.
+      expect(await run('')).toBeNull();
+      await expect(access(audioFilePath, constants.F_OK)).rejects.toThrow();
+
+      // Within the cap: the file is handed on.
+      expect(await run('12.679\n')).toBe(audioFilePath);
+      await unlink(audioFilePath).catch(() => {});
+      dateSpy.mockRestore();
     });
   });
 

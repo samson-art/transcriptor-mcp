@@ -239,7 +239,7 @@ The server starts with no environment variables. Each variable below is optional
 | --- | --- | --- |
 | `MCP_PORT` and `MCP_HOST` | `4200` and `0.0.0.0` | The HTTP listener |
 | `COOKIES_FILE_PATH` | — | A Netscape cookies file for videos that need an account. See [cookies.example.txt](cookies.example.txt) |
-| `WHISPER_MODE` | `off` | Set `local` or `api` to transcribe the audio when a video has no subtitles. Then set `WHISPER_BASE_URL` or `WHISPER_API_KEY`. `WHISPER_MAX_DURATION_SECONDS` skips longer videos, and those of unknown length |
+| `WHISPER_MODE` | `off` | Set `local` or `api` to transcribe the audio when a video has no subtitles. Then set `WHISPER_BASE_URL` or `WHISPER_API_KEY`. `WHISPER_MAX_DURATION_SECONDS` skips longer videos and live streams; a video whose length the platform does not report is measured after the audio download |
 | `CACHE_MODE` | `off` | Set `redis` and `CACHE_REDIS_URL` to cache subtitles and metadata |
 | `YT_DLP_MAX_CONCURRENCY` | `4` | How many yt-dlp/ffmpeg processes may run at once. `YT_DLP_MAX_QUEUE` (`8`) is how many calls may wait; beyond that a call is refused at once with "server busy". A call peaks at ~40 MiB, so the cap bounds platform throttling and latency, not memory |
 | `CANARY_INTERVAL_MS` | `900000` | How often the HTTP server fetches one transcript to prove the path still works. `0` turns it off; `CANARY_URL` picks the video |
