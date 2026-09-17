@@ -897,6 +897,20 @@ export async function fetchAvailableSubtitles(
   };
 }
 
+/** Length of a media file in seconds by ffprobe; NaN when it cannot be read. */
+async function probeDurationSeconds(file: string): Promise<number> {
+  try {
+    const { stdout } = await execFileAsync(
+      'ffprobe',
+      ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', file],
+      { timeout: 10000 }
+    );
+    return Number.parseFloat(stdout.trim());
+  } catch {
+    return Number.NaN;
+  }
+}
+
 /**
  * Downloads audio only for a video (for Whisper transcription).
  * Caller must unlink the returned file path when done.
@@ -945,8 +959,10 @@ export async function downloadAudio(
   }
   const maxDuration = parseIntEnv('WHISPER_MAX_DURATION_SECONDS', 0);
   if (maxDuration > 0) {
-    // yt-dlp skips a longer video, or one of unknown length, with exit code 0 and no file.
-    optionalArgs.push('--match-filter', `duration <= ${maxDuration}`);
+    // yt-dlp skips a live stream or a longer video with exit code 0 and no file. `<=?`
+    // lets a video of unknown length through (Instagram reels have no duration in the
+    // JSON); its real length is measured on the downloaded audio below.
+    optionalArgs.push('--match-filter', `!is_live & duration <=? ${maxDuration}`);
   }
   appendYtDlpEnvArgs(optionalArgs, {
     jsRuntimes,
@@ -975,7 +991,19 @@ export async function downloadAudio(
         f.startsWith(baseName) && (f.endsWith('.m4a') || f.endsWith('.webm') || f.endsWith('.mp3'))
     );
     if (audioFile) {
-      return join(tempDir, audioFile);
+      const audioPath = join(tempDir, audioFile);
+      if (maxDuration > 0) {
+        const duration = await probeDurationSeconds(audioPath);
+        if (!(duration <= maxDuration)) {
+          await unlink(audioPath).catch(() => {});
+          logger?.info(
+            { maxDuration, duration },
+            'No audio for Whisper: video too long or of unknown length'
+          );
+          return null;
+        }
+      }
+      return audioPath;
     }
     if (maxDuration > 0) {
       logger?.info({ maxDuration }, 'No audio for Whisper: video too long or of unknown length');
