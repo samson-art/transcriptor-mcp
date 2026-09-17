@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.3] - 2026-09-17
+
+### Added
+
+- **One `MCP tool call` log line per tool call:** info on success, warn on failure, with `tool`, `outcome`, `reason`, `ms`, `platform`, `host`, `explicit` (whether `type` or `lang` was passed), `addr` (the first 12 hex characters of the SHA-256 of the URL the tool was called with, normalized when it is valid; the URL itself is not logged) and `source` (`widget` when the call came from one of the server's widgets, which now mark their calls with `_meta["transcriptor/source"]`, otherwise `model`). It shows failures by platform and how often the same address is asked again.
+
+### Fixed
+
+- **A private, removed or bot-checked YouTube video was answered as a success:** yt-dlp runs with `--ignore-no-formats-error`, which turns the platform's refusal into a warning and exit code `0`, and it still prints a stub (`youtube video #<id>`, no formats). `get_video_info` served and cached that stub, `get_available_subtitles` cached empty lists, and `get_transcript` said the video had no subtitles in the requested language. A stub with no formats whose warning names a reason now fails with that reason. Region- and age-restricted videos still return their metadata — that is what the flag is for.
+- **Failures got the wrong reason, or none:** TikTok's `Unexpected response from webpage request` and a missing impersonation target are now `extractor`, `Video is unavailable` is `unavailable`, TikTok's `Your IP address is blocked from accessing this post` is `geo_blocked`, and YouTube's session throttle (`This content isn't available, try again later`) is `rate_limited` instead of reading as a deleted video. Reading a video's metadata or its stream for a frame now fails with the class yt-dlp reported (`private`, `unavailable`, `geo_blocked`, `age_restricted`) instead of a generic "not found", and an explicit `type`/`lang` request for a private video answers that the video is private, not that it has no subtitles in that language.
+- **`get_video_chapters` answered a video without chapters with an error:** it now returns an empty list.
+- **An explicit subtitles request ran yt-dlp a second time just for the video id:** for a YouTube URL the id is now taken from the URL.
+
+### Changed
+
+- **Failure texts tell the caller whether to retry:** each yt-dlp failure class says what happened, whose side it is on and one next step (do not retry; retry once; wait a few minutes, then retry once). `bot_check` and `extractor` no longer say "try again later"; `rate_limited` and `timeout` still allow one retry. An unexpected error says it is a server fault and allows one retry, instead of "Tool failed. Please try again.". The REST API returns the same texts.
+- **Metrics:** `mcp_tool_calls_total` counts every call when it starts, failed ones included (it used to count successes only). `mcp_request_duration_seconds` has a new `outcome` label (`ok` or `error`), and `cache_hits_total` / `cache_misses_total` a new `kind` label (`sub`, `avail`, `info`, `chapters`). Queries that use these series without aggregation now get several series: quantiles need `sum by (le, endpoint) (rate(mcp_request_duration_seconds_bucket[...]))`, `_count` and `_sum` need `sum by (endpoint) (...)`, and the cache counters `sum(...)`. `mcp_tool_errors_total{reason}` for info, availability, chapters and frames now carries the yt-dlp class where it used to say `not_found`, and `subtitles_extraction_failures_total{reason}` can also carry one (`private`, `unavailable`, `geo_blocked`, `age_restricted`).
+- **REST:** a private, removed, region-blocked or age-restricted video answers `404` with `"error": "Not found"` and the new text, where it used to be `"Video not found"`; these 404s are still counted in `http_404_expected_total`, which now counts every planned 404. `POST /video/chapters` answers a video without chapters with `200` and an empty list instead of `404`.
+- **Health probes, metrics scrapes and the `405` for `GET /mcp` are logged at warn level only**, so they no longer write two info lines per request.
+
 ## [1.3.2] - 2026-09-17
 
 ### Added
