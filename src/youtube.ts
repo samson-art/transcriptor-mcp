@@ -108,10 +108,18 @@ export type ExecFileErrorDetails = {
  */
 const YT_DLP_FAILURE_PATTERNS: ReadonlyArray<[YtDlpFailureReason, RegExp]> = [
   ['bot_check', /sign in to confirm you.?re not a bot|confirm you.?re not a bot/i],
-  ['rate_limited', /http error 429|too many requests/i],
+  // YouTube says "…This content isn't available, try again later" and names the session
+  // throttle; without these the message falls through to `unavailable` and reads as deleted.
+  [
+    'rate_limited',
+    /http error 429|too many requests|rate-limited by youtube|content isn.?t available, try again later/i,
+  ],
   ['private', /private video|this video is private/i],
   ['age_restricted', /sign in to confirm your age|age.?restricted|inappropriate for some users/i],
-  ['geo_blocked', /available in your country|geo.?restricted|blocked it in your country/i],
+  [
+    'geo_blocked',
+    /available in your country|geo.?restricted|blocked it in your country|ip address is blocked/i,
+  ],
   [
     'extractor',
     /nsig extraction failed|unable to extract|requested format is not available|unable to download (?:webpage|api page)|failed to parse json|unexpected response from webpage/i,
@@ -150,6 +158,25 @@ function rethrowInfra(error: unknown): void {
   if (error instanceof HttpError) throw error;
   const { reason } = collectExecFileErrorDetails(error);
   if (reason && YT_DLP_INFRA_REASONS.has(reason)) {
+    throw new YtDlpError(reason);
+  }
+}
+
+/**
+ * `--ignore-no-formats-error` turns a platform's refusal into a warning and exit 0, and
+ * yt-dlp still prints a JSON stub (`youtube video #<id>`, no formats). Without this the
+ * caller would serve that stub as a video, or report "no subtitles" for a private one.
+ * Region and age refusals keep returning metadata — that is what the flag is for.
+ */
+function rethrowRefusalWarning(data: YtDlpVideoInfo, stderr: string): void {
+  if (!stderr || !Array.isArray(data.formats) || data.formats.length > 0) return;
+  // Both follow every refusal and would classify as `extractor` on their own.
+  const own = stderr
+    .split('\n')
+    .filter((l) => !/no video formats found|requested format is not available/i.test(l))
+    .join('\n');
+  const reason = classifyYtDlpFailure({ message: '', stderr: own });
+  if (reason === 'private' || reason === 'unavailable' || YT_DLP_INFRA_REASONS.has(reason)) {
     throw new YtDlpError(reason);
   }
 }
@@ -196,6 +223,8 @@ type YtDlpChapter = {
 
 export type YtDlpVideoInfo = {
   id?: string;
+  /** Only its emptiness is read: see rethrowRefusalWarning. */
+  formats?: unknown[];
   title?: string;
   uploader?: string;
   uploader_id?: string;
@@ -1711,8 +1740,11 @@ export async function fetchYtDlpJson(
     }
 
     try {
-      return JSON.parse(trimmed) as YtDlpVideoInfo;
+      const data = JSON.parse(trimmed) as YtDlpVideoInfo;
+      rethrowRefusalWarning(data, stderr);
+      return data;
     } catch (parseError) {
+      if (parseError instanceof HttpError) throw parseError;
       logger?.error(
         {
           error: parseError instanceof Error ? parseError.message : String(parseError),

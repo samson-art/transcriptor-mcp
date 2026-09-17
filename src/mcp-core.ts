@@ -355,19 +355,32 @@ type ToolCall = {
 /** Widgets mark their own tool calls with this `_meta` key (see ui/shared/widgetCall.ts). */
 const WIDGET_SOURCE_META_KEY = 'transcriptor/source';
 
+/** For an input that is neither a URL nor an id: the host it would have, or `invalid`. */
+function hostOfSchemeless(input: string): string {
+  try {
+    const host = new URL(`https://${input}`).hostname.toLowerCase();
+    return host.includes('.') ? `no_scheme:${host}` : 'invalid';
+  } catch {
+    return 'invalid';
+  }
+}
+
 /**
  * Fields of the one log line per tool call. No URL: `addr` is the hash the
  * analytics collector also derives from yt-dlp command lines.
  */
 function toolCallLogFields({ args, extra }: ToolCall) {
   const input = typeof args.url === 'string' ? args.url.trim() : '';
-  const url = input ? (resolveVideoUrl(input) ?? input) : '';
+  const resolved = input ? resolveVideoUrl(input) : null;
+  const url = input ? (resolved ?? input) : '';
   let host: string | undefined;
   if (input) {
     try {
       host = new URL(input).hostname.toLowerCase();
     } catch {
-      host = 'bare_id';
+      // A link without https:// is rejected, and telling it apart from a bare id is the
+      // point: it says whether callers are tripping over the missing scheme.
+      host = resolved ? 'bare_id' : hostOfSchemeless(input);
     }
   }
   return {
@@ -379,7 +392,7 @@ function toolCallLogFields({ args, extra }: ToolCall) {
   };
 }
 
-const UNEXPECTED_TOOL_ERROR_MESSAGE =
+export const UNEXPECTED_TOOL_ERROR_MESSAGE =
   'Internal server error (a fault in this server, not in your request). Retry once; if it fails again, do not retry — tell the user this cannot be completed right now.';
 
 async function withToolErrorHandling(

@@ -27,8 +27,8 @@ let consecutiveFailures = 0;
 export async function runCanary(log: FastifyBaseLogger): Promise<void> {
   const url = process.env.CANARY_URL?.trim() || DEFAULT_CANARY_URL;
   try {
-    // Explicit type and lang keep this to one caption download plus the id lookup;
-    // omitting them would fan out over the auto-discovery ladder.
+    // Explicit type and lang keep this to one caption download (the YouTube URL already
+    // carries the id); omitting them would fan out over the auto-discovery ladder.
     await validateAndDownloadSubtitles({ url, type: 'official', lang: 'en' }, log, {
       skipCache: true,
     });

@@ -1,6 +1,6 @@
 import * as Sentry from '@sentry/node';
 import { NotFoundError, ServerBusyError, ValidationError, YtDlpError } from './errors.js';
-import { createMcpServer } from './mcp-core.js';
+import { createMcpServer, UNEXPECTED_TOOL_ERROR_MESSAGE } from './mcp-core.js';
 import { renderPrometheus } from './metrics.js';
 import * as youtube from './youtube.js';
 import * as validation from './validation.js';
@@ -266,7 +266,7 @@ describe('mcp-core tools', () => {
       const result = await handler({ url: testUrl }, {});
 
       expect(result).toMatchObject({ isError: true });
-      expect(result.content[0].text).toMatch(/^Internal server error .*Retry once/);
+      expect(result.content[0].text).toBe(UNEXPECTED_TOOL_ERROR_MESSAGE);
       expect(captureExceptionMock).toHaveBeenCalled();
     });
 
@@ -435,7 +435,8 @@ describe('mcp-core tools', () => {
 
       expect(result).toMatchObject({ isError: true });
       // The raw message holds a cookies path: the caller gets a fixed sentence.
-      expect(result.content[0].text).toMatch(/^Internal server error .*Retry once/);
+      expect(result.content[0].text).toBe(UNEXPECTED_TOOL_ERROR_MESSAGE);
+      expect(result.content[0].text).not.toContain('/cookies');
       expect(logger.error).toHaveBeenCalledWith(
         expect.objectContaining({ err: expect.any(Error), tool: 'get_video_info' }),
         'MCP tool unexpected error'
@@ -493,6 +494,16 @@ describe('mcp-core tools', () => {
         expect.objectContaining({ explicit: true, source: 'model' }),
       ]);
       expect(lines[0].addr).toBe(lines[1].addr);
+
+      // A link without https:// is rejected: it must not look like a bare video id.
+      logger.warn.mockClear();
+      normalizeVideoInputMock.mockReturnValue(null);
+      await handler({ url: 'youtube.com/watch?v=video123' }, {});
+      await handler({ url: 'rick astley' }, {});
+      const hosts = (logger.warn.mock.calls as Array<[Record<string, unknown>, string]>)
+        .filter((c) => c[1] === 'MCP tool call')
+        .map((c) => c[0].host);
+      expect(hosts).toEqual(['no_scheme:youtube.com', 'invalid']);
       expect(JSON.stringify(lines)).not.toContain('youtube.com/watch');
 
       const metrics = await renderPrometheus();

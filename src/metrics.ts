@@ -28,10 +28,10 @@ export const httpRequestErrorsTotal = new Counter({
   registers: [register],
 });
 
-// Expected 404 (NotFoundError) — subtitles not found, video not found, etc.
+// Expected 404 — subtitles not found, video not found, private or removed video, etc.
 export const http404ExpectedTotal = new Counter({
   name: 'http_404_expected_total',
-  help: 'Expected 404 responses (NotFoundError: subtitles/video not found)',
+  help: 'Expected 404 responses (subtitles or video not found, private/removed video)',
   labelNames: ['method', 'route'],
   registers: [register],
 });

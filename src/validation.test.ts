@@ -598,6 +598,8 @@ describe('validation', () => {
         undefined,
         undefined
       );
+      // No id in the URL, so the id still costs one yt-dlp run.
+      expect(youtube.fetchYtDlpJson).toHaveBeenCalled();
     });
 
     it('should take the videoId from a YouTube URL without another yt-dlp run', async () => {

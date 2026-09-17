@@ -81,21 +81,21 @@ export const YT_DLP_INFRA_REASONS: ReadonlySet<YtDlpFailureReason> = new Set<YtD
 /** User-facing text per reason. Never includes a command line, stderr or operator hints. */
 const YT_DLP_MESSAGES: Record<YtDlpFailureReason, string> = {
   bot_check:
-    'The platform answered this server with a bot detection check, so the video could not be read. This is about the server, not the video: do not retry now; other requests to this platform will likely fail the same way. Videos on other platforms still work.',
+    'The platform answered this server with a bot detection check, so this request could not be completed. This is about the server, not about what was asked for: do not retry now; other requests to this platform will likely fail the same way. Other platforms still work.',
   rate_limited:
     'The platform is rate-limiting this server right now. Wait a few minutes, then retry once; until then most requests to this platform will fail the same way. Videos on other platforms are not affected.',
   timeout:
     'The server ran out of time on this request (the platform was slow or the job was too large). Retry once; if it times out again, do not retry.',
   extractor:
-    'The server could not get a usable response from the platform for this video. This is on the server side: do not retry this request. If another video from the same platform fails the same way, stop and report that this platform is not working on this server right now; other platforms still work.',
+    'The server could not get a usable response from the platform for this request. This is on the server side: do not retry this request. If another request to the same platform fails the same way, stop and report that this platform is not working on this server right now; other platforms still work.',
   geo_blocked:
-    'This video is not available in the region this server runs in. Do not retry; other requests for this video will fail the same way.',
+    'This video is not available where this server runs: the platform blocks it for the server’s region or address. Do not retry this request; the video’s details (title, description, thumbnail) may still be readable.',
   private:
     'This video is private, so the server cannot read it. Do not retry; other requests for this video will fail the same way.',
   age_restricted:
-    'This video is age-restricted and this server cannot view it. Do not retry; other requests for this video will fail the same way.',
+    'This video is age-restricted and this server cannot view it. Do not retry this request; the video’s details (title, description, thumbnail) may still be readable.',
   unavailable:
-    'This video is unavailable: it was removed or deleted, or the URL does not point to a single video (for example a channel, profile or search page). Do not retry the same URL; check the link.',
+    'The content at this URL is unavailable: it was removed or deleted, or the URL is wrong or points to a page this server cannot read (for example a channel, profile or search page where one video is expected). Do not retry the same URL; check the link.',
   unknown:
     'The server could not read this URL and could not determine why. Retry once; if it fails again, do not retry.',
 };

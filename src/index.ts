@@ -115,7 +115,8 @@ fastify.setErrorHandler((error, request, reply) => {
     fastify.log.warn({ err: error }, message);
   }
 
-  if (statusCode === 404 && error instanceof NotFoundError) {
+  // Every 404 here is planned: NotFoundError, or a per-video yt-dlp class (private, removed).
+  if (statusCode === 404) {
     recordExpected404(request.method, route);
   }
 
