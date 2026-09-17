@@ -508,6 +508,11 @@ export async function downloadSubtitleTrackDirect(
     ?.map((t) => directTrackUrl(t, format))
     .find((u): u is string => u != null);
   if (!trackUrl) return null;
+  if (getYtDlpEnv().proxyFromEnv) {
+    // The operator routes the platform through a proxy; fetch would go around it.
+    logger?.debug({ type, lang }, 'YT_DLP_PROXY is set: leaving the track to yt-dlp');
+    return null;
+  }
 
   const started = Date.now();
   try {
@@ -519,10 +524,11 @@ export async function downloadSubtitleTrackDirect(
       return null;
     }
     const content = await response.text();
-    // The URL is signed and can answer with an HTML error page or an empty body.
+    // The URL is signed and can answer with an HTML error page or an empty body. `srt` is
+    // what detectSubtitleFormat calls anything it does not recognise, so it needs a real cue.
     if (
       detectSubtitleFormat(content) !== format ||
-      (format === 'srt' && !content.includes('-->'))
+      (format === 'srt' && !CUE_TIMESTAMP_RE.test(content))
     ) {
       logger?.warn(
         { type, lang, length: content.length },
@@ -1920,7 +1926,7 @@ function parseSRT(content: string, logger?: FastifyBaseLogger): string {
     }
 
     // Skip timestamps (format: 00:00:00,000 --> 00:00:00,000)
-    if (/^\d{2}:\d{2}:\d{2}[,.]\d{3}\s*-->\s*\d{2}:\d{2}:\d{2}[,.]\d{3}/.test(line)) {
+    if (CUE_TIMESTAMP_RE.test(line)) {
       i++;
       continue;
     }
@@ -1943,7 +1949,8 @@ function parseSRT(content: string, logger?: FastifyBaseLogger): string {
   return textLines.join(' ');
 }
 
-const VTT_TIMESTAMP_RE = /^\d{2}:\d{2}:\d{2}[,.]\d{3}\s*-->\s*\d{2}:\d{2}:\d{2}[,.]\d{3}/;
+/** A cue line of SRT or VTT; `/m` so it also answers "does this file have any cue at all". */
+const CUE_TIMESTAMP_RE = /^\d{2}:\d{2}:\d{2}[,.]\d{3}\s*-->\s*\d{2}:\d{2}:\d{2}[,.]\d{3}/m;
 
 function isVTTSkipLine(line: string): boolean {
   const t = line.trim();
@@ -1973,7 +1980,7 @@ function parseCueBlock(
       i++;
       continue;
     }
-    if (VTT_TIMESTAMP_RE.test(l)) break;
+    if (CUE_TIMESTAMP_RE.test(l)) break;
     if (isVTTSkipLine(l)) {
       i++;
       continue;
@@ -2005,7 +2012,7 @@ function parseVTT(content: string, logger?: FastifyBaseLogger): string {
       i++;
       continue;
     }
-    if (VTT_TIMESTAMP_RE.test(trimmed)) {
+    if (CUE_TIMESTAMP_RE.test(trimmed)) {
       const { cueText, nextIndex } = parseCueBlock(lines, i);
       if (cueText && cueText !== prevCueText) {
         textLines.push(cueText);

@@ -465,12 +465,7 @@ function sortedTrackLangs(tracks?: Record<string, unknown>): string[] {
  * caller for the tracks' own URLs. All three cache entries are filled, so the next tool
  * asking about this video is a cache hit.
  */
-async function buildVideoJson(
-  url: string,
-  logger?: FastifyBaseLogger,
-  /** The canary proves yt-dlp works; a probe must not leave cache entries behind. */
-  skipCache = false
-): Promise<VideoJson | null> {
+async function buildVideoJson(url: string, logger?: FastifyBaseLogger): Promise<VideoJson | null> {
   const data = await fetchYtDlpJson(url, logger);
   if (!data) return null;
   const videoId = data.id ?? extractYouTubeVideoId(url) ?? 'unknown';
@@ -484,14 +479,12 @@ async function buildVideoJson(
     info: { videoId, info: mapVideoInfo(data) },
     chapters: { videoId, chapters: await fetchVideoChapters(url, logger, data) },
   };
-  if (!skipCache) {
-    const ttl = getCacheConfig().ttlMetadataSeconds;
-    await Promise.all([
-      set(buildCacheKey('avail', url), JSON.stringify(result.avail), ttl),
-      set(buildCacheKey('info', url), JSON.stringify(result.info), ttl),
-      set(buildCacheKey('chapters', url), JSON.stringify(result.chapters), ttl),
-    ]);
-  }
+  const ttl = getCacheConfig().ttlMetadataSeconds;
+  await Promise.all([
+    set(buildCacheKey('avail', url), JSON.stringify(result.avail), ttl),
+    set(buildCacheKey('info', url), JSON.stringify(result.info), ttl),
+    set(buildCacheKey('chapters', url), JSON.stringify(result.chapters), ttl),
+  ]);
   return result;
 }
 
@@ -546,16 +539,20 @@ async function throwNoSubtitlesError(opts: {
   baseMsg: string;
   whisperHintPrefix: '' | ' ';
   whisperTried: boolean;
+  /** The list the caller already read; without it this costs another yt-dlp run. */
+  available?: AvailableSubtitles;
   logger?: FastifyBaseLogger;
 }): Promise<never> {
-  const available = await validateAndFetchAvailableSubtitles({ url: opts.url }, opts.logger).catch(
-    (err: unknown) => {
-      // A known reason (private, removed…) is the real answer: "no subtitles for en"
-      // would send the caller through other languages. Counted by the caller's catch.
-      if (err instanceof YtDlpError) throw err;
-      return undefined;
-    }
-  );
+  const available =
+    opts.available ??
+    (await validateAndFetchAvailableSubtitles({ url: opts.url }, opts.logger).catch(
+      (err: unknown) => {
+        // A known reason (private, removed…) is the real answer: "no subtitles for en"
+        // would send the caller through other languages. Counted by the caller's catch.
+        if (err instanceof YtDlpError) throw err;
+        return undefined;
+      }
+    ));
   if (opts.whisperTried) recordSubtitlesFailure(opts.url, 'no_subtitles');
   const hint = opts.whisperTried ? `${opts.whisperHintPrefix}${whisperHint()}` : '';
   throw new NotFoundError(
@@ -644,9 +641,9 @@ async function handleExplicitRequestFlow(
 
   // The JSON carries the track's own URL and the video id, and fills the info, track-list
   // and chapters caches that the widgets ask for right after a transcript.
-  const loaded = skipCache
-    ? await buildVideoJson(url, logger, true)
-    : await loadVideoJson(url, logger);
+  // The canary proves the yt-dlp caption path still works, so it skips this and keeps its
+  // single run; everyone else gets the track URL and three warm cache entries.
+  const loaded = skipCache ? null : await loadVideoJson(url, logger);
   let subtitlesContent = await downloadSubtitles(
     url,
     type,
@@ -698,6 +695,7 @@ async function handleExplicitRequestFlow(
       baseMsg: `No subtitles for language "${sanitizedLang}".`,
       whisperHintPrefix: ' ',
       whisperTried,
+      available: loaded?.avail,
       logger,
     });
   }

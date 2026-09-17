@@ -326,6 +326,43 @@ today to pay our respects to MCP, which
       ).resolves.toBeNull();
     });
 
+    it('should reject an error page that carries an HTML comment as srt', async () => {
+      // srt is what detectSubtitleFormat calls anything it does not recognise, and every
+      // HTML comment contains the "-->" a cue line also has.
+      answer('<!DOCTYPE html><html><!-- consent gate --><body>Sign in</body></html>');
+      await expect(
+        youtube.downloadSubtitleTrackDirect(
+          { subtitles: { en: [{ ext: 'srt', url: TIMEDTEXT }] } },
+          'official',
+          'en',
+          'srt'
+        )
+      ).resolves.toBeNull();
+
+      answer('1\n00:00:01,000 --> 00:00:02,000\nhi\n');
+      await expect(
+        youtube.downloadSubtitleTrackDirect(
+          { subtitles: { en: [{ ext: 'srt', url: TIMEDTEXT }] } },
+          'official',
+          'en',
+          'srt'
+        )
+      ).resolves.toContain('-->');
+    });
+
+    it('should leave the track to yt-dlp when a proxy is configured', async () => {
+      process.env.YT_DLP_PROXY = 'http://proxy.invalid:3128';
+      try {
+        answer('WEBVTT\n\n00:00:01.000 --> 00:00:02.000\nhi');
+        await expect(
+          youtube.downloadSubtitleTrackDirect(data, 'official', 'en', 'vtt')
+        ).resolves.toBeNull();
+        expect(fetchMock).not.toHaveBeenCalled();
+      } finally {
+        delete process.env.YT_DLP_PROXY;
+      }
+    });
+
     it('should not fetch anything when the format or language is not listed', async () => {
       await expect(
         youtube.downloadSubtitleTrackDirect(data, 'official', 'en', 'srt')

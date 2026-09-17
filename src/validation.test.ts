@@ -456,6 +456,9 @@ describe('validation', () => {
       expect(downloadSpy).toHaveBeenCalled();
       expect(cacheGet).not.toHaveBeenCalled();
       expect(cacheSet).not.toHaveBeenCalled();
+      // One probe, one yt-dlp run: the metadata JSON is for callers, not for the canary.
+      expect(youtube.fetchYtDlpJson).not.toHaveBeenCalled();
+      expect(downloadSpy.mock.calls[0][5]).toBeUndefined();
     });
 
     it('should return subtitles from Whisper fallback when YouTube has none', async () => {
@@ -1019,6 +1022,47 @@ describe('validation', () => {
       expect(result.videoId).toBe('123');
       expect(result.info).toMatchObject({ title: 'Vimeo Video', duration: 60 });
       expect(youtube.fetchYtDlpJson).toHaveBeenCalledWith(vimeoUrl, undefined);
+    });
+  });
+
+  describe('one yt-dlp run per video', () => {
+    const url = 'https://www.youtube.com/watch?v=dQw4w9WgXcQ';
+
+    it('should answer three tools about one video with one run', async () => {
+      let release: (value: any) => void = () => {};
+      const deferred = new Promise<any>((resolve) => {
+        release = resolve;
+      });
+      const jsonSpy = jest.spyOn(youtube, 'fetchYtDlpJson').mockReturnValue(deferred);
+
+      const all = Promise.all([
+        validateAndFetchVideoInfo({ url } as any),
+        validateAndFetchVideoChapters({ url } as any),
+        validateAndFetchAvailableSubtitles({ url } as any),
+      ]);
+      await new Promise((resolve) => setImmediate(resolve));
+      release({ id: 'dQw4w9WgXcQ', title: 'Test', chapters: null, subtitles: { en: [] } });
+
+      const [info, chapters, avail] = await all;
+      expect(jsonSpy).toHaveBeenCalledTimes(1);
+      expect(info.videoId).toBe('dQw4w9WgXcQ');
+      expect(chapters.chapters).toEqual([]);
+      expect(avail.official).toEqual(['en']);
+    });
+
+    it('should not keep a failed run for the next caller', async () => {
+      const jsonSpy = jest
+        .spyOn(youtube, 'fetchYtDlpJson')
+        .mockRejectedValueOnce(new YtDlpError('bot_check'));
+
+      await expect(validateAndFetchVideoInfo({ url } as any)).rejects.toMatchObject({
+        reason: 'bot_check',
+      });
+
+      jsonSpy.mockResolvedValue({ id: 'dQw4w9WgXcQ', title: 'Test' });
+      const info = await validateAndFetchVideoInfo({ url } as any);
+      expect(info.info).toMatchObject({ title: 'Test' });
+      expect(jsonSpy).toHaveBeenCalledTimes(2);
     });
   });
 
