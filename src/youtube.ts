@@ -170,6 +170,12 @@ function rethrowInfra(error: unknown): void {
  */
 function rethrowRefusalWarning(data: YtDlpVideoInfo, stderr: string): void {
   if (!stderr || !Array.isArray(data.formats) || data.formats.length > 0) return;
+  // A video whose formats failed to extract but whose tracks are listed is still
+  // worth answering: subtitles and metadata do not need a format.
+  const hasTracks =
+    Object.keys(data.subtitles ?? {}).length > 0 ||
+    Object.keys(data.automatic_captions ?? {}).length > 0;
+  if (hasTracks) return;
   // Both follow every refusal and would classify as `extractor` on their own.
   const own = stderr
     .split('\n')

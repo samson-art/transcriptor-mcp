@@ -1473,6 +1473,31 @@ today to pay our respects to MCP, which
       }
     });
 
+    it('should keep a video whose formats failed but whose subtitle tracks are listed', async () => {
+      execFileMock.mockImplementation(
+        (
+          _file: string,
+          _args: string[],
+          _options: unknown,
+          callback: (error: Error | null, result?: { stdout: string; stderr: string }) => void
+        ) => {
+          callback(null, {
+            stdout: JSON.stringify({
+              id: 'x',
+              title: 'Real title',
+              formats: [],
+              automatic_captions: { en: [{ ext: 'vtt' }] },
+            }),
+            stderr:
+              'WARNING: [youtube] x: nsig extraction failed\nWARNING: No video formats found!',
+          });
+        }
+      );
+      await expect(fetchYtDlpJson('https://www.youtube.com/watch?v=x')).resolves.toMatchObject({
+        title: 'Real title',
+      });
+    });
+
     it('should keep the metadata of an age-restricted video that yt-dlp still described', async () => {
       execFileMock.mockImplementation(
         (
