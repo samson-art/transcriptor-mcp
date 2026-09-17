@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.2] - 2026-09-17
+
+### Fixed
+
+- **TikTok videos, and some Dailymotion videos, could not be opened at all:** the image installed yt-dlp without `curl_cffi`, so no browser impersonation target was available. TikTok's extractor needs one and failed every request with `Unexpected response from webpage request`, which callers saw as "not found". The image now installs `yt-dlp[default,curl-cffi]`, and `get_video_info` and `get_video_frame` work for TikTok. Most TikTok videos expose no subtitle track, so without a Whisper fallback `get_transcript` still answers that there are no subtitles for them.
+- **The transcript and video-info widgets asked about the wrong video on platforms other than YouTube:** they called `get_video_info`, `get_available_subtitles` and `get_raw_subtitles` with the bare video id, which the server reads as a YouTube id. They now pass the page URL: the `url` the tool was called with, or the video's `webpageUrl`. The transcript widget builds its fallback YouTube link and thumbnail only for YouTube.
+
+### Changed
+
+- **yt-dlp's `default` extra is installed as well:** `requests`, `brotli`, `websockets`, `mutagen`, `pycryptodomex`, `certifi` and the bundled `yt-dlp-ejs` challenge solver. yt-dlp now uses its `requests` transport instead of `urllib`.
+- **The publish workflow checks impersonation before pushing:** a step runs `yt-dlp --list-impersonate-targets` in the freshly built image and stops the release unless a Chrome target backed by `curl_cffi` is available. The check does not use the network.
+
 ## [1.3.1] - 2026-09-17
 
 ### Fixed
