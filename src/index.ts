@@ -173,7 +173,7 @@ fastify.register(rateLimit, {
   timeWindow: process.env.RATE_LIMIT_TIME_WINDOW || '1 minute', // time window
 });
 
-fastify.get('/health', async (_request, reply) => {
+fastify.get('/health', { logLevel: 'warn' }, async (_request, reply) => {
   return reply.code(200).send({ status: 'ok' });
 });
 
@@ -190,7 +190,7 @@ fastify.get('/health/sentry-test', () => {
   throw new Error('Sentry test: this event is expected when verifying error reporting');
 });
 
-fastify.get('/metrics', async (_request, reply) => {
+fastify.get('/metrics', { logLevel: 'warn' }, async (_request, reply) => {
   const metrics = await renderPrometheus();
   return reply.header('Content-Type', 'text/plain; charset=utf-8').send(metrics);
 });

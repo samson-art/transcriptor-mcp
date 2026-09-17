@@ -13,6 +13,7 @@ import {
   parseTimedSubtitles,
 } from './subtitles.js';
 import type { Cue, CuesStatus } from './types.js';
+import { WIDGET_CALL_META } from './widgetCall.js';
 
 type PreferredTrack = Pick<SubtitleTrack, 'type' | 'lang'>;
 
@@ -75,6 +76,7 @@ export function useSubtitles(
       try {
         const result = await appRef.callServerTool({
           name: 'get_raw_subtitles',
+          _meta: WIDGET_CALL_META,
           arguments: {
             url: source,
             format: 'srt',
@@ -134,6 +136,7 @@ export function useSubtitles(
       try {
         const result = await appRef.callServerTool({
           name: 'get_available_subtitles',
+          _meta: WIDGET_CALL_META,
           arguments: { url: source },
         });
         if (cancelled) return;

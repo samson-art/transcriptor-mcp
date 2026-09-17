@@ -90,11 +90,12 @@ export function buildMcpHttpApp(opts?: BuildMcpHttpAppOptions): FastifyInstance 
     return reply.code(404).send(jsonRpcError(JSONRPC_METHOD_NOT_FOUND, 'Not found'));
   });
 
-  app.get('/health', async (_request, reply) => {
+  // Probes, scrapes and 405s would otherwise log two info lines each.
+  app.get('/health', { logLevel: 'warn' }, async (_request, reply) => {
     return reply.code(200).send({ status: 'ok' });
   });
 
-  app.get('/metrics', async (_request, reply) => {
+  app.get('/metrics', { logLevel: 'warn' }, async (_request, reply) => {
     const metrics = await renderPrometheus();
     return reply.header('Content-Type', 'text/plain; charset=utf-8').send(metrics);
   });
@@ -145,6 +146,7 @@ export function buildMcpHttpApp(opts?: BuildMcpHttpAppOptions): FastifyInstance 
   app.route({
     method: ['GET', 'DELETE'],
     url: MCP_PATH,
+    logLevel: 'warn',
     handler: async (_request, reply) => {
       return reply
         .code(405)

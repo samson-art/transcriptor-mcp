@@ -458,10 +458,15 @@ async function throwNoSubtitlesError(opts: {
   whisperTried: boolean;
   logger?: FastifyBaseLogger;
 }): Promise<never> {
-  if (opts.whisperTried) recordSubtitlesFailure(opts.url, 'no_subtitles');
   const available = await validateAndFetchAvailableSubtitles({ url: opts.url }, opts.logger).catch(
-    () => undefined
+    (err: unknown) => {
+      // A known reason (private, removed…) is the real answer: "no subtitles for en"
+      // would send the caller through other languages. Counted by the caller's catch.
+      if (err instanceof YtDlpError) throw err;
+      return undefined;
+    }
   );
+  if (opts.whisperTried) recordSubtitlesFailure(opts.url, 'no_subtitles');
   const hint = opts.whisperTried ? `${opts.whisperHintPrefix}${whisperHint()}` : '';
   throw new NotFoundError(
     `${opts.baseMsg}${hint} Use get_available_subtitles (or GET /subtitles/available) to list supported languages, or omit type and lang for auto-discovery.`,
@@ -490,13 +495,13 @@ async function handleAutoDiscoverFlow(
   if (cached !== undefined) {
     try {
       const parsed = JSON.parse(cached) as SubtitleResult;
-      recordCacheHit();
+      recordCacheHit('sub');
       return parsed;
     } catch (e) {
       logger?.warn({ err: e, cacheKey }, 'Corrupted cache entry, treating as miss');
     }
   }
-  recordCacheMiss();
+  recordCacheMiss('sub');
 
   const result = await downloadWithAutoDiscover(url, format, logger, {
     key: cacheKey,
@@ -539,13 +544,13 @@ async function handleExplicitRequestFlow(
   if (cached !== undefined) {
     try {
       const parsed = JSON.parse(cached) as SubtitleResult;
-      recordCacheHit();
+      recordCacheHit('sub');
       return parsed;
     } catch (e) {
       logger?.warn({ err: e, cacheKey }, 'Corrupted cache entry, treating as miss');
     }
   }
-  if (!skipCache) recordCacheMiss();
+  if (!skipCache) recordCacheMiss('sub');
 
   let subtitlesContent = await downloadSubtitles(url, type, sanitizedLang, format, logger);
   let source: string = extractPlatformFromUrl(url);
@@ -567,8 +572,10 @@ async function handleExplicitRequestFlow(
           if (!text?.trim()) {
             return;
           }
-          const data = await fetchYtDlpJson(url, logger).catch(() => null);
-          const vid = data?.id ?? extractYouTubeVideoId(url) ?? 'unknown';
+          const vid =
+            extractYouTubeVideoId(url) ??
+            (await fetchYtDlpJson(url, logger).catch(() => null))?.id ??
+            'unknown';
           const whisperResult = {
             videoId: vid,
             type,
@@ -596,8 +603,11 @@ async function handleExplicitRequestFlow(
     });
   }
 
-  const data = await fetchYtDlpJson(url, logger).catch(() => null);
-  const videoId = data?.id ?? extractYouTubeVideoId(url) ?? 'unknown';
+  // A YouTube URL already carries the id: no second yt-dlp run just for it.
+  const videoId =
+    extractYouTubeVideoId(url) ??
+    (await fetchYtDlpJson(url, logger).catch(() => null))?.id ??
+    'unknown';
 
   const result: SubtitleResult = {
     videoId,
@@ -663,13 +673,13 @@ export async function validateAndFetchAvailableSubtitles(
         official: string[];
         auto: string[];
       };
-      recordCacheHit();
+      recordCacheHit('avail');
       return parsed;
     } catch (e) {
       logger?.warn({ err: e, cacheKey }, 'Corrupted cache entry, treating as miss');
     }
   }
-  recordCacheMiss();
+  recordCacheMiss('avail');
 
   const data = await fetchYtDlpJson(url, logger);
   if (!data) {
@@ -709,13 +719,13 @@ export async function validateAndFetchVideoInfo(
         videoId: string;
         info: Awaited<ReturnType<typeof fetchVideoInfo>>;
       };
-      recordCacheHit();
+      recordCacheHit('info');
       return parsed;
     } catch (e) {
       logger?.warn({ err: e, cacheKey }, 'Corrupted cache entry, treating as miss');
     }
   }
-  recordCacheMiss();
+  recordCacheMiss('info');
 
   const info = await fetchVideoInfo(url, logger);
   if (!info) {
@@ -748,13 +758,13 @@ export async function validateAndFetchVideoChapters(
         videoId: string;
         chapters: Awaited<ReturnType<typeof fetchVideoChapters>>;
       };
-      recordCacheHit();
+      recordCacheHit('chapters');
       return parsed;
     } catch (e) {
       logger?.warn({ err: e, cacheKey }, 'Corrupted cache entry, treating as miss');
     }
   }
-  recordCacheMiss();
+  recordCacheMiss('chapters');
 
   const data = await fetchYtDlpJson(url, logger);
   const videoId = data?.id ?? extractYouTubeVideoId(url) ?? 'unknown';

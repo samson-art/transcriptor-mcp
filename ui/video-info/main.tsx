@@ -12,6 +12,7 @@ import { styles } from '@shared/styles';
 import type { VideoMeta } from '@shared/types';
 import { useSubtitles } from '@shared/useSubtitles';
 import { VideoDetailPanel } from '@shared/VideoDetailPanel';
+import { WIDGET_CALL_META } from '@shared/widgetCall';
 import {
   parseVideoInfoResult,
   videoInfoToMeta,
@@ -66,6 +67,7 @@ function VideoInfoApp() {
     try {
       const result = await app.callServerTool({
         name: 'get_video_info',
+        _meta: WIDGET_CALL_META,
         arguments: { url },
       });
       handleToolResult(result);

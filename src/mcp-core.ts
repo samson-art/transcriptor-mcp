@@ -4,6 +4,7 @@ import {
   RESOURCE_MIME_TYPE,
 } from '@modelcontextprotocol/ext-apps/server';
 import { McpServer, ResourceTemplate } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { createHash } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 // IMPORTANT: use Zod v3 schemas for MCP JSON Schema compatibility.
@@ -30,6 +31,7 @@ import {
   YtDlpError,
 } from './errors.js';
 import {
+  extractPlatformFromUrl,
   normalizeVideoInput,
   sanitizeLang,
   validateAndDownloadSubtitles,
@@ -344,19 +346,57 @@ type WithToolErrorHandlingOptions = {
   notFoundMessage?: string;
 };
 
+/** What a tool was called with, as far as the per-call log line needs it. */
+type ToolCall = {
+  args: Record<string, unknown>;
+  extra: { _meta?: Record<string, unknown> };
+};
+
+/** Widgets mark their own tool calls with this `_meta` key (see ui/shared/widgetCall.ts). */
+const WIDGET_SOURCE_META_KEY = 'transcriptor/source';
+
+/**
+ * Fields of the one log line per tool call. No URL: `addr` is the hash the
+ * analytics collector also derives from yt-dlp command lines.
+ */
+function toolCallLogFields({ args, extra }: ToolCall) {
+  const input = typeof args.url === 'string' ? args.url.trim() : '';
+  const url = input ? (resolveVideoUrl(input) ?? input) : '';
+  let host: string | undefined;
+  if (input) {
+    try {
+      host = new URL(input).hostname.toLowerCase();
+    } catch {
+      host = 'bare_id';
+    }
+  }
+  return {
+    platform: url ? extractPlatformFromUrl(url) : undefined,
+    host,
+    explicit: args.type !== undefined || args.lang !== undefined,
+    addr: url ? createHash('sha256').update(url).digest('hex').slice(0, 12) : undefined,
+    source: extra._meta?.[WIDGET_SOURCE_META_KEY] === 'widget' ? 'widget' : 'model',
+  };
+}
+
+const UNEXPECTED_TOOL_ERROR_MESSAGE =
+  'Internal server error (a fault in this server, not in your request). Retry once; if it fails again, do not retry — tell the user this cannot be completed right now.';
+
 async function withToolErrorHandling(
   toolName: string,
   log: FastifyBaseLogger,
+  call: ToolCall,
   fn: () => Promise<ToolSuccessResult>,
   options?: WithToolErrorHandlingOptions
 ): Promise<ToolResult> {
   const start = performance.now();
+  recordMcpToolCall(toolName);
+  let reason: string | undefined;
   try {
-    const result = await fn();
-    recordMcpToolCall(toolName);
-    return result;
+    return await fn();
   } catch (err) {
-    recordMcpToolError(toolName, errorReason(err));
+    reason = errorReason(err);
+    recordMcpToolError(toolName, reason);
     if (err instanceof NotFoundError) {
       return toolError(options?.notFoundMessage ?? err.message);
     }
@@ -373,9 +413,20 @@ async function withToolErrorHandling(
     Sentry.captureException(err);
     // An unplanned error's message can hold the yt-dlp command line, a cookies
     // path or a proxy URL, so it never goes to the caller.
-    return toolError(err instanceof YtDlpError ? err.message : 'Tool failed. Please try again.');
+    return toolError(err instanceof YtDlpError ? err.message : UNEXPECTED_TOOL_ERROR_MESSAGE);
   } finally {
-    recordMcpRequestDuration(toolName, (performance.now() - start) / 1000);
+    const seconds = (performance.now() - start) / 1000;
+    const outcome = reason === undefined ? 'ok' : 'error';
+    recordMcpRequestDuration(toolName, seconds, outcome);
+    const line = {
+      tool: toolName,
+      outcome,
+      reason,
+      ms: Math.round(seconds * 1000),
+      ...toolCallLogFields(call),
+    };
+    if (outcome === 'ok') log.info(line, 'MCP tool call');
+    else log.warn(line, 'MCP tool call');
   }
 }
 
@@ -417,8 +468,8 @@ export function createMcpServer(opts?: CreateMcpServerOptions) {
         'openai/toolInvocation/invoked': 'Transcript ready',
       },
     },
-    async (args: z.infer<typeof subtitleInputSchema>, _extra) =>
-      withToolErrorHandling(TOOL_GET_TRANSCRIPT, log, async () => {
+    async (args: z.infer<typeof subtitleInputSchema>, extra) =>
+      withToolErrorHandling(TOOL_GET_TRANSCRIPT, log, { args, extra }, async () => {
         const resolved = resolveSubtitleArgs(args);
         const result = await validateAndDownloadSubtitles(
           {
@@ -471,8 +522,8 @@ export function createMcpServer(opts?: CreateMcpServerOptions) {
         destructiveHint: false,
       },
     },
-    async (args, _extra) =>
-      withToolErrorHandling(TOOL_GET_RAW_SUBTITLES, log, async () => {
+    async (args, extra) =>
+      withToolErrorHandling(TOOL_GET_RAW_SUBTITLES, log, { args, extra }, async () => {
         const resolved = resolveSubtitleArgs(args);
         const result = await validateAndDownloadSubtitles(
           {
@@ -527,10 +578,11 @@ export function createMcpServer(opts?: CreateMcpServerOptions) {
         destructiveHint: false,
       },
     },
-    async (args, _extra) =>
+    async (args, extra) =>
       withToolErrorHandling(
         TOOL_GET_AVAILABLE_SUBTITLES,
         log,
+        { args, extra },
         async () => {
           const url = resolveVideoUrl(args.url);
           if (!url) {
@@ -583,10 +635,11 @@ export function createMcpServer(opts?: CreateMcpServerOptions) {
         'openai/toolInvocation/invoked': 'Video info ready',
       },
     },
-    async (args: z.infer<typeof baseInputSchema>, _extra) =>
+    async (args: z.infer<typeof baseInputSchema>, extra) =>
       withToolErrorHandling(
         TOOL_GET_VIDEO_INFO,
         log,
+        { args, extra },
         async () => {
           const url = resolveVideoUrl(args.url);
           if (!url) {
@@ -658,10 +711,11 @@ export function createMcpServer(opts?: CreateMcpServerOptions) {
         destructiveHint: false,
       },
     },
-    async (args, _extra) =>
+    async (args, extra) =>
       withToolErrorHandling(
         TOOL_GET_VIDEO_CHAPTERS,
         log,
+        { args, extra },
         async () => {
           const url = resolveVideoUrl(args.url);
           if (!url) {
@@ -717,10 +771,11 @@ export function createMcpServer(opts?: CreateMcpServerOptions) {
         'openai/toolInvocation/invoked': 'Frame captured',
       },
     },
-    async (args: z.infer<typeof videoFrameInputSchema>, _extra) =>
+    async (args: z.infer<typeof videoFrameInputSchema>, extra) =>
       withToolErrorHandling(
         TOOL_GET_VIDEO_FRAME,
         log,
+        { args, extra },
         async () => {
           const result = await validateAndCaptureVideoFrame(
             {
@@ -774,8 +829,8 @@ export function createMcpServer(opts?: CreateMcpServerOptions) {
         destructiveHint: false,
       },
     },
-    async (args, _extra) =>
-      withToolErrorHandling(TOOL_GET_PLAYLIST_TRANSCRIPTS, log, async () => {
+    async (args, extra) =>
+      withToolErrorHandling(TOOL_GET_PLAYLIST_TRANSCRIPTS, log, { args, extra }, async () => {
         const url = resolveVideoUrl(args.url);
         if (!url) {
           throw new ValidationError(
@@ -846,8 +901,8 @@ export function createMcpServer(opts?: CreateMcpServerOptions) {
         'openai/toolInvocation/invoked': 'Videos found',
       },
     },
-    async (args: z.infer<typeof searchInputSchema>, _extra) =>
-      withToolErrorHandling(TOOL_SEARCH_VIDEOS, log, async () => {
+    async (args: z.infer<typeof searchInputSchema>, extra) =>
+      withToolErrorHandling(TOOL_SEARCH_VIDEOS, log, { args, extra }, async () => {
         const query = typeof args.query === 'string' ? args.query.trim() : '';
         if (!query) {
           throw new ValidationError('Query is required for search.');

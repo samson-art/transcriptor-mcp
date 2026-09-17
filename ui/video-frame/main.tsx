@@ -7,6 +7,7 @@ import { AppShell } from '@shared/AppShell';
 import { youtubeWatchUrlAt } from '@shared/format';
 import { notifyHostAboutResize } from '@shared/resize';
 import { styles } from '@shared/styles';
+import { WIDGET_CALL_META } from '@shared/widgetCall';
 
 type FrameData = {
   videoId: string | null;
@@ -89,6 +90,7 @@ function VideoFrameApp() {
       try {
         const result = await appRef.callServerTool({
           name: 'get_video_frame',
+          _meta: WIDGET_CALL_META,
           arguments: { url: sourceUrl, ...captureOptions, ...timestampArgs },
         });
         handleToolResult(result);

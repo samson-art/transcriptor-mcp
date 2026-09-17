@@ -919,6 +919,14 @@ today to pay our respects to MCP, which
       ]);
     });
 
+    it('should return an empty list for a video without chapters', async () => {
+      const result = await fetchVideoChapters('https://www.youtube.com/watch?v=x', undefined, {
+        id: 'x',
+        chapters: null as unknown as undefined,
+      });
+      expect(result).toEqual([]);
+    });
+
     it('should return null when preFetchedData is null', async () => {
       const result = await fetchVideoChapters('https://www.youtube.com/watch?v=x', undefined, null);
       expect(execFileMock).not.toHaveBeenCalled();
@@ -1322,6 +1330,15 @@ today to pay our respects to MCP, which
       ['WARNING: [youtube] nsig extraction failed: Some players may not work', 'extractor'],
       ['ERROR: [youtube] x: Video unavailable. This video has been removed', 'unavailable'],
       ['ERROR: something we have never seen', 'unknown'],
+      [
+        'WARNING: [TikTok] The extractor specified to use impersonation for this download, but no impersonate target is available.\nERROR: [TikTok] 123: Unexpected response from webpage request',
+        'extractor',
+      ],
+      [
+        'WARNING: [dailymotion] The extractor specified to use impersonation for this download, but no impersonate target is available.\nERROR: [dailymotion] x5: something new',
+        'extractor',
+      ],
+      ['ERROR: [youtube] x: Video is unavailable', 'unavailable'],
     ];
 
     it.each(cases)('should classify %s as %s', (stderr, expected) => {
@@ -1342,6 +1359,16 @@ today to pay our respects to MCP, which
           stderr: 'HTTP Error 429: Too Many Requests',
         })
       ).toBe('rate_limited');
+    });
+
+    it('should keep a removed video unavailable when the impersonation warning is also there', () => {
+      expect(
+        classifyYtDlpFailure({
+          message: 'Command failed',
+          stderr:
+            'WARNING: [youtube] x: no impersonate target is available\nERROR: [youtube] x: Video unavailable. This video has been removed',
+        })
+      ).toBe('unavailable');
     });
 
     it('should classify a bot check before an age check when both appear', () => {
@@ -1389,9 +1416,26 @@ today to pay our respects to MCP, which
       });
     });
 
-    it('should keep returning null from fetchYtDlpJson for a private video', async () => {
+    it('should reject fetchYtDlpJson with the per-video reason for a private video', async () => {
       mockExecFileFailure('ERROR: [youtube] x: Private video');
+      await expect(fetchYtDlpJson('https://www.youtube.com/watch?v=abc')).rejects.toMatchObject({
+        name: 'YtDlpError',
+        reason: 'private',
+        statusCode: 404,
+      });
+    });
+
+    it('should keep returning null from fetchYtDlpJson when the reason is unknown', async () => {
+      mockExecFileFailure('ERROR: something we have never seen');
       await expect(fetchYtDlpJson('https://www.youtube.com/watch?v=abc')).resolves.toBeNull();
+    });
+
+    it('should reject a frame capture of a private video after one yt-dlp run', async () => {
+      mockExecFileFailure('ERROR: [youtube] x: Private video');
+      await expect(
+        captureVideoFrame('https://www.youtube.com/watch?v=abc', 10)
+      ).rejects.toMatchObject({ name: 'YtDlpError', reason: 'private' });
+      expect(execFileMock).toHaveBeenCalledTimes(1);
     });
 
     it('should reject downloadSubtitles with a classified error on rate limiting', async () => {

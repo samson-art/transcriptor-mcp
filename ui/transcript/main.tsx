@@ -11,6 +11,7 @@ import { SubtitlesPanel } from '@shared/SubtitlesPanel';
 import { styles } from '@shared/styles';
 import type { VideoMeta } from '@shared/types';
 import { useSubtitles } from '@shared/useSubtitles';
+import { WIDGET_CALL_META } from '@shared/widgetCall';
 import { VideoDetailPanel } from '@shared/VideoDetailPanel';
 import { parseVideoInfoResult, videoInfoToMeta } from '@shared/videoInfo';
 
@@ -80,6 +81,7 @@ function TranscriptApp() {
       try {
         const result = await app.callServerTool({
           name: 'get_video_info',
+          _meta: WIDGET_CALL_META,
           arguments: { url: source },
         });
 

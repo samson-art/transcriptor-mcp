@@ -1,6 +1,7 @@
 import * as Sentry from '@sentry/node';
 import { NotFoundError, ServerBusyError, ValidationError, YtDlpError } from './errors.js';
 import { createMcpServer } from './mcp-core.js';
+import { renderPrometheus } from './metrics.js';
 import * as youtube from './youtube.js';
 import * as validation from './validation.js';
 
@@ -58,6 +59,7 @@ jest.mock('./youtube.js', () => ({
 }));
 
 jest.mock('./validation.js', () => ({
+  extractPlatformFromUrl: jest.fn(() => 'youtube'),
   normalizeVideoInput: jest.fn(),
   sanitizeLang: jest.fn(),
   validateAndDownloadSubtitles: jest.fn(),
@@ -264,7 +266,7 @@ describe('mcp-core tools', () => {
       const result = await handler({ url: testUrl }, {});
 
       expect(result).toMatchObject({ isError: true });
-      expect(result.content[0].text).toBe('Tool failed. Please try again.');
+      expect(result.content[0].text).toMatch(/^Internal server error .*Retry once/);
       expect(captureExceptionMock).toHaveBeenCalled();
     });
 
@@ -433,7 +435,7 @@ describe('mcp-core tools', () => {
 
       expect(result).toMatchObject({ isError: true });
       // The raw message holds a cookies path: the caller gets a fixed sentence.
-      expect(result.content[0].text).toBe('Tool failed. Please try again.');
+      expect(result.content[0].text).toMatch(/^Internal server error .*Retry once/);
       expect(logger.error).toHaveBeenCalledWith(
         expect.objectContaining({ err: expect.any(Error), tool: 'get_video_info' }),
         'MCP tool unexpected error'
@@ -452,8 +454,52 @@ describe('mcp-core tools', () => {
 
       expect(result).toMatchObject({ isError: true });
       expect(result.content[0].text).toBe(
-        'The video platform is rate-limiting requests right now. Try again in a few minutes.'
+        'The platform is rate-limiting this server right now. Wait a few minutes, then retry once; until then most requests to this platform will fail the same way. Videos on other platforms are not affected.'
       );
+    });
+
+    it('should write one log line per call with hashed address, source and outcome', async () => {
+      const logger = {
+        error: jest.fn(),
+        info: jest.fn(),
+        debug: jest.fn(),
+        warn: jest.fn(),
+        child: jest.fn(),
+      };
+      logger.child.mockReturnValue(logger);
+      const server = createMcpServer({ logger: logger as any }) as any;
+      const handler = getTool(server, 'get_video_info');
+      normalizeVideoInputMock.mockReturnValue(testUrl);
+
+      validateAndFetchVideoInfoMock.mockRejectedValue(new YtDlpError('private'));
+      await handler({ url: testUrl }, { _meta: { 'transcriptor/source': 'widget' } });
+      validateAndFetchVideoInfoMock.mockRejectedValue(new YtDlpError('private'));
+      await handler({ url: testUrl, lang: 'en' }, {});
+
+      const lines = (logger.warn.mock.calls as Array<[Record<string, unknown>, string]>)
+        .filter((c) => c[1] === 'MCP tool call')
+        .map((c) => c[0]);
+      expect(lines).toEqual([
+        expect.objectContaining({
+          tool: 'get_video_info',
+          outcome: 'error',
+          reason: 'private',
+          platform: 'youtube',
+          host: 'www.youtube.com',
+          explicit: false,
+          addr: expect.stringMatching(/^[0-9a-f]{12}$/),
+          source: 'widget',
+        }),
+        expect.objectContaining({ explicit: true, source: 'model' }),
+      ]);
+      expect(lines[0].addr).toBe(lines[1].addr);
+      expect(JSON.stringify(lines)).not.toContain('youtube.com/watch');
+
+      const metrics = await renderPrometheus();
+      expect(metrics).toMatch(
+        /mcp_request_duration_seconds_count\{[^}]*endpoint="get_video_info",outcome="error"[^}]*\} [1-9]/
+      );
+      expect(metrics).toMatch(/mcp_tool_calls_total\{[^}]*tool="get_video_info"[^}]*\} [1-9]/);
     });
 
     it('should answer a busy server with a retry line and no error log', async () => {
