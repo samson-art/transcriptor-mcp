@@ -34,8 +34,9 @@ ENV PATH="/usr/local/bin:${PATH}"
 ENV DENO_INSTALL=/usr/local
 RUN curl -fsSL https://deno.land/x/install/install.sh | sh
 
-# yt-dlp через pip (последняя стабильная версия)
-RUN pip3 install --no-cache-dir --break-system-packages -U yt-dlp
+# yt-dlp через pip (последняя стабильная версия); curl-cffi даёт имперсонацию браузера,
+# без неё не открываются TikTok и часть видео Dailymotion
+RUN pip3 install --no-cache-dir --break-system-packages -U "yt-dlp[default,curl-cffi]"
 
 ENV YT_DLP_JS_RUNTIMES="deno,node"
 

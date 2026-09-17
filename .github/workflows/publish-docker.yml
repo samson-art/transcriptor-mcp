@@ -133,6 +133,12 @@ jobs:
           push: false
           tags: transcriptor-mcp:smoke
 
+      # yt-dlp prints the table either way; without curl_cffi every row ends in "(unavailable)".
+      - name: Impersonation targets available (curl_cffi)
+        run: |
+          n=$(docker run --rm transcriptor-mcp:smoke yt-dlp --list-impersonate-targets | grep -Eci '^chrome.*curl_cffi[[:space:]]*$')
+          echo "::notice::$n Chrome impersonation targets available"
+
       - name: MCP smoke (initialize, tools/list, GET→405, stdio; no YouTube)
         run: SMOKE_SKIP_BUILD=1 SMOKE_SKIP_TRANSCRIPT=1 SMOKE_MCP_IMAGE=transcriptor-mcp:smoke npm run test:e2e:mcp
 

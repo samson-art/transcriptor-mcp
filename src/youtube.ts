@@ -820,6 +820,11 @@ export async function downloadAudio(
   if (maxFilesize) {
     optionalArgs.push('--max-filesize', maxFilesize);
   }
+  const maxDuration = parseIntEnv('WHISPER_MAX_DURATION_SECONDS', 0);
+  if (maxDuration > 0) {
+    // yt-dlp skips a longer video, or one of unknown length, with exit code 0 and no file.
+    optionalArgs.push('--match-filter', `duration <= ${maxDuration}`);
+  }
   appendYtDlpEnvArgs(optionalArgs, {
     jsRuntimes,
     remoteComponents,
@@ -849,7 +854,11 @@ export async function downloadAudio(
     if (audioFile) {
       return join(tempDir, audioFile);
     }
-    logger?.error({ tempDir }, 'Audio file not found after yt-dlp');
+    if (maxDuration > 0) {
+      logger?.info({ maxDuration }, 'No audio for Whisper: video too long or of unknown length');
+    } else {
+      logger?.error({ tempDir }, 'Audio file not found after yt-dlp');
+    }
     return null;
   } catch (error: unknown) {
     if (error instanceof HttpError) throw error;

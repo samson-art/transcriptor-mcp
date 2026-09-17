@@ -43,7 +43,7 @@ function VideoInfoApp() {
   const [status, setStatus] = useState<'waiting' | 'ready' | 'error'>('waiting');
   const [appRef, setAppRef] = useState<App | null>(null);
 
-  const subtitles = useSubtitles(appRef, video?.videoId);
+  const subtitles = useSubtitles(appRef, video?.url ?? video?.videoId);
 
   const handleToolResult = useCallback((result: CallToolResult) => {
     if (result.isError) {

@@ -22,7 +22,8 @@ type UseSubtitlesOptions = {
 
 export function useSubtitles(
   appRef: App | null,
-  videoId: string | null | undefined,
+  /** What the server tools accept as `url`: the video page URL, or a bare YouTube id. */
+  source: string | null | undefined,
   options?: UseSubtitlesOptions
 ) {
   const [cues, setCues] = useState<Cue[]>([]);
@@ -58,7 +59,7 @@ export function useSubtitles(
 
   const loadSubtitles = useCallback(
     async (cursor?: string, append = false, track?: SubtitleTrack | null) => {
-      if (!videoId || !appRef || (!append && cuesStatusRef.current === 'loading')) return;
+      if (!source || !appRef || (!append && cuesStatusRef.current === 'loading')) return;
 
       const t = track ?? selectedTrackRef.current;
 
@@ -75,7 +76,7 @@ export function useSubtitles(
         const result = await appRef.callServerTool({
           name: 'get_raw_subtitles',
           arguments: {
-            url: videoId,
+            url: source,
             format: 'srt',
             ...(t ? { type: t.type, lang: t.lang } : {}),
             ...(cursor ? { next_cursor: cursor } : {}),
@@ -115,11 +116,11 @@ export function useSubtitles(
         notifyHostAboutResize();
       }
     },
-    [appRef, videoId]
+    [appRef, source]
   );
 
   useEffect(() => {
-    if (!videoId || !appRef) {
+    if (!source || !appRef) {
       setAvailableTracks(null);
       setSelectedTrack(null);
       setTracksLoading(false);
@@ -133,7 +134,7 @@ export function useSubtitles(
       try {
         const result = await appRef.callServerTool({
           name: 'get_available_subtitles',
-          arguments: { url: videoId },
+          arguments: { url: source },
         });
         if (cancelled) return;
 
@@ -158,7 +159,7 @@ export function useSubtitles(
     return () => {
       cancelled = true;
     };
-  }, [videoId, appRef]);
+  }, [source, appRef]);
 
   const handleLoadSubtitles = useCallback(() => {
     void loadSubtitles();

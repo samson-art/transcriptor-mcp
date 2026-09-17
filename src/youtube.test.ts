@@ -418,6 +418,7 @@ today to pay our respects to MCP, which
       delete process.env.YT_DLP_AUDIO_CONCURRENT_FRAGMENTS;
       delete process.env.YT_DLP_AUDIO_LIMIT_RATE;
       delete process.env.YT_DLP_AUDIO_RETRIES;
+      delete process.env.WHISPER_MAX_DURATION_SECONDS;
     });
 
     it('should pass format and audio-quality to yt-dlp and return path to audio file', async () => {
@@ -568,6 +569,43 @@ today to pay our respects to MCP, which
 
       await unlink(audioFilePath).catch(() => {});
       dateSpy.mockRestore();
+    });
+
+    it('should cap the video length only when WHISPER_MAX_DURATION_SECONDS is set', async () => {
+      let capturedArgs: string[] = [];
+      execFileMock.mockImplementation(
+        (
+          _file: string,
+          args: string[],
+          _options: unknown,
+          callback: (error: Error | null, result: { stdout: string; stderr: string }) => void
+        ) => {
+          capturedArgs = args;
+          callback(null, { stdout: '', stderr: '' });
+        }
+      );
+      const logger = { info: jest.fn(), error: jest.fn(), warn: jest.fn(), debug: jest.fn() };
+
+      await downloadAudio('https://www.youtube.com/watch?v=nocap1', logger as any);
+      expect(capturedArgs).not.toContain('--match-filter');
+      expect(logger.error).toHaveBeenCalledWith(
+        expect.anything(),
+        'Audio file not found after yt-dlp'
+      );
+
+      process.env.WHISPER_MAX_DURATION_SECONDS = '120';
+      logger.error.mockClear();
+      // yt-dlp skipped the video: exit code 0, no file
+      const result = await downloadAudio('https://www.youtube.com/watch?v=capped1', logger as any);
+
+      const idx = capturedArgs.indexOf('--match-filter');
+      expect(capturedArgs[idx + 1]).toBe('duration <= 120');
+      expect(result).toBeNull();
+      expect(logger.error).not.toHaveBeenCalled();
+      expect(logger.info).toHaveBeenCalledWith(
+        { maxDuration: 120 },
+        'No audio for Whisper: video too long or of unknown length'
+      );
     });
   });
 
