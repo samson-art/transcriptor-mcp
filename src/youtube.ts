@@ -506,7 +506,9 @@ export async function downloadSubtitleTrackDirect(
   format: SubtitleFormat,
   logger?: FastifyBaseLogger
 ): Promise<string | null> {
-  const tracks = (type === 'official' ? data?.subtitles : data?.automatic_captions)?.[lang];
+  const container = type === 'official' ? data?.subtitles : data?.automatic_captions;
+  // `lang` is the caller's: `toString` must not read Object.prototype.
+  const tracks = container && Object.hasOwn(container, lang) ? container[lang] : undefined;
   const trackUrl = tracks
     ?.map((t) => directTrackUrl(t, format))
     .find((u): u is string => u != null);

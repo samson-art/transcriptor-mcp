@@ -282,12 +282,25 @@ describe('validation', () => {
       expect(sanitizeLang('  en  ')).toBe('en');
     });
 
+    it('accepts the track names yt-dlp lists besides plain language codes', () => {
+      expect(sanitizeLang('en_US')).toBe('en_US'); // Facebook locale
+      expect(sanitizeLang('en-nP7-2PuUl7o')).toBe('en-nP7-2PuUl7o'); // YouTube named track
+      expect(sanitizeLang('en-x-autogen')).toBe('en-x-autogen'); // Vimeo auto captions
+    });
+
     it('should return null for invalid language codes', () => {
       expect(sanitizeLang('')).toBe(null);
       expect(sanitizeLang('invalid@lang')).toBe(null);
       expect(sanitizeLang('invalid lang')).toBe(null);
       expect(sanitizeLang('invalid.lang')).toBe(null);
-      expect(sanitizeLang('a'.repeat(11))).toBe(null); // Too long
+      expect(sanitizeLang('a'.repeat(33))).toBe(null); // Too long
+    });
+
+    it('rejects what yt-dlp would read as more than one literal track', () => {
+      // --sub-langs is a comma list of regexes, `-x` excludes x, `all` is every track.
+      for (const lang of ['en,ru', 'en.*', 'en|ru', 'a b', '-en', 'all', '__proto__']) {
+        expect(sanitizeLang(lang)).toBe(null);
+      }
     });
 
     it('should return null for non-string inputs', () => {
@@ -297,7 +310,7 @@ describe('validation', () => {
     });
 
     it('should allow language codes with max allowed length', () => {
-      const lang = 'a'.repeat(10);
+      const lang = 'a'.repeat(32);
       expect(sanitizeLang(lang)).toBe(lang);
     });
   });
@@ -769,8 +782,8 @@ describe('validation', () => {
           .filter((key) => key.startsWith('sub:'));
         expect(subKeys).toEqual([`sub:${youtubeUrl}:auto-discovery:srt`]);
 
-        // A track name a request by name can never carry (Facebook's locale keys) gets
-        // no second entry either: nothing could ever read it.
+        // Facebook keys tracks by locale: the widget asks for `en_US` by name, so that
+        // name gets its entry as well.
         const facebookUrl = 'https://www.facebook.com/watch?v=1';
         jest.spyOn(youtube, 'fetchYtDlpJson').mockResolvedValue({
           id: '1',
@@ -786,7 +799,10 @@ describe('validation', () => {
           (cacheSet as jest.Mock).mock.calls
             .map((call) => call[0] as string)
             .filter((key) => key.startsWith('sub:'))
-        ).toEqual([`sub:${facebookUrl}:auto-discovery:srt`]);
+        ).toEqual([
+          `sub:${facebookUrl}:auto-discovery:srt`,
+          `sub:${facebookUrl}:official:en_US:srt`,
+        ]);
       });
 
       it('should prefer -orig auto subtitles for YouTube when available', async () => {
