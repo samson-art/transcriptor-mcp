@@ -4,7 +4,7 @@ import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import React, { StrictMode, useCallback, useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { AppShell } from '@shared/AppShell';
-import { isYouTubePage, pageFromInput, watchUrlAt, youtubeWatchUrl } from '@shared/format';
+import { isYouTubePage, pageFromInput, watchUrlAt } from '@shared/format';
 import { notifyHostAboutResize } from '@shared/resize';
 import type { SubtitleTrack } from '@shared/subtitleTracks';
 import { SubtitlesPanel } from '@shared/SubtitlesPanel';
@@ -51,18 +51,6 @@ function parseTranscriptResult(result: CallToolResult): TranscriptData | null {
   }
 }
 
-/**
- * The page the transcript is of. The result's own `url` first; then what the model
- * passed, where a bare id is YouTube by the server's contract; then the id, but only
- * when the server said it came from YouTube. Anything else: unknown, not YouTube.
- */
-function pageUrlOf(parsed: TranscriptData, input: string | null): string | null {
-  if (parsed.url) return parsed.url;
-  if (input) return pageFromInput(input);
-  if (parsed.source === 'youtube') return youtubeWatchUrl({ videoId: parsed.videoId, url: null });
-  return null;
-}
-
 function TranscriptApp() {
   const [video, setVideo] = useState<VideoMeta | null>(null);
   const [preferredTrack, setPreferredTrack] = useState<SubtitleTrack | null>(null);
@@ -93,7 +81,6 @@ function TranscriptApp() {
         duration: null,
         uploader: null,
         viewCount: null,
-        // Only a YouTube page makes the id a YouTube id.
         thumbnail:
           source && isYouTubePage(source)
             ? `https://i.ytimg.com/vi/${encodeURIComponent(videoId)}/hqdefault.jpg`
@@ -110,12 +97,9 @@ function TranscriptApp() {
           arguments: { url: source },
         });
 
-        if (result.isError) return bare;
-
-        const info = parseVideoInfoResult(result);
+        const info = result.isError ? null : parseVideoInfoResult(result);
         if (!info) return bare;
-        const meta = videoInfoToMeta(info);
-        return { ...meta, url: meta.url ?? source };
+        return { ...videoInfoToMeta(info), url: info.webpageUrl ?? source };
       } catch {
         return bare;
       }
@@ -128,10 +112,11 @@ function TranscriptApp() {
       setStatus('ready');
       subtitles.reset();
       setPreferredTrack({ type: parsed.type, lang: parsed.lang });
-      const source = pageUrlOf(parsed, sourceRef.current);
+      // The result's page (1.5.0+), else the call's url, else the id only if the server says YouTube.
+      const input = sourceRef.current ?? (parsed.source === 'youtube' ? parsed.videoId : null);
+      const source = parsed.url || (input ? pageFromInput(input) : null);
       setPage(source);
-      const meta = await loadVideoMeta(app, parsed.videoId, source);
-      setVideo(meta);
+      setVideo(await loadVideoMeta(app, parsed.videoId, source));
       notifyHostAboutResize();
     },
     [loadVideoMeta, subtitles]

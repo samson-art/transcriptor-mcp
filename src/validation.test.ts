@@ -475,9 +475,6 @@ describe('validation', () => {
     });
 
     it('keys the cache by the format the content is in, not by whether one was named', async () => {
-      // get_transcript sends no format; the widget's "Load subtitles" sends srt, the
-      // server default. Two keys meant a second fetch, and for a Whisper-only video
-      // a second transcription.
       const url = 'https://www.youtube.com/watch?v=dQw4w9WgXcQ';
       const keysFor = async (request: Record<string, unknown>) => {
         (cacheGet as jest.Mock).mockClear();
@@ -485,7 +482,6 @@ describe('validation', () => {
         return (cacheGet as jest.Mock).mock.calls.map((call) => call[0] as string);
       };
       jest.spyOn(youtube, 'downloadSubtitles').mockResolvedValue('subtitle content');
-      jest.spyOn(youtube, 'fetchYtDlpJson').mockResolvedValue({ id: 'dQw4w9WgXcQ' });
 
       const autoKey = `sub:${url}:auto-discovery:srt`;
       expect(await keysFor({})).toContain(autoKey);
@@ -736,30 +732,26 @@ describe('validation', () => {
       it('also stores the track it found under the key the explicit flow reads', async () => {
         // The transcript widget then asks for that track by name; a Whisper result has
         // no track to name and stays under the auto-discovery key alone.
-        jest.spyOn(youtube, 'fetchYtDlpJson').mockResolvedValue({
-          id: 'dQw4w9WgXcQ',
-          subtitles: { en: [] },
-          automatic_captions: {},
-        });
+        const storedSubKeys = async (url: string) => {
+          (cacheSet as jest.Mock).mockClear();
+          await validateAndDownloadSubtitles({ url } as any);
+          return (cacheSet as jest.Mock).mock.calls
+            .map((call) => call[0] as string)
+            .filter((key) => key.startsWith('sub:'));
+        };
+
+        jest
+          .spyOn(youtube, 'fetchYtDlpJson')
+          .mockResolvedValue({ id: 'dQw4w9WgXcQ', subtitles: { en: [] } });
         jest.spyOn(youtube, 'downloadSubtitles').mockResolvedValue('official en content');
-        (cacheSet as jest.Mock).mockClear();
-
-        await validateAndDownloadSubtitles({ url: youtubeUrl } as any);
-
-        const keys = (cacheSet as jest.Mock).mock.calls.map((call) => call[0] as string);
-        expect(keys).toEqual(
+        expect(await storedSubKeys(youtubeUrl)).toEqual(
           expect.arrayContaining([
             `sub:${youtubeUrl}:auto-discovery:srt`,
             `sub:${youtubeUrl}:official:en:srt`,
           ])
         );
 
-        jest.spyOn(youtube, 'fetchYtDlpJson').mockResolvedValue({
-          id: 'dQw4w9WgXcQ',
-          subtitles: {},
-          automatic_captions: {},
-        });
-        jest.spyOn(youtube, 'downloadSubtitles').mockResolvedValue(null);
+        jest.spyOn(youtube, 'fetchYtDlpJson').mockResolvedValue({ id: 'dQw4w9WgXcQ' });
         (whisper.getWhisperConfig as jest.Mock).mockReturnValue({
           mode: 'local',
           timeout: 600_000,
@@ -767,39 +759,16 @@ describe('validation', () => {
         (whisperJobs.startOrReuseWhisperJob as jest.Mock).mockResolvedValue(
           '1\n00:00:00,000 --> 00:00:01,000\nWhisper transcript'
         );
-        (cacheSet as jest.Mock).mockClear();
-        try {
-          await validateAndDownloadSubtitles({ url: youtubeUrl } as any);
-        } finally {
-          (whisper.getWhisperConfig as jest.Mock).mockReturnValue({
-            mode: 'off',
-            timeout: 600_000,
-          });
-        }
-
-        const subKeys = (cacheSet as jest.Mock).mock.calls
-          .map((call) => call[0] as string)
-          .filter((key) => key.startsWith('sub:'));
-        expect(subKeys).toEqual([`sub:${youtubeUrl}:auto-discovery:srt`]);
+        expect(await storedSubKeys(youtubeUrl)).toEqual([`sub:${youtubeUrl}:auto-discovery:srt`]);
 
         // Facebook keys tracks by locale: the widget asks for `en_US` by name, so that
         // name gets its entry as well.
         const facebookUrl = 'https://www.facebook.com/watch?v=1';
-        jest.spyOn(youtube, 'fetchYtDlpJson').mockResolvedValue({
-          id: '1',
-          subtitles: { en_US: [] },
-          automatic_captions: {},
-        });
+        jest
+          .spyOn(youtube, 'fetchYtDlpJson')
+          .mockResolvedValue({ id: '1', subtitles: { en_US: [] } });
         jest.spyOn(youtube, 'downloadSubtitles').mockResolvedValue('official en_US content');
-        (cacheSet as jest.Mock).mockClear();
-
-        await validateAndDownloadSubtitles({ url: facebookUrl } as any);
-
-        expect(
-          (cacheSet as jest.Mock).mock.calls
-            .map((call) => call[0] as string)
-            .filter((key) => key.startsWith('sub:'))
-        ).toEqual([
+        expect(await storedSubKeys(facebookUrl)).toEqual([
           `sub:${facebookUrl}:auto-discovery:srt`,
           `sub:${facebookUrl}:official:en_US:srt`,
         ]);

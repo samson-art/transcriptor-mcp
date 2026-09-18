@@ -5,7 +5,6 @@ import type { VideoMeta } from './types.js';
 
 type VideoDetailPanelProps = {
   video: VideoMeta;
-  /** Omitted when the page URL is unknown: an id alone does not say where to go. */
   onOpen?: () => void;
   onClose?: () => void;
   children?: React.ReactNode;

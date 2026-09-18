@@ -48,10 +48,7 @@ export function pageFromInput(input: string): string {
   return /^https?:\/\//i.test(input) ? input : youtubeWatchUrl({ videoId: input, url: null });
 }
 
-/**
- * The page at a moment, where the platform has a link for that; otherwise the page
- * itself. Instagram and TikTok have none, so a cue there opens the video from the start.
- */
+/** Instagram and TikTok have no link to a moment: a cue there opens the page from the start. */
 export function watchUrlAt(url: string, seconds: number): string {
   let parsed: URL;
   try {
@@ -60,15 +57,9 @@ export function watchUrlAt(url: string, seconds: number): string {
     return url;
   }
   const t = Math.max(0, Math.floor(seconds));
-  const host = parsed.hostname.toLowerCase();
-  if (YOUTUBE_HOST.test(host)) {
-    parsed.searchParams.set('t', String(t));
-    return parsed.toString();
-  }
-  if (/(^|\.)vimeo\.com$/.test(host)) {
-    parsed.hash = `t=${t}s`;
-    return parsed.toString();
-  }
   // ponytail: Twitch (?t=1h2m3s), Bilibili (?t=) and Dailymotion (?start=) have one too; a line each when asked for.
-  return url;
+  if (YOUTUBE_HOST.test(parsed.hostname)) parsed.searchParams.set('t', String(t));
+  else if (/(^|\.)vimeo\.com$/.test(parsed.hostname)) parsed.hash = `t=${t}s`;
+  else return url;
+  return parsed.toString();
 }

@@ -223,7 +223,6 @@ describe('mcp-core tools', () => {
 
       expect(result.structuredContent).toMatchObject({
         videoId: 'video123',
-        // The widget reads the page from here: some hosts never pass it the arguments.
         url: testUrl,
         type: 'auto',
         lang: 'en',

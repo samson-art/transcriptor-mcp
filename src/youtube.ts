@@ -44,9 +44,6 @@ function syncProcessGauges(): void {
  * `timeout` and `maxBuffer` are passed through untouched — execFile only starts its
  * timer at spawn, so waiting in the queue never eats into a call's own budget.
  *
- * The one exception is `probeDurationSeconds`, which reads a local file and explains
- * itself there.
- *
  * ponytail: one cap shared by both binaries; split per binary only if frame capture
  * ever starves transcripts.
  */
@@ -905,10 +902,8 @@ export async function fetchAvailableSubtitles(
 /**
  * Length of a media file in seconds by ffprobe; NaN when it cannot be read.
  *
- * Deliberately not under the process cap: this reads the header of a file already
- * on disk in about 0.08 s and never touches the video platform, so neither reason
- * for the cap applies. Under it, a full queue would refuse the read and the caller
- * would report a 13-second video as "too long" instead of "server busy".
+ * Not under the process cap: it reads a file already on disk and never touches the
+ * platform, and a full queue would make the caller call a 13-second video "too long".
  */
 async function probeDurationSeconds(file: string, logger?: FastifyBaseLogger): Promise<number> {
   try {
@@ -919,8 +914,6 @@ async function probeDurationSeconds(file: string, logger?: FastifyBaseLogger): P
     );
     return Number.parseFloat(stdout.trim());
   } catch (error: unknown) {
-    // Without this line a self-host missing ffprobe looks exactly like a video over
-    // the cap, and every capped Whisper call fails with nothing to go on.
     logger?.warn(
       { error: error instanceof Error ? error.message : String(error) },
       'ffprobe could not read the downloaded audio'

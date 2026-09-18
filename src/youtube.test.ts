@@ -815,15 +815,13 @@ today to pay our respects to MCP, which
     });
 
     it('reads the length even when the process cap is full', async () => {
-      // The audio is already on disk by then, so a busy server must not turn a
-      // 13-second video into "too long". Fails if the probe goes under the cap.
+      // Fails if the probe goes under the process cap (see probeDurationSeconds).
       process.env.WHISPER_MAX_DURATION_SECONDS = '120';
       process.env.YT_DLP_MAX_CONCURRENCY = '1';
       process.env.YT_DLP_MAX_QUEUE = '0';
       const dateSpy = jest.spyOn(Date, 'now').mockReturnValue(1234567896);
       const reel = 'https://www.instagram.com/reel/busy1/';
       const audioFilePath = join(tmpdir(), `${urlToSafeBase(reel, 'audio')}.m4a`);
-      const logger = { info: jest.fn(), error: jest.fn(), warn: jest.fn(), debug: jest.fn() };
       const tick = () => new Promise((resolve) => setImmediate(resolve));
       const releases: Array<() => void> = [];
       // The download's output, staged up front so releasing a slot stays synchronous.
@@ -844,7 +842,7 @@ today to pay our respects to MCP, which
         }
       );
 
-      const first = downloadAudio(reel, logger as any);
+      const first = downloadAudio(reel);
       await tick();
       releases.shift()?.(); // the download finishes and hands the only slot back
       await tick();
