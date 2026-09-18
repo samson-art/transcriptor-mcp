@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **A listed track whose name is not a short language code could not be asked for.** `get_available_subtitles` lists tracks under yt-dlp's keys, and some keys are not plain language codes: Facebook keys captions by locale (`en_US`), YouTube keys a named manual track by its vssId (`en-nP7-2PuUl7o`), and Vimeo keys its auto captions as `en-x-autogen`. The `lang` check allowed only letters, digits and `-`, up to 10 characters. So `get_transcript` and `get_raw_subtitles` answered "Invalid language code" for such a track. The transcript widget picks a listed track and asks for it by name, so it showed the same error. The check now also allows `_`, up to 32 characters. The MCP tools, the REST API and the second cache entry that auto-discovery writes for the widget all use this one rule. It still rejects anything yt-dlp reads as more than one literal track in `--sub-langs`: commas, dots and other regex characters, spaces, a leading `-` (yt-dlp reads it as "exclude") and `all`. The old check accepted a leading `-` and `all`, and `all` asked yt-dlp for every track of the video.
+- **A `lang` such as `toString` failed with an internal error** instead of "no subtitles": the direct track fetch looked the name up on a plain object and found `Object.prototype.toString`. It now reads only the tracks the video lists.
+
 ## [1.5.0] - 2026-09-18
 
 ### Added

@@ -309,6 +309,15 @@ today to pay our respects to MCP, which
       expect(fetchMock.mock.calls[0][0]).toBe(TIMEDTEXT);
     });
 
+    it('should read only listed tracks, not Object.prototype', async () => {
+      for (const lang of ['toString', 'constructor', 'hasOwnProperty']) {
+        await expect(
+          youtube.downloadSubtitleTrackDirect(data, 'official', lang, 'vtt')
+        ).resolves.toBeNull();
+      }
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
     it('should give up when the answer is not the requested subtitles', async () => {
       answer('<html>sign in</html>');
       await expect(

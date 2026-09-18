@@ -21,6 +21,13 @@ jest.mock('@modelcontextprotocol/ext-apps/server', () => ({
   RESOURCE_MIME_TYPE: 'text/html;profile=mcp-app',
 }));
 
+// Tool calls must not start the real yt-dlp; each test answers for it.
+jest.mock('node:child_process', () => ({
+  ...jest.requireActual<typeof import('node:child_process')>('node:child_process'),
+  execFile: jest.fn(),
+}));
+
+import { execFile } from 'node:child_process';
 import { buildMcpHttpApp } from './mcp-http.js';
 import { createLoggerWithSentryBreadcrumbs } from './logger-sentry-breadcrumbs.js';
 
@@ -154,6 +161,32 @@ describe('POST /mcp', () => {
     expect(response.status).toBe(400);
     const body = await readMcpBody(response);
     expect(body.error?.code).toBe(-32700);
+  });
+});
+
+describe('tools/call', () => {
+  it("hands a listed track name like Facebook's en_US to yt-dlp unchanged", async () => {
+    const execFileMock = execFile as unknown as jest.Mock;
+    execFileMock.mockImplementation(
+      (_file: string, _args: string[], _options: unknown, callback: (e: null, r: object) => void) =>
+        callback(null, { stdout: '', stderr: '' })
+    );
+
+    const response = await postMcp({
+      jsonrpc: '2.0',
+      id: 5,
+      method: 'tools/call',
+      params: {
+        name: 'get_raw_subtitles',
+        arguments: { url: 'https://www.facebook.com/watch?v=1', type: 'official', lang: 'en_US' },
+      },
+    });
+
+    expect(response.status).toBe(200);
+    const subArgs = execFileMock.mock.calls
+      .map((call) => call[1] as string[])
+      .find((args) => args.includes('--sub-lang'));
+    expect(subArgs?.[subArgs.indexOf('--sub-lang') + 1]).toBe('en_US');
   });
 });
 

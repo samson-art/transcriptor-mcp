@@ -59,6 +59,15 @@ export const ALLOWED_VIDEO_DOMAINS = [
   'v.redd.it',
 ] as const;
 
+/**
+ * A subtitle track name as yt-dlp keys it: a language code (`en`, `zh-Hans`), but also
+ * Facebook's locale (`en_US`), a YouTube named track's vssId (`en-nP7-2PuUl7o`), Vimeo's
+ * `en-x-autogen`. yt-dlp reads `--sub-langs` as comma-separated regexes matched whole, so
+ * no `,`, `.` or other metacharacter, no leading `-` (it means "exclude"), and not `all`.
+ */
+export const LANG_PATTERN = '^(?!all$)[A-Za-z0-9][A-Za-z0-9_-]{0,31}$';
+const LANG_RE = new RegExp(LANG_PATTERN);
+
 // TypeBox schema for subtitle request.
 // When both type and lang are omitted, auto-discovery is used (official → auto with -orig for YouTube → auto → Whisper).
 export const GetSubtitlesRequestSchema = Type.Object({
@@ -75,10 +84,9 @@ export const GetSubtitlesRequestSchema = Type.Object({
   ),
   lang: Type.Optional(
     Type.String({
-      pattern: '^[a-zA-Z0-9-]+$',
-      minLength: 1,
-      maxLength: 10,
-      description: 'Language code (e.g., en, ru, en-US). Omit with type for auto-discovery.',
+      pattern: LANG_PATTERN,
+      description:
+        'Language code or track name as the available-subtitles list gives it (e.g., en, ru, en-US, en_US). Omit with type for auto-discovery.',
     })
   ),
   format: Type.Optional(
@@ -256,27 +264,17 @@ export function sanitizeVideoId(videoId: string): string | null {
 }
 
 /**
- * Sanitizes language code - allows only safe characters
+ * Sanitizes a language code or track name (see LANG_PATTERN)
  * @param lang - language code to sanitize
- * @returns sanitized language code or null if contains invalid characters
+ * @returns trimmed language code, or null if it is not a safe track name
  */
 export function sanitizeLang(lang: string): string | null {
   if (!lang || typeof lang !== 'string') {
     return null;
   }
 
-  // Language code usually contains only letters, numbers and hyphens (e.g., en, en-US, ru)
   const sanitized = lang.trim();
-  if (!/^[a-zA-Z0-9-]+$/.test(sanitized)) {
-    return null;
-  }
-
-  // Limit length for security
-  if (sanitized.length > 10) {
-    return null;
-  }
-
-  return sanitized;
+  return LANG_RE.test(sanitized) ? sanitized : null;
 }
 
 /**
@@ -611,8 +609,8 @@ async function handleAutoDiscoverFlow(
   const found = result as SubtitleResult;
   await set(cacheKey, JSON.stringify(found), cacheConfig.ttlSubtitlesSeconds);
   // The transcript widget then asks for the track it shows by name, which is the
-  // explicit flow's key: store the same text there too. Only under a name that flow
-  // accepts (Facebook's `en_US` it does not), and Whisper finds no track (lang '').
+  // explicit flow's key: store the same text there too, under the name that flow
+  // sanitizes it to. Whisper finds no track (lang ''), so it gets no second entry.
   const trackLang = sanitizeLang(found.lang);
   if (trackLang) {
     await set(
