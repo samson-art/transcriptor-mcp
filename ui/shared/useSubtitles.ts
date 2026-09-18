@@ -23,7 +23,11 @@ type UseSubtitlesOptions = {
 
 export function useSubtitles(
   appRef: App | null,
-  /** What the server tools accept as `url`: the video page URL, or a bare YouTube id. */
+  /**
+   * The video's page URL. Never a bare id: the server reads one as a YouTube id, so an
+   * Instagram shortcode would send every call to a YouTube video that does not exist.
+   * Null means no calls at all.
+   */
   source: string | null | undefined,
   options?: UseSubtitlesOptions
 ) {

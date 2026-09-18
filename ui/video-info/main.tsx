@@ -5,7 +5,7 @@ import React, { StrictMode, useCallback, useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { AppShell } from '@shared/AppShell';
 import { CollapsibleDescription } from '@shared/CollapsibleDescription';
-import { youtubeWatchUrl, youtubeWatchUrlAt } from '@shared/format';
+import { watchUrlAt } from '@shared/format';
 import { notifyHostAboutResize } from '@shared/resize';
 import { SubtitlesPanel } from '@shared/SubtitlesPanel';
 import { styles } from '@shared/styles';
@@ -44,7 +44,7 @@ function VideoInfoApp() {
   const [status, setStatus] = useState<'waiting' | 'ready' | 'error'>('waiting');
   const [appRef, setAppRef] = useState<App | null>(null);
 
-  const subtitles = useSubtitles(appRef, video?.url ?? video?.videoId);
+  const subtitles = useSubtitles(appRef, video?.url);
 
   const handleToolResult = useCallback((result: CallToolResult) => {
     if (result.isError) {
@@ -100,8 +100,8 @@ function VideoInfoApp() {
 
   const handleOpenExternal = useCallback(
     async (seconds?: number) => {
-      if (!video) return;
-      const url = seconds != null ? youtubeWatchUrlAt(video, seconds) : youtubeWatchUrl(video);
+      if (!video?.url) return;
+      const url = seconds != null ? watchUrlAt(video.url, seconds) : video.url;
       if (appRef) {
         await appRef.openLink({ url });
       } else {
@@ -131,7 +131,10 @@ function VideoInfoApp() {
       {status === 'error' && <div style={styles.centered}>Failed to load video info.</div>}
 
       {video && (
-        <VideoDetailPanel video={video} onOpen={() => void handleOpenExternal()}>
+        <VideoDetailPanel
+          video={video}
+          onOpen={video.url ? () => void handleOpenExternal() : undefined}
+        >
           {(uploadDate || likes || info?.commentCount != null) && (
             <div style={infoStatsStyle}>
               {[uploadDate, likes, info?.commentCount != null ? `${info.commentCount} comments` : null]
@@ -142,20 +145,22 @@ function VideoInfoApp() {
           {info?.description?.trim() && (
             <CollapsibleDescription description={info.description} />
           )}
-          <SubtitlesPanel
-            cues={subtitles.cues}
-            status={subtitles.cuesStatus}
-            video={video}
-            onOpenAtTime={(seconds) => void handleOpenExternal(seconds)}
-            onLoadSubtitles={subtitles.loadSubtitles}
-            onLoadMore={subtitles.handleLoadMore}
-            isTruncated={subtitles.isTruncated}
-            loadingMore={subtitles.loadingMore}
-            availableTracks={subtitles.availableTracks}
-            selectedTrack={subtitles.selectedTrack}
-            onTrackSelect={subtitles.handleTrackSelect}
-            tracksLoading={subtitles.tracksLoading}
-          />
+          {video.url && (
+            <SubtitlesPanel
+              cues={subtitles.cues}
+              status={subtitles.cuesStatus}
+              video={video}
+              onOpenAtTime={(seconds) => void handleOpenExternal(seconds)}
+              onLoadSubtitles={subtitles.loadSubtitles}
+              onLoadMore={subtitles.handleLoadMore}
+              isTruncated={subtitles.isTruncated}
+              loadingMore={subtitles.loadingMore}
+              availableTracks={subtitles.availableTracks}
+              selectedTrack={subtitles.selectedTrack}
+              onTrackSelect={subtitles.handleTrackSelect}
+              tracksLoading={subtitles.tracksLoading}
+            />
+          )}
         </VideoDetailPanel>
       )}
     </AppShell>

@@ -1,7 +1,8 @@
 module.exports = {
   preset: 'ts-jest',
   testEnvironment: 'node',
-  roots: ['<rootDir>/src'],
+  // ui/shared: the widgets' pure helpers (no React), the one part of ui/ a test can reach.
+  roots: ['<rootDir>/src', '<rootDir>/ui/shared'],
   testMatch: ['**/__tests__/**/*.test.ts', '**/?(*.)+(spec|test).ts'],
   transform: {
     '^.+\\.ts$': 'ts-jest',

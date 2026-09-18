@@ -10,6 +10,7 @@ import {
   captureVideoFrame,
   getImageWidth,
   mapVideoInfo,
+  resolveSubtitleFormat,
   type SubtitleFormat,
   type YtDlpVideoInfo,
   type VideoFrameFormat,
@@ -577,7 +578,9 @@ async function handleAutoDiscoverFlow(
 ): Promise<SubtitleResult> {
   const format = request.format as SubtitleFormat | undefined;
   const cacheConfig = getCacheConfig();
-  const cacheKey = buildCacheKey('sub', url, 'auto-discovery', format ?? 'default');
+  // Keyed by the format the content is in: a call without `format` and one naming the
+  // server default get the same text, so they share one entry.
+  const cacheKey = buildCacheKey('sub', url, 'auto-discovery', resolveSubtitleFormat(format));
   const cached = await get(cacheKey);
   if (cached !== undefined) {
     try {
@@ -605,8 +608,18 @@ async function handleAutoDiscoverFlow(
     });
   }
 
-  await set(cacheKey, JSON.stringify(result), cacheConfig.ttlSubtitlesSeconds);
-  return result as SubtitleResult;
+  const found = result as SubtitleResult;
+  await set(cacheKey, JSON.stringify(found), cacheConfig.ttlSubtitlesSeconds);
+  // The transcript widget then asks for the track it shows by name, which is the
+  // explicit flow's key: store the same text there too. Whisper finds no track (lang '').
+  if (found.lang) {
+    await set(
+      buildCacheKey('sub', url, found.type, found.lang, resolveSubtitleFormat(format)),
+      JSON.stringify(found),
+      cacheConfig.ttlSubtitlesSeconds
+    );
+  }
+  return found;
 }
 
 async function handleExplicitRequestFlow(
@@ -625,7 +638,7 @@ async function handleExplicitRequestFlow(
   }
 
   const cacheConfig = getCacheConfig();
-  const cacheKey = buildCacheKey('sub', url, type, sanitizedLang, format ?? 'default');
+  const cacheKey = buildCacheKey('sub', url, type, sanitizedLang, resolveSubtitleFormat(format));
   // The canary skips the cache: a cached fixture proves Redis works, not yt-dlp.
   const cached = skipCache ? undefined : await get(cacheKey);
   if (cached !== undefined) {
@@ -840,6 +853,8 @@ export type CaptureFrameRequest = {
 
 export type CaptureFrameResult = {
   videoId: string;
+  /** The page the frame was taken from, as the server resolved it. */
+  url: string;
   timestampSeconds: number;
   /** Timestamp formatted as "HH:MM:SS.mmm" */
   timestamp: string;
@@ -946,6 +961,7 @@ export async function validateAndCaptureVideoFrame(
 
   return {
     videoId: outcome.videoId,
+    url,
     timestampSeconds,
     timestamp: formatTimestamp(timestampSeconds),
     mimeType: outcome.mimeType,

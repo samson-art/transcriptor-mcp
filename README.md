@@ -93,7 +93,7 @@ Each tool that takes a video accepts `url`. This is a link from a [supported pla
 
 Clean plain text, without timestamps, HTML, or speaker names. The tool finds the type and the language for you.
 
-Response: `videoId`, `type`, `lang`, `text`, `is_truncated`, `total_length`, `start_offset`, `end_offset`. When more text is available, the response also has `next_cursor`.
+Response: `videoId`, `url` (the video page, as the server resolved it), `type`, `lang`, `text`, `is_truncated`, `total_length`, `start_offset`, `end_offset`. When more text is available, the response also has `next_cursor`.
 
 #### `get_raw_subtitles`
 
@@ -136,7 +136,7 @@ Input:
 - `width` — default `1280`, maximum `1920`, never larger than the source
 - `quality` — `2` to `31`, for jpeg only
 
-Response: an image block, plus `timestampSeconds`, `timestamp`, `mimeType`, `sizeBytes`, and `width`. This tool needs `ffmpeg`. The Docker image includes it.
+Response: an image block, plus `url`, `timestampSeconds`, `timestamp`, `mimeType`, `sizeBytes`, and `width`. This tool needs `ffmpeg`. The Docker image includes it.
 
 #### `get_playlist_transcripts`
 

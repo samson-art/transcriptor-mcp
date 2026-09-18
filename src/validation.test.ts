@@ -461,6 +461,36 @@ describe('validation', () => {
       expect(downloadSpy.mock.calls[0][5]).toBeUndefined();
     });
 
+    it('keys the cache by the format the content is in, not by whether one was named', async () => {
+      // get_transcript sends no format; the widget's "Load subtitles" sends srt, the
+      // server default. Two keys meant a second fetch, and for a Whisper-only video
+      // a second transcription.
+      const url = 'https://www.youtube.com/watch?v=dQw4w9WgXcQ';
+      const keysFor = async (request: Record<string, unknown>) => {
+        (cacheGet as jest.Mock).mockClear();
+        await validateAndDownloadSubtitles({ url, ...request } as any).catch(() => null);
+        return (cacheGet as jest.Mock).mock.calls.map((call) => call[0] as string);
+      };
+      jest.spyOn(youtube, 'downloadSubtitles').mockResolvedValue('subtitle content');
+      jest.spyOn(youtube, 'fetchYtDlpJson').mockResolvedValue({ id: 'dQw4w9WgXcQ' });
+
+      const autoKey = `sub:${url}:auto-discovery:srt`;
+      expect(await keysFor({})).toContain(autoKey);
+      expect(await keysFor({ format: 'srt' })).toContain(autoKey);
+      const explicitKey = `sub:${url}:official:en:srt`;
+      expect(await keysFor({ type: 'official', lang: 'en' })).toContain(explicitKey);
+      expect(await keysFor({ type: 'official', lang: 'en', format: 'srt' })).toContain(explicitKey);
+
+      process.env.YT_DLP_SUB_FORMAT = 'vtt';
+      try {
+        // The default moved: an unnamed format is now vtt, and srt is its own entry.
+        expect(await keysFor({})).toContain(`sub:${url}:auto-discovery:vtt`);
+        expect(await keysFor({ format: 'srt' })).toContain(autoKey);
+      } finally {
+        delete process.env.YT_DLP_SUB_FORMAT;
+      }
+    });
+
     it('should return subtitles from Whisper fallback when YouTube has none', async () => {
       jest.spyOn(youtube, 'downloadSubtitles').mockResolvedValue(null);
       jest.spyOn(youtube, 'fetchYtDlpJson').mockResolvedValue({ id: 'dQw4w9WgXcQ' });
@@ -688,6 +718,56 @@ describe('validation', () => {
           undefined,
           expect.objectContaining({ id: 'dQw4w9WgXcQ' })
         );
+      });
+
+      it('also stores the track it found under the key the explicit flow reads', async () => {
+        // The transcript widget then asks for that track by name; a Whisper result has
+        // no track to name and stays under the auto-discovery key alone.
+        jest.spyOn(youtube, 'fetchYtDlpJson').mockResolvedValue({
+          id: 'dQw4w9WgXcQ',
+          subtitles: { en: [] },
+          automatic_captions: {},
+        });
+        jest.spyOn(youtube, 'downloadSubtitles').mockResolvedValue('official en content');
+        (cacheSet as jest.Mock).mockClear();
+
+        await validateAndDownloadSubtitles({ url: youtubeUrl } as any);
+
+        const keys = (cacheSet as jest.Mock).mock.calls.map((call) => call[0] as string);
+        expect(keys).toEqual(
+          expect.arrayContaining([
+            `sub:${youtubeUrl}:auto-discovery:srt`,
+            `sub:${youtubeUrl}:official:en:srt`,
+          ])
+        );
+
+        jest.spyOn(youtube, 'fetchYtDlpJson').mockResolvedValue({
+          id: 'dQw4w9WgXcQ',
+          subtitles: {},
+          automatic_captions: {},
+        });
+        jest.spyOn(youtube, 'downloadSubtitles').mockResolvedValue(null);
+        (whisper.getWhisperConfig as jest.Mock).mockReturnValue({
+          mode: 'local',
+          timeout: 600_000,
+        });
+        (whisperJobs.startOrReuseWhisperJob as jest.Mock).mockResolvedValue(
+          '1\n00:00:00,000 --> 00:00:01,000\nWhisper transcript'
+        );
+        (cacheSet as jest.Mock).mockClear();
+        try {
+          await validateAndDownloadSubtitles({ url: youtubeUrl } as any);
+        } finally {
+          (whisper.getWhisperConfig as jest.Mock).mockReturnValue({
+            mode: 'off',
+            timeout: 600_000,
+          });
+        }
+
+        const subKeys = (cacheSet as jest.Mock).mock.calls
+          .map((call) => call[0] as string)
+          .filter((key) => key.startsWith('sub:'));
+        expect(subKeys).toEqual([`sub:${youtubeUrl}:auto-discovery:srt`]);
       });
 
       it('should prefer -orig auto subtitles for YouTube when available', async () => {
@@ -1207,7 +1287,8 @@ describe('validation', () => {
         mimeType: 'image/jpeg',
       });
 
-      const result = await validateAndCaptureVideoFrame({ url });
+      // A bare id in, the resolved page out: tells `url` from the raw argument.
+      const result = await validateAndCaptureVideoFrame({ url: 'dQw4w9WgXcQ' });
 
       expect(captureSpy).toHaveBeenCalledWith(
         url,
@@ -1217,6 +1298,7 @@ describe('validation', () => {
       );
       expect(result).toMatchObject({
         videoId: 'dQw4w9WgXcQ',
+        url,
         timestampSeconds: 0,
         timestamp: '00:00:00.000',
         mimeType: 'image/jpeg',

@@ -212,7 +212,8 @@ describe('mcp-core tools', () => {
       });
       parseSubtitlesMock.mockReturnValue('abcdefghij'); // 10 chars, below default limit
 
-      const result = await handler({ url: testUrl }, {});
+      // A bare id in, the resolved page out: tells `url` from the raw argument.
+      const result = await handler({ url: 'video123' }, {});
 
       expect(validateAndDownloadSubtitlesMock).toHaveBeenCalledWith(
         { url: testUrl, type: undefined, lang: undefined },
@@ -222,6 +223,8 @@ describe('mcp-core tools', () => {
 
       expect(result.structuredContent).toMatchObject({
         videoId: 'video123',
+        // The widget reads the page from here: some hosts never pass it the arguments.
+        url: testUrl,
         type: 'auto',
         lang: 'en',
         text: 'abcdefghij',
@@ -685,6 +688,7 @@ describe('mcp-core tools', () => {
       const frameData = Buffer.from('fake-jpeg-bytes');
       validateAndCaptureVideoFrameMock.mockResolvedValue({
         videoId: 'video123',
+        url: testUrl,
         timestampSeconds: 83.5,
         timestamp: '00:01:23.500',
         mimeType: 'image/jpeg',
@@ -717,6 +721,7 @@ describe('mcp-core tools', () => {
       });
       expect(result.structuredContent).toEqual({
         videoId: 'video123',
+        url: testUrl,
         timestampSeconds: 83.5,
         timestamp: '00:01:23.500',
         mimeType: 'image/jpeg',
