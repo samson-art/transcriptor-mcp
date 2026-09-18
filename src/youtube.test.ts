@@ -755,7 +755,7 @@ today to pay our respects to MCP, which
       const audioFilePath = join(tmpdir(), `${urlToSafeBase(reel, 'audio')}.m4a`);
       const logger = { info: jest.fn(), error: jest.fn(), warn: jest.fn(), debug: jest.fn() };
       let probeArgs: string[] = [];
-      const run = (probeStdout: string) => {
+      const run = (probe: string | Error) => {
         execFileMock.mockImplementation(
           (
             file: string,
@@ -765,7 +765,8 @@ today to pay our respects to MCP, which
           ) => {
             if (file === 'ffprobe') {
               probeArgs = args;
-              callback(null, { stdout: probeStdout, stderr: '' });
+              if (probe instanceof Error) callback(probe, { stdout: '', stderr: 'Invalid data' });
+              else callback(null, { stdout: probe, stderr: '' });
               return;
             }
             void writeFile(audioFilePath, 'fake audio', 'utf-8').then(() =>
@@ -785,13 +786,71 @@ today to pay our respects to MCP, which
         'No audio for Whisper: video too long or of unknown length'
       );
 
-      // ffprobe cannot read it either: still dropped, the cap stays honest.
-      expect(await run('')).toBeNull();
+      // ffprobe itself fails (unreadable file, or missing binary on a self-host): still
+      // dropped, so the cap stays a cap, but the warn says which of the two it was.
+      expect(await run(new Error('ffprobe exited 1'))).toBeNull();
       await expect(access(audioFilePath, constants.F_OK)).rejects.toThrow();
+      expect(logger.warn).toHaveBeenCalledWith(
+        { error: 'ffprobe exited 1' },
+        'ffprobe could not read the downloaded audio'
+      );
+
+      // Whole seconds, like yt-dlp's own integer duration: a 120 s video whose audio
+      // track runs a fraction longer is not over a 120 s cap.
+      expect(await run('120.31\n')).toBe(audioFilePath);
 
       // Within the cap: the file is handed on.
       expect(await run('12.679\n')).toBe(audioFilePath);
       await unlink(audioFilePath).catch(() => {});
+      dateSpy.mockRestore();
+    });
+
+    it('reads the length even when the process cap is full', async () => {
+      // The audio is already on disk by then, so a busy server must not turn a
+      // 13-second video into "too long". Fails if the probe goes under the cap.
+      process.env.WHISPER_MAX_DURATION_SECONDS = '120';
+      process.env.YT_DLP_MAX_CONCURRENCY = '1';
+      process.env.YT_DLP_MAX_QUEUE = '0';
+      const dateSpy = jest.spyOn(Date, 'now').mockReturnValue(1234567896);
+      const reel = 'https://www.instagram.com/reel/busy1/';
+      const audioFilePath = join(tmpdir(), `${urlToSafeBase(reel, 'audio')}.m4a`);
+      const logger = { info: jest.fn(), error: jest.fn(), warn: jest.fn(), debug: jest.fn() };
+      const tick = () => new Promise((resolve) => setImmediate(resolve));
+      const releases: Array<() => void> = [];
+      // The download's output, staged up front so releasing a slot stays synchronous.
+      await writeFile(audioFilePath, 'fake audio', 'utf-8');
+
+      execFileMock.mockImplementation(
+        (
+          file: string,
+          _args: string[],
+          _options: unknown,
+          callback: (error: Error | null, result: { stdout: string; stderr: string }) => void
+        ) => {
+          if (file === 'ffprobe') {
+            callback(null, { stdout: '12.679\n', stderr: '' });
+            return;
+          }
+          releases.push(() => callback(null, { stdout: '{"id":"busy1"}', stderr: '' }));
+        }
+      );
+
+      const first = downloadAudio(reel, logger as any);
+      await tick();
+      releases.shift()?.(); // the download finishes and hands the only slot back
+      await tick();
+      await tick();
+      const hog = fetchYtDlpJson('https://www.youtube.com/watch?v=hog1').catch(() => null);
+      await tick(); // taken again, and the queue is at its limit of zero
+      expect(execFileMock).toHaveBeenCalledTimes(2); // the hog is running, not refused
+
+      expect(await first).toBe(audioFilePath);
+
+      releases.shift()?.();
+      await hog;
+      await unlink(audioFilePath).catch(() => {});
+      delete process.env.YT_DLP_MAX_CONCURRENCY;
+      delete process.env.YT_DLP_MAX_QUEUE;
       dateSpy.mockRestore();
     });
   });
