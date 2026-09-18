@@ -611,10 +611,12 @@ async function handleAutoDiscoverFlow(
   const found = result as SubtitleResult;
   await set(cacheKey, JSON.stringify(found), cacheConfig.ttlSubtitlesSeconds);
   // The transcript widget then asks for the track it shows by name, which is the
-  // explicit flow's key: store the same text there too. Whisper finds no track (lang '').
-  if (found.lang) {
+  // explicit flow's key: store the same text there too. Only under a name that flow
+  // accepts (Facebook's `en_US` it does not), and Whisper finds no track (lang '').
+  const trackLang = sanitizeLang(found.lang);
+  if (trackLang) {
     await set(
-      buildCacheKey('sub', url, found.type, found.lang, resolveSubtitleFormat(format)),
+      buildCacheKey('sub', url, found.type, trackLang, resolveSubtitleFormat(format)),
       JSON.stringify(found),
       cacheConfig.ttlSubtitlesSeconds
     );

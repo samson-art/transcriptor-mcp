@@ -22,7 +22,7 @@ export function VideoCarouselCard({ video, isActive, onClick }: VideoCarouselCar
       >
         <div style={styles.thumbWrap}>
           {video.thumbnail ? (
-            <img src={video.thumbnail} alt="" style={styles.thumb} />
+            <img src={video.thumbnail} alt="" style={styles.thumb} referrerPolicy="no-referrer" />
           ) : (
             <div style={styles.thumbPlaceholder}>▶</div>
           )}
@@ -32,7 +32,7 @@ export function VideoCarouselCard({ video, isActive, onClick }: VideoCarouselCar
         </div>
         <div style={styles.cardBody}>
           <div style={styles.title}>{video.title ?? 'Untitled'}</div>
-          <div style={styles.meta}>{video.uploader ?? 'Unknown channel'}</div>
+          {video.uploader && <div style={styles.meta}>{video.uploader}</div>}
           {video.viewCount != null && <div style={styles.meta}>{formatViews(video.viewCount)}</div>}
         </div>
       </button>

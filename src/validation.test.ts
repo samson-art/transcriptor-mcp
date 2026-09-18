@@ -768,6 +768,25 @@ describe('validation', () => {
           .map((call) => call[0] as string)
           .filter((key) => key.startsWith('sub:'));
         expect(subKeys).toEqual([`sub:${youtubeUrl}:auto-discovery:srt`]);
+
+        // A track name a request by name can never carry (Facebook's locale keys) gets
+        // no second entry either: nothing could ever read it.
+        const facebookUrl = 'https://www.facebook.com/watch?v=1';
+        jest.spyOn(youtube, 'fetchYtDlpJson').mockResolvedValue({
+          id: '1',
+          subtitles: { en_US: [] },
+          automatic_captions: {},
+        });
+        jest.spyOn(youtube, 'downloadSubtitles').mockResolvedValue('official en_US content');
+        (cacheSet as jest.Mock).mockClear();
+
+        await validateAndDownloadSubtitles({ url: facebookUrl } as any);
+
+        expect(
+          (cacheSet as jest.Mock).mock.calls
+            .map((call) => call[0] as string)
+            .filter((key) => key.startsWith('sub:'))
+        ).toEqual([`sub:${facebookUrl}:auto-discovery:srt`]);
       });
 
       it('should prefer -orig auto subtitles for YouTube when available', async () => {
