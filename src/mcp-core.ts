@@ -87,6 +87,17 @@ const WIDGET_CSP = {
   ],
 };
 
+/**
+ * The same policy for every widget resource, in both dialects. ChatGPT reads only its
+ * own `openai/widgetCSP` (snake_case): a resource carrying `ui.csp` alone gets no policy
+ * there and a "CSP off" badge, and our thumbnails do not load. The widgets fetch nothing
+ * themselves (they call the server through the host), so connect_domains stays empty.
+ */
+const WIDGET_CSP_META = {
+  ui: { csp: WIDGET_CSP },
+  'openai/widgetCSP': { connect_domains: [], resource_domains: WIDGET_CSP.resourceDomains },
+};
+
 const uiHtmlCache = new Map<string, string>();
 
 function resolveUiHtmlPath(filename: string): string {
@@ -1092,7 +1103,7 @@ export function createMcpServer(opts?: CreateMcpServerOptions) {
             mimeType: RESOURCE_MIME_TYPE,
             text: html,
             _meta: {
-              ui: { csp: WIDGET_CSP },
+              ...WIDGET_CSP_META,
               'openai/widgetDescription':
                 'Interactive carousel for YouTube search results with video details and subtitle search',
             },
@@ -1120,7 +1131,7 @@ export function createMcpServer(opts?: CreateMcpServerOptions) {
             mimeType: RESOURCE_MIME_TYPE,
             text: html,
             _meta: {
-              ui: { csp: WIDGET_CSP },
+              ...WIDGET_CSP_META,
               'openai/widgetDescription': 'Video card with metadata and description',
             },
           },
@@ -1147,7 +1158,7 @@ export function createMcpServer(opts?: CreateMcpServerOptions) {
             mimeType: RESOURCE_MIME_TYPE,
             text: html,
             _meta: {
-              ui: { csp: WIDGET_CSP },
+              ...WIDGET_CSP_META,
               'openai/widgetDescription': 'Video card with searchable timed subtitles',
             },
           },
@@ -1174,7 +1185,7 @@ export function createMcpServer(opts?: CreateMcpServerOptions) {
             mimeType: RESOURCE_MIME_TYPE,
             text: html,
             _meta: {
-              ui: { csp: WIDGET_CSP },
+              ...WIDGET_CSP_META,
               'openai/widgetDescription': 'Captured video frame with timestamp controls',
             },
           },
