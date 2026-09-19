@@ -59,6 +59,34 @@ const TRANSCRIPT_UI_URI = 'ui://get-transcript/app.html';
 const VIDEO_INFO_UI_URI = 'ui://get-video-info/app.html';
 const VIDEO_FRAME_UI_URI = 'ui://get-video-frame/app.html';
 
+/**
+ * Where yt-dlp's `thumbnail` URLs point, so the widgets may show them. Surveyed on
+ * the hosted server on 2026-09-18 with one public video per platform; every one loads
+ * without cookies or a Referer, and the widgets send none (Bilibili answers 403 to a
+ * foreign one). TikTok answers from the CDN of the server's region, hence three
+ * families; VK uses its own CDN or OK's. Bilibili's come as http:// and are upgraded
+ * by the widgets.
+ */
+const WIDGET_CSP = {
+  resourceDomains: [
+    'https://i.ytimg.com',
+    'https://*.ytimg.com',
+    'https://*.cdninstagram.com',
+    'https://*.fbcdn.net',
+    'https://*.tiktokcdn.com',
+    'https://*.tiktokcdn-us.com',
+    'https://*.tiktokcdn-eu.com',
+    'https://*.vimeocdn.com',
+    'https://pbs.twimg.com',
+    'https://*.jtvnw.net',
+    'https://*.hdslb.com',
+    'https://*.userapi.com',
+    'https://*.okcdn.ru',
+    'https://*.dmcdn.net',
+    'https://*.redd.it',
+  ],
+};
+
 const uiHtmlCache = new Map<string, string>();
 
 function resolveUiHtmlPath(filename: string): string {
@@ -123,6 +151,7 @@ const subtitleInputSchema = baseInputSchema.extend({
 
 const transcriptOutputSchema = z.object({
   videoId: z.string(),
+  url: z.string().optional(),
   type: z.enum(['official', 'auto']),
   lang: z.string(),
   text: z.string(),
@@ -234,6 +263,7 @@ const videoFrameInputSchema = z.object({
 
 const videoFrameOutputSchema = z.object({
   videoId: z.string(),
+  url: z.string().optional(),
   timestampSeconds: z.number(),
   timestamp: z.string(),
   mimeType: z.string(),
@@ -501,6 +531,9 @@ export function createMcpServer(opts?: CreateMcpServerOptions) {
           content: [textContent(page.chunk)],
           structuredContent: {
             videoId: result.videoId,
+            // The widget's only reliable way to know which video this is: some hosts
+            // never pass it the call's arguments, and an id alone reads as YouTube.
+            url: resolved.url,
             type: result.type,
             lang: result.lang,
             text: page.chunk,
@@ -812,6 +845,7 @@ export function createMcpServer(opts?: CreateMcpServerOptions) {
             ],
             structuredContent: {
               videoId: result.videoId,
+              url: result.url,
               timestampSeconds: result.timestampSeconds,
               timestamp: result.timestamp,
               mimeType: result.mimeType,
@@ -1058,11 +1092,7 @@ export function createMcpServer(opts?: CreateMcpServerOptions) {
             mimeType: RESOURCE_MIME_TYPE,
             text: html,
             _meta: {
-              ui: {
-                csp: {
-                  resourceDomains: ['https://i.ytimg.com', 'https://*.ytimg.com'],
-                },
-              },
+              ui: { csp: WIDGET_CSP },
               'openai/widgetDescription':
                 'Interactive carousel for YouTube search results with video details and subtitle search',
             },
@@ -1090,11 +1120,7 @@ export function createMcpServer(opts?: CreateMcpServerOptions) {
             mimeType: RESOURCE_MIME_TYPE,
             text: html,
             _meta: {
-              ui: {
-                csp: {
-                  resourceDomains: ['https://i.ytimg.com', 'https://*.ytimg.com'],
-                },
-              },
+              ui: { csp: WIDGET_CSP },
               'openai/widgetDescription': 'Video card with metadata and description',
             },
           },
@@ -1121,11 +1147,7 @@ export function createMcpServer(opts?: CreateMcpServerOptions) {
             mimeType: RESOURCE_MIME_TYPE,
             text: html,
             _meta: {
-              ui: {
-                csp: {
-                  resourceDomains: ['https://i.ytimg.com', 'https://*.ytimg.com'],
-                },
-              },
+              ui: { csp: WIDGET_CSP },
               'openai/widgetDescription': 'Video card with searchable timed subtitles',
             },
           },
@@ -1152,11 +1174,7 @@ export function createMcpServer(opts?: CreateMcpServerOptions) {
             mimeType: RESOURCE_MIME_TYPE,
             text: html,
             _meta: {
-              ui: {
-                csp: {
-                  resourceDomains: ['https://i.ytimg.com', 'https://*.ytimg.com'],
-                },
-              },
+              ui: { csp: WIDGET_CSP },
               'openai/widgetDescription': 'Captured video frame with timestamp controls',
             },
           },

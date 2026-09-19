@@ -93,7 +93,7 @@ Each tool that takes a video accepts `url`. This is a link from a [supported pla
 
 Clean plain text, without timestamps, HTML, or speaker names. The tool finds the type and the language for you.
 
-Response: `videoId`, `type`, `lang`, `text`, `is_truncated`, `total_length`, `start_offset`, `end_offset`. When more text is available, the response also has `next_cursor`.
+Response: `videoId`, `url` (the video page, as the server resolved it), `type`, `lang`, `text`, `is_truncated`, `total_length`, `start_offset`, `end_offset`. When more text is available, the response also has `next_cursor`.
 
 #### `get_raw_subtitles`
 
@@ -136,7 +136,7 @@ Input:
 - `width` — default `1280`, maximum `1920`, never larger than the source
 - `quality` — `2` to `31`, for jpeg only
 
-Response: an image block, plus `timestampSeconds`, `timestamp`, `mimeType`, `sizeBytes`, and `width`. This tool needs `ffmpeg`. The Docker image includes it.
+Response: an image block, plus `url`, `timestampSeconds`, `timestamp`, `mimeType`, `sizeBytes`, and `width`. This tool needs `ffmpeg`. The Docker image includes it.
 
 #### `get_playlist_transcripts`
 
@@ -239,7 +239,7 @@ The server starts with no environment variables. Each variable below is optional
 | --- | --- | --- |
 | `MCP_PORT` and `MCP_HOST` | `4200` and `0.0.0.0` | The HTTP listener |
 | `COOKIES_FILE_PATH` | — | A Netscape cookies file for videos that need an account. See [cookies.example.txt](cookies.example.txt) |
-| `WHISPER_MODE` | `off` | Set `local` or `api` to transcribe the audio when a video has no subtitles. Then set `WHISPER_BASE_URL` or `WHISPER_API_KEY`. `WHISPER_MAX_DURATION_SECONDS` skips longer videos and live streams; a video whose length the platform does not report is measured after the audio download |
+| `WHISPER_MODE` | `off` | Set `local` or `api` to transcribe the audio when a video has no subtitles. Then set `WHISPER_BASE_URL` or `WHISPER_API_KEY`. `WHISPER_MAX_DURATION_SECONDS` skips longer videos and live streams; a video whose length the platform does not report is measured with `ffprobe` after the audio download |
 | `CACHE_MODE` | `off` | Set `redis` and `CACHE_REDIS_URL` to cache subtitles and metadata |
 | `YT_DLP_MAX_CONCURRENCY` | `4` | How many yt-dlp/ffmpeg processes may run at once. `YT_DLP_MAX_QUEUE` (`8`) is how many calls may wait; beyond that a call is refused at once with "server busy". A call peaks at ~40 MiB, so the cap bounds platform throttling and latency, not memory |
 | `CANARY_INTERVAL_MS` | `900000` | How often the HTTP server fetches one transcript to prove the path still works. `0` turns it off; `CANARY_URL` picks the video |
@@ -272,7 +272,7 @@ npm run dev:mcp:http   # Streamable HTTP, hot reload
 npm test
 ```
 
-You need Node.js 22 or later (20 still works, but it reached end of life in April 2026), and `yt-dlp` in your PATH. Frame capture also needs `ffmpeg`. Other scripts: `lint`, `type-check`, `format`, `test:coverage`, `test:e2e:api`, and `test:e2e:mcp`.
+You need Node.js 22 or later (20 still works, but it reached end of life in April 2026), and `yt-dlp` in your PATH. Frame capture needs `ffmpeg`, and `WHISPER_MAX_DURATION_SECONDS` needs `ffprobe` (both ship in the same package, and in the Docker image). Other scripts: `lint`, `type-check`, `format`, `test:coverage`, `test:e2e:api`, and `test:e2e:mcp`.
 
 **Releases.** The version comes from `package.json` at runtime, through [src/version.ts](src/version.ts). Change this version, move the `[Unreleased]` entries of the changelog into the new version, then push a `v*` tag. CI builds both images and publishes the [MCP Registry](https://registry.modelcontextprotocol.io) entry from [server.json](server.json).
 

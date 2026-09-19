@@ -32,7 +32,7 @@ function syncProcessGauges(): void {
 }
 
 /**
- * Every yt-dlp and ffmpeg run in this process goes through here, so one cap covers
+ * Every run that fetches from a video platform goes through here, so one cap covers
  * the REST API, MCP over stdio and MCP over HTTP. Above the cap calls queue; above
  * the queue they are refused at once rather than piling up past any client's patience.
  *
@@ -503,7 +503,9 @@ export async function downloadSubtitleTrackDirect(
   format: SubtitleFormat,
   logger?: FastifyBaseLogger
 ): Promise<string | null> {
-  const tracks = (type === 'official' ? data?.subtitles : data?.automatic_captions)?.[lang];
+  const container = type === 'official' ? data?.subtitles : data?.automatic_captions;
+  // `lang` is the caller's: `toString` must not read Object.prototype.
+  const tracks = container && Object.hasOwn(container, lang) ? container[lang] : undefined;
   const trackUrl = tracks
     ?.map((t) => directTrackUrl(t, format))
     .find((u): u is string => u != null);
@@ -897,16 +899,25 @@ export async function fetchAvailableSubtitles(
   };
 }
 
-/** Length of a media file in seconds by ffprobe; NaN when it cannot be read. */
-async function probeDurationSeconds(file: string): Promise<number> {
+/**
+ * Length of a media file in seconds by ffprobe; NaN when it cannot be read.
+ *
+ * Not under the process cap: it reads a file already on disk and never touches the
+ * platform, and a full queue would make the caller call a 13-second video "too long".
+ */
+async function probeDurationSeconds(file: string, logger?: FastifyBaseLogger): Promise<number> {
   try {
-    const { stdout } = await execFileAsync(
+    const { stdout } = await execFileRaw(
       'ffprobe',
       ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', file],
       { timeout: 10000 }
     );
     return Number.parseFloat(stdout.trim());
-  } catch {
+  } catch (error: unknown) {
+    logger?.warn(
+      { error: error instanceof Error ? error.message : String(error) },
+      'ffprobe could not read the downloaded audio'
+    );
     return Number.NaN;
   }
 }
@@ -993,8 +1004,8 @@ export async function downloadAudio(
     if (audioFile) {
       const audioPath = join(tempDir, audioFile);
       if (maxDuration > 0) {
-        const duration = await probeDurationSeconds(audioPath);
-        if (!(duration <= maxDuration)) {
+        const duration = await probeDurationSeconds(audioPath, logger);
+        if (!(Math.floor(duration) <= maxDuration)) {
           await unlink(audioPath).catch(() => {});
           logger?.info(
             { maxDuration, duration },

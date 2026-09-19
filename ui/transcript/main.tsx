@@ -4,7 +4,7 @@ import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import React, { StrictMode, useCallback, useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { AppShell } from '@shared/AppShell';
-import { youtubeWatchUrl, youtubeWatchUrlAt } from '@shared/format';
+import { isYouTubePage, pageFromInput, watchUrlAt } from '@shared/format';
 import { notifyHostAboutResize } from '@shared/resize';
 import type { SubtitleTrack } from '@shared/subtitleTracks';
 import { SubtitlesPanel } from '@shared/SubtitlesPanel';
@@ -17,6 +17,8 @@ import { parseVideoInfoResult, videoInfoToMeta } from '@shared/videoInfo';
 
 type TranscriptData = {
   videoId: string;
+  /** The page the transcript is of, as the server resolved it (1.5.0+). */
+  url?: string;
   type: 'official' | 'auto';
   lang: string;
   text: string;
@@ -55,28 +57,38 @@ function TranscriptApp() {
   const [status, setStatus] = useState<'waiting' | 'ready'>('waiting');
   const [appRef, setAppRef] = useState<App | null>(null);
 
-  // The url the model passed to the tool: set by `ontoolinput`, read from the
-  // `ontoolresult` closure. The id alone only works for YouTube.
+  // The url the model passed to the tool, set by `ontoolinput` and read from the
+  // `ontoolresult` closure. Only a fallback for results older than 1.5.0, which do
+  // not carry `url`: some hosts (Claude Code) never deliver the call's arguments.
   const sourceRef = useRef<string | null>(null);
 
-  const subtitles = useSubtitles(appRef, video?.url ?? video?.videoId, { preferredTrack });
+  // The URL get_transcript was served under. The server keyed its caches by this exact
+  // string (track list, subtitles, a Whisper job), so the widget's own calls use it;
+  // yt-dlp's canonical webpageUrl would miss them and fetch or transcribe again.
+  // The canonical one stays in `video.url`, for Open and cue links.
+  const [page, setPage] = useState<string | null>(null);
+
+  const subtitles = useSubtitles(appRef, page, { preferredTrack });
 
   // Takes the app instead of reading `appRef`: this runs from the `ontoolresult`
   // handler installed in `onAppCreated`, whose closure still sees `appRef` as null.
   const loadVideoMeta = useCallback(
-    async (app: App, videoId: string, source: string): Promise<VideoMeta | null> => {
-      const isYouTube = !/^https?:\/\//i.test(source) || /youtu\.?be/i.test(source);
-      const fallback: VideoMeta = {
+    async (app: App, videoId: string, source: string | null): Promise<VideoMeta> => {
+      const bare: VideoMeta = {
         videoId,
         title: null,
-        url: isYouTube ? `https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}` : source,
+        url: source,
         duration: null,
         uploader: null,
         viewCount: null,
-        thumbnail: isYouTube
-          ? `https://i.ytimg.com/vi/${encodeURIComponent(videoId)}/hqdefault.jpg`
-          : null,
+        thumbnail:
+          source && isYouTubePage(source)
+            ? `https://i.ytimg.com/vi/${encodeURIComponent(videoId)}/hqdefault.jpg`
+            : null,
       };
+      // Without a page URL the id could be from any platform; asking the server
+      // would ask YouTube about it. Show what is known and call nothing.
+      if (!source) return bare;
 
       try {
         const result = await app.callServerTool({
@@ -85,12 +97,11 @@ function TranscriptApp() {
           arguments: { url: source },
         });
 
-        if (result.isError) return fallback;
-
-        const info = parseVideoInfoResult(result);
-        return info ? videoInfoToMeta(info) : fallback;
+        const info = result.isError ? null : parseVideoInfoResult(result);
+        if (!info) return bare;
+        return { ...videoInfoToMeta(info), url: info.webpageUrl ?? source };
       } catch {
-        return fallback;
+        return bare;
       }
     },
     []
@@ -101,8 +112,11 @@ function TranscriptApp() {
       setStatus('ready');
       subtitles.reset();
       setPreferredTrack({ type: parsed.type, lang: parsed.lang });
-      const meta = await loadVideoMeta(app, parsed.videoId, sourceRef.current ?? parsed.videoId);
-      if (meta) setVideo(meta);
+      // The result's page (1.5.0+), else the call's url, else the id only if the server says YouTube.
+      const input = sourceRef.current ?? (parsed.source === 'youtube' ? parsed.videoId : null);
+      const source = parsed.url || (input ? pageFromInput(input) : null);
+      setPage(source);
+      setVideo(await loadVideoMeta(app, parsed.videoId, source));
       notifyHostAboutResize();
     },
     [loadVideoMeta, subtitles]
@@ -138,8 +152,8 @@ function TranscriptApp() {
 
   const handleOpenExternal = useCallback(
     async (seconds?: number) => {
-      if (!video) return;
-      const url = seconds != null ? youtubeWatchUrlAt(video, seconds) : youtubeWatchUrl(video);
+      if (!video?.url) return;
+      const url = seconds != null ? watchUrlAt(video.url, seconds) : video.url;
       if (appRef) {
         await appRef.openLink({ url });
       } else {
@@ -167,21 +181,26 @@ function TranscriptApp() {
       )}
 
       {video && (
-        <VideoDetailPanel video={video} onOpen={() => void handleOpenExternal()}>
-          <SubtitlesPanel
-            cues={subtitles.cues}
-            status={subtitles.cuesStatus}
-            video={video}
-            onOpenAtTime={(seconds) => void handleOpenExternal(seconds)}
-            onLoadSubtitles={subtitles.loadSubtitles}
-            onLoadMore={subtitles.handleLoadMore}
-            isTruncated={subtitles.isTruncated}
-            loadingMore={subtitles.loadingMore}
-            availableTracks={subtitles.availableTracks}
-            selectedTrack={subtitles.selectedTrack}
-            onTrackSelect={subtitles.handleTrackSelect}
-            tracksLoading={subtitles.tracksLoading}
-          />
+        <VideoDetailPanel
+          video={video}
+          onOpen={video.url ? () => void handleOpenExternal() : undefined}
+        >
+          {video.url && (
+            <SubtitlesPanel
+              cues={subtitles.cues}
+              status={subtitles.cuesStatus}
+              video={video}
+              onOpenAtTime={(seconds) => void handleOpenExternal(seconds)}
+              onLoadSubtitles={subtitles.loadSubtitles}
+              onLoadMore={subtitles.handleLoadMore}
+              isTruncated={subtitles.isTruncated}
+              loadingMore={subtitles.loadingMore}
+              availableTracks={subtitles.availableTracks}
+              selectedTrack={subtitles.selectedTrack}
+              onTrackSelect={subtitles.handleTrackSelect}
+              tracksLoading={subtitles.tracksLoading}
+            />
+          )}
         </VideoDetailPanel>
       )}
     </AppShell>

@@ -4,13 +4,15 @@ import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import React, { StrictMode, useCallback, useEffect, useState, type CSSProperties } from 'react';
 import { createRoot } from 'react-dom/client';
 import { AppShell } from '@shared/AppShell';
-import { youtubeWatchUrlAt } from '@shared/format';
+import { pageFromInput, watchUrlAt } from '@shared/format';
 import { notifyHostAboutResize } from '@shared/resize';
 import { styles } from '@shared/styles';
 import { WIDGET_CALL_META } from '@shared/widgetCall';
 
 type FrameData = {
   videoId: string | null;
+  /** The page the frame is from, as the server resolved it (1.5.0+). */
+  url: string | null;
   timestampSeconds: number | null;
   timestamp: string | null;
   mimeType: string;
@@ -34,6 +36,7 @@ function parseVideoFrameResult(result: CallToolResult): FrameData | null {
 
   return {
     videoId: typeof structured.videoId === 'string' ? structured.videoId : null,
+    url: typeof structured.url === 'string' && structured.url ? structured.url : null,
     timestampSeconds:
       typeof structured.timestampSeconds === 'number' ? structured.timestampSeconds : null,
     timestamp: typeof structured.timestamp === 'string' ? structured.timestamp : null,
@@ -77,6 +80,16 @@ function VideoFrameApp() {
     const parsed = parseVideoFrameResult(result);
     if (!parsed) return;
 
+    // Hosts that never deliver the call's arguments (Claude Code) leave `sourceUrl` and
+    // the options empty; the result's own URL, format and width stand in for them, and
+    // the model's own options, when they did arrive, win.
+    if (parsed.url) setSourceUrl(parsed.url);
+    const width = parsed.width;
+    setCaptureOptions((prev) => ({
+      format: parsed.mimeType === 'image/png' ? 'png' : 'jpeg',
+      ...(width != null && width >= 64 && width <= 1920 ? { width } : {}),
+      ...prev,
+    }));
     setFrame(parsed);
     setStatus('ready');
     notifyHostAboutResize();
@@ -128,21 +141,18 @@ function VideoFrameApp() {
 
   useHostStyles(appRef);
 
+  // The result's own URL; for results older than 1.5.0, what the model passed.
+  const page = frame?.url ?? (sourceUrl ? pageFromInput(sourceUrl) : null);
+
   const handleOpenExternal = useCallback(async () => {
-    if (!frame?.videoId && !sourceUrl) return;
-    const url = youtubeWatchUrlAt(
-      {
-        videoId: frame?.videoId ?? '',
-        url: sourceUrl && /^https?:\/\//i.test(sourceUrl) ? sourceUrl : null,
-      },
-      frame?.timestampSeconds ?? 0
-    );
+    if (!page) return;
+    const url = watchUrlAt(page, frame?.timestampSeconds ?? 0);
     if (appRef) {
       await appRef.openLink({ url });
     } else {
       globalThis.open(url, '_blank', 'noopener,noreferrer');
     }
-  }, [appRef, frame, sourceUrl]);
+  }, [appRef, frame, page]);
 
   const handleCaptureClick = useCallback(() => {
     const args = timeInputToArgs(timeInput);
@@ -257,13 +267,13 @@ function VideoFrameApp() {
           >
             Capture
           </button>
-          {frame && (
+          {frame && page && (
             <button
               type="button"
               style={styles.loadMoreBtn}
               onClick={() => void handleOpenExternal()}
             >
-              Watch ↗
+              Open ↗
             </button>
           )}
         </div>

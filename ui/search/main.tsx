@@ -4,7 +4,7 @@ import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import React, { StrictMode, useCallback, useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { AppShell } from '@shared/AppShell';
-import { youtubeWatchUrl, youtubeWatchUrlAt } from '@shared/format';
+import { watchUrlAt, youtubeWatchUrl } from '@shared/format';
 import { notifyHostAboutResize } from '@shared/resize';
 import {
   parseAvailableSubtitles,
@@ -69,7 +69,8 @@ function SearchApp() {
 
   const handleOpenExternal = useCallback(
     async (video: VideoMeta, seconds?: number) => {
-      const url = seconds != null ? youtubeWatchUrlAt(video, seconds) : youtubeWatchUrl(video);
+      const page = youtubeWatchUrl(video);
+      const url = seconds != null ? watchUrlAt(page, seconds) : page;
       if (appRef) {
         await appRef.openLink({ url });
       } else {

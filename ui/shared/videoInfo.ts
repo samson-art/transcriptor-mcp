@@ -110,6 +110,11 @@ export function parseVideoInfoResult(result: CallToolResult): VideoInfoData | nu
   return null;
 }
 
+/**
+ * No thumbnail stays no thumbnail: an id alone does not say which platform it is from,
+ * and i.ytimg.com answers a foreign id with a grey placeholder rather than an error.
+ * http:// is upgraded (Bilibili sends it); the widget runs on https and allows https only.
+ */
 export function videoInfoToMeta(info: VideoInfoData): VideoMeta {
   return {
     videoId: info.videoId,
@@ -118,7 +123,6 @@ export function videoInfoToMeta(info: VideoInfoData): VideoMeta {
     duration: info.duration,
     uploader: info.uploader ?? info.channel,
     viewCount: info.viewCount,
-    thumbnail:
-      info.thumbnail ?? `https://i.ytimg.com/vi/${encodeURIComponent(info.videoId)}/hqdefault.jpg`,
+    thumbnail: info.thumbnail?.replace(/^http:\/\//i, 'https://') ?? null,
   };
 }

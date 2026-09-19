@@ -282,12 +282,25 @@ describe('validation', () => {
       expect(sanitizeLang('  en  ')).toBe('en');
     });
 
+    it('accepts the track names yt-dlp lists besides plain language codes', () => {
+      expect(sanitizeLang('en_US')).toBe('en_US'); // Facebook locale
+      expect(sanitizeLang('en-nP7-2PuUl7o')).toBe('en-nP7-2PuUl7o'); // YouTube named track
+      expect(sanitizeLang('en-x-autogen')).toBe('en-x-autogen'); // Vimeo auto captions
+    });
+
     it('should return null for invalid language codes', () => {
       expect(sanitizeLang('')).toBe(null);
       expect(sanitizeLang('invalid@lang')).toBe(null);
       expect(sanitizeLang('invalid lang')).toBe(null);
       expect(sanitizeLang('invalid.lang')).toBe(null);
-      expect(sanitizeLang('a'.repeat(11))).toBe(null); // Too long
+      expect(sanitizeLang('a'.repeat(33))).toBe(null); // Too long
+    });
+
+    it('rejects what yt-dlp would read as more than one literal track', () => {
+      // --sub-langs is a comma list of regexes, `-x` excludes x, `all` is every track.
+      for (const lang of ['en,ru', 'en.*', 'en|ru', 'a b', '-en', 'all', '__proto__']) {
+        expect(sanitizeLang(lang)).toBe(null);
+      }
     });
 
     it('should return null for non-string inputs', () => {
@@ -297,7 +310,7 @@ describe('validation', () => {
     });
 
     it('should allow language codes with max allowed length', () => {
-      const lang = 'a'.repeat(10);
+      const lang = 'a'.repeat(32);
       expect(sanitizeLang(lang)).toBe(lang);
     });
   });
@@ -459,6 +472,32 @@ describe('validation', () => {
       // One probe, one yt-dlp run: the metadata JSON is for callers, not for the canary.
       expect(youtube.fetchYtDlpJson).not.toHaveBeenCalled();
       expect(downloadSpy.mock.calls[0][5]).toBeUndefined();
+    });
+
+    it('keys the cache by the format the content is in, not by whether one was named', async () => {
+      const url = 'https://www.youtube.com/watch?v=dQw4w9WgXcQ';
+      const keysFor = async (request: Record<string, unknown>) => {
+        (cacheGet as jest.Mock).mockClear();
+        await validateAndDownloadSubtitles({ url, ...request } as any).catch(() => null);
+        return (cacheGet as jest.Mock).mock.calls.map((call) => call[0] as string);
+      };
+      jest.spyOn(youtube, 'downloadSubtitles').mockResolvedValue('subtitle content');
+
+      const autoKey = `sub:${url}:auto-discovery:srt`;
+      expect(await keysFor({})).toContain(autoKey);
+      expect(await keysFor({ format: 'srt' })).toContain(autoKey);
+      const explicitKey = `sub:${url}:official:en:srt`;
+      expect(await keysFor({ type: 'official', lang: 'en' })).toContain(explicitKey);
+      expect(await keysFor({ type: 'official', lang: 'en', format: 'srt' })).toContain(explicitKey);
+
+      process.env.YT_DLP_SUB_FORMAT = 'vtt';
+      try {
+        // The default moved: an unnamed format is now vtt, and srt is its own entry.
+        expect(await keysFor({})).toContain(`sub:${url}:auto-discovery:vtt`);
+        expect(await keysFor({ format: 'srt' })).toContain(autoKey);
+      } finally {
+        delete process.env.YT_DLP_SUB_FORMAT;
+      }
     });
 
     it('should return subtitles from Whisper fallback when YouTube has none', async () => {
@@ -688,6 +727,51 @@ describe('validation', () => {
           undefined,
           expect.objectContaining({ id: 'dQw4w9WgXcQ' })
         );
+      });
+
+      it('also stores the track it found under the key the explicit flow reads', async () => {
+        // The transcript widget then asks for that track by name; a Whisper result has
+        // no track to name and stays under the auto-discovery key alone.
+        const storedSubKeys = async (url: string) => {
+          (cacheSet as jest.Mock).mockClear();
+          await validateAndDownloadSubtitles({ url } as any);
+          return (cacheSet as jest.Mock).mock.calls
+            .map((call) => call[0] as string)
+            .filter((key) => key.startsWith('sub:'));
+        };
+
+        jest
+          .spyOn(youtube, 'fetchYtDlpJson')
+          .mockResolvedValue({ id: 'dQw4w9WgXcQ', subtitles: { en: [] } });
+        jest.spyOn(youtube, 'downloadSubtitles').mockResolvedValue('official en content');
+        expect(await storedSubKeys(youtubeUrl)).toEqual(
+          expect.arrayContaining([
+            `sub:${youtubeUrl}:auto-discovery:srt`,
+            `sub:${youtubeUrl}:official:en:srt`,
+          ])
+        );
+
+        jest.spyOn(youtube, 'fetchYtDlpJson').mockResolvedValue({ id: 'dQw4w9WgXcQ' });
+        (whisper.getWhisperConfig as jest.Mock).mockReturnValue({
+          mode: 'local',
+          timeout: 600_000,
+        });
+        (whisperJobs.startOrReuseWhisperJob as jest.Mock).mockResolvedValue(
+          '1\n00:00:00,000 --> 00:00:01,000\nWhisper transcript'
+        );
+        expect(await storedSubKeys(youtubeUrl)).toEqual([`sub:${youtubeUrl}:auto-discovery:srt`]);
+
+        // Facebook keys tracks by locale: the widget asks for `en_US` by name, so that
+        // name gets its entry as well.
+        const facebookUrl = 'https://www.facebook.com/watch?v=1';
+        jest
+          .spyOn(youtube, 'fetchYtDlpJson')
+          .mockResolvedValue({ id: '1', subtitles: { en_US: [] } });
+        jest.spyOn(youtube, 'downloadSubtitles').mockResolvedValue('official en_US content');
+        expect(await storedSubKeys(facebookUrl)).toEqual([
+          `sub:${facebookUrl}:auto-discovery:srt`,
+          `sub:${facebookUrl}:official:en_US:srt`,
+        ]);
       });
 
       it('should prefer -orig auto subtitles for YouTube when available', async () => {
@@ -1207,7 +1291,8 @@ describe('validation', () => {
         mimeType: 'image/jpeg',
       });
 
-      const result = await validateAndCaptureVideoFrame({ url });
+      // A bare id in, the resolved page out: tells `url` from the raw argument.
+      const result = await validateAndCaptureVideoFrame({ url: 'dQw4w9WgXcQ' });
 
       expect(captureSpy).toHaveBeenCalledWith(
         url,
@@ -1217,6 +1302,7 @@ describe('validation', () => {
       );
       expect(result).toMatchObject({
         videoId: 'dQw4w9WgXcQ',
+        url,
         timestampSeconds: 0,
         timestamp: '00:00:00.000',
         mimeType: 'image/jpeg',

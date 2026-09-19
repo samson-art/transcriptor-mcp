@@ -55,7 +55,9 @@ export function pickDefaultTrack(
   if (firstOfficial) return { type: 'official', lang: firstOfficial };
   const firstAuto = sortAutoLanguages(available.auto)[0];
   if (firstAuto) return { type: 'auto', lang: firstAuto };
-  return null;
+  // No tracks, yet a transcript with a language: speech-to-text, asked for by name.
+  // Asking again by the same name reads its cache entry instead of transcribing again.
+  return preferred?.lang ? preferred : null;
 }
 
 export function hasAvailableTracks(tracks: AvailableSubtitleTracks | null): boolean {
