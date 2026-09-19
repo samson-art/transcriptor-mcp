@@ -610,7 +610,7 @@ describe('mcp-core tools', () => {
 
   describe('widget resources', () => {
     it('declare one thumbnail policy in both the spec and ChatGPT dialects', async () => {
-      // ChatGPT reads only openai/widgetCSP; with ui.csp alone it applies no policy.
+      // ChatGPT reads only openai/widgetCSP, and only its exact hosts.
       const readFile = jest.spyOn(fs, 'readFile').mockResolvedValue('<html></html>');
       createMcpServer();
       type ReadResource = () => Promise<{ contents: Array<{ _meta: Record<string, any> }> }>;
@@ -622,10 +622,17 @@ describe('mcp-core tools', () => {
       for (const read of reads) {
         const { contents } = await read();
         const meta = contents[0]._meta;
-        expect(meta.ui.csp.resourceDomains).toContain('https://*.cdninstagram.com');
+        const hosts: string[] = meta.ui.csp.resourceDomains;
+        expect(hosts).toEqual(
+          expect.arrayContaining([
+            'https://*.cdninstagram.com',
+            'https://scontent-bcn1-1.cdninstagram.com',
+          ])
+        );
+        // ChatGPT drops wildcard entries, so its list is the exact hosts and nothing else.
         expect(meta['openai/widgetCSP']).toEqual({
           connect_domains: [],
-          resource_domains: meta.ui.csp.resourceDomains,
+          resource_domains: hosts.filter((host) => !host.includes('*')),
         });
       }
       readFile.mockRestore();

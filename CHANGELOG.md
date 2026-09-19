@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.2] - 2026-09-19
+
+### Fixed
+
+- **Instagram thumbnails still did not load in ChatGPT after 1.5.1.** ChatGPT applies a widget's declared policy but drops its wildcard entries: in the published app a YouTube thumbnail (`i.ytimg.com`, listed exactly) showed, while an Instagram one was refused with "does not appear in the img-src directive", since `*.cdninstagram.com` was a wildcard. ChatGPT's `openai/widgetCSP` now lists exact hosts only, surveyed on the hosted server with every yt-dlp test video per platform: `i.ytimg.com`, `scontent-bcn1-1.cdninstagram.com`, `scontent-bcn1-1.xx.fbcdn.net`, TikTok's `p16-` and `p19-common-sign.tiktokcdn-eu.com`, `i.vimeocdn.com`, `pbs.twimg.com`, `static-cdn.jtvnw.net`, `i0`–`i2.hdslb.com`, `iv.okcdn.ru`, `s1` and `s2.dmcdn.net`, `external-preview.redd.it`. The standard `ui.csp` keeps these and the wildcard families, which Claude honours. Instagram and Facebook answer from the CDN point nearest the server and TikTok from its regional family, so a server outside Spain sees other hosts and, in ChatGPT only, shows the ▶ placeholder for them; VK spreads thumbnails over too many `sun*.userapi.com` hosts to list, with the same result there.
+
 ## [1.5.1] - 2026-09-19
 
 ### Fixed

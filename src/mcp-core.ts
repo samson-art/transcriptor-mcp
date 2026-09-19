@@ -60,42 +60,60 @@ const VIDEO_INFO_UI_URI = 'ui://get-video-info/app.html';
 const VIDEO_FRAME_UI_URI = 'ui://get-video-frame/app.html';
 
 /**
- * Where yt-dlp's `thumbnail` URLs point, so the widgets may show them. Surveyed on
- * the hosted server on 2026-09-18 with one public video per platform; every one loads
+ * Where yt-dlp's `thumbnail` URLs point, so the widgets may show them. Every one loads
  * without cookies or a Referer, and the widgets send none (Bilibili answers 403 to a
- * foreign one). TikTok answers from the CDN of the server's region, hence three
- * families; VK uses its own CDN or OK's. Bilibili's come as http:// and are upgraded
- * by the widgets.
+ * foreign one); Bilibili's come as http:// and are upgraded by the widgets.
+ *
+ * Exact hosts, as the hosted server sees them: surveyed on 2026-09-19 with every yt-dlp
+ * test video per platform. ChatGPT drops wildcard entries, so these are all it gets.
+ * Instagram and Facebook answer from the CDN point nearest the server (bcn1-1 for one in
+ * Spain) and TikTok from its regional family, so a server elsewhere sees other hosts;
+ * VK spreads thumbnails over too many sun*.userapi.com hosts to list.
  */
-const WIDGET_CSP = {
-  resourceDomains: [
-    'https://i.ytimg.com',
-    'https://*.ytimg.com',
-    'https://*.cdninstagram.com',
-    'https://*.fbcdn.net',
-    'https://*.tiktokcdn.com',
-    'https://*.tiktokcdn-us.com',
-    'https://*.tiktokcdn-eu.com',
-    'https://*.vimeocdn.com',
-    'https://pbs.twimg.com',
-    'https://*.jtvnw.net',
-    'https://*.hdslb.com',
-    'https://*.userapi.com',
-    'https://*.okcdn.ru',
-    'https://*.dmcdn.net',
-    'https://*.redd.it',
-  ],
-};
+const THUMBNAIL_HOSTS = [
+  'https://i.ytimg.com',
+  'https://scontent-bcn1-1.cdninstagram.com',
+  'https://scontent-bcn1-1.xx.fbcdn.net',
+  'https://p16-common-sign.tiktokcdn-eu.com',
+  'https://p19-common-sign.tiktokcdn-eu.com',
+  'https://i.vimeocdn.com',
+  'https://pbs.twimg.com',
+  'https://static-cdn.jtvnw.net',
+  'https://i0.hdslb.com',
+  'https://i1.hdslb.com',
+  'https://i2.hdslb.com',
+  'https://iv.okcdn.ru',
+  'https://s1.dmcdn.net',
+  'https://s2.dmcdn.net',
+  'https://external-preview.redd.it',
+];
+
+/** The whole CDN families, for hosts that honour wildcards (Claude, the MCP Apps spec). */
+const THUMBNAIL_HOST_FAMILIES = [
+  'https://*.ytimg.com',
+  'https://*.cdninstagram.com',
+  'https://*.fbcdn.net',
+  'https://*.tiktokcdn.com',
+  'https://*.tiktokcdn-us.com',
+  'https://*.tiktokcdn-eu.com',
+  'https://*.vimeocdn.com',
+  'https://*.jtvnw.net',
+  'https://*.hdslb.com',
+  'https://*.userapi.com',
+  'https://*.okcdn.ru',
+  'https://*.dmcdn.net',
+  'https://*.redd.it',
+];
 
 /**
  * The same policy for every widget resource, in both dialects. ChatGPT reads only its
- * own `openai/widgetCSP` (snake_case): a resource carrying `ui.csp` alone gets no policy
- * there and a "CSP off" badge, and our thumbnails do not load. The widgets fetch nothing
- * themselves (they call the server through the host), so connect_domains stays empty.
+ * own `openai/widgetCSP` (snake_case), and a resource carrying `ui.csp` alone gets no
+ * policy there. The widgets fetch nothing themselves (they call the server through the
+ * host), so connect_domains stays empty.
  */
 const WIDGET_CSP_META = {
-  ui: { csp: WIDGET_CSP },
-  'openai/widgetCSP': { connect_domains: [], resource_domains: WIDGET_CSP.resourceDomains },
+  ui: { csp: { resourceDomains: [...THUMBNAIL_HOSTS, ...THUMBNAIL_HOST_FAMILIES] } },
+  'openai/widgetCSP': { connect_domains: [], resource_domains: THUMBNAIL_HOSTS },
 };
 
 const uiHtmlCache = new Map<string, string>();
