@@ -1,4 +1,6 @@
+import { registerAppResource } from '@modelcontextprotocol/ext-apps/server';
 import * as Sentry from '@sentry/node';
+import fs from 'node:fs/promises';
 import { NotFoundError, ServerBusyError, ValidationError, YtDlpError } from './errors.js';
 import { createMcpServer, UNEXPECTED_TOOL_ERROR_MESSAGE } from './mcp-core.js';
 import { renderPrometheus } from './metrics.js';
@@ -603,6 +605,30 @@ describe('mcp-core tools', () => {
       expect(result.content[0].text).toContain('Duration: 120s');
       expect(result.content[0].text).toContain('Views: 42');
       expect(result.content[0].text).toContain('URL: https://example.com/watch?v=video123');
+    });
+  });
+
+  describe('widget resources', () => {
+    it('declare one thumbnail policy in both the spec and ChatGPT dialects', async () => {
+      // ChatGPT reads only openai/widgetCSP; with ui.csp alone it applies no policy.
+      const readFile = jest.spyOn(fs, 'readFile').mockResolvedValue('<html></html>');
+      createMcpServer();
+      type ReadResource = () => Promise<{ contents: Array<{ _meta: Record<string, any> }> }>;
+      const reads = (registerAppResource as jest.Mock).mock.calls.map(
+        (call) => call[4] as ReadResource
+      );
+      expect(reads).toHaveLength(4);
+
+      for (const read of reads) {
+        const { contents } = await read();
+        const meta = contents[0]._meta;
+        expect(meta.ui.csp.resourceDomains).toContain('https://*.cdninstagram.com');
+        expect(meta['openai/widgetCSP']).toEqual({
+          connect_domains: [],
+          resource_domains: meta.ui.csp.resourceDomains,
+        });
+      }
+      readFile.mockRestore();
     });
   });
 
