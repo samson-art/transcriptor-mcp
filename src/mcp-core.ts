@@ -18,6 +18,7 @@ import * as Sentry from '@sentry/node';
 import {
   detectSubtitleFormat,
   downloadPlaylistSubtitles,
+  extractYouTubeVideoId,
   parseSubtitles,
   searchVideos,
   type VideoChapter,
@@ -30,8 +31,8 @@ import {
   ValidationError,
   YtDlpError,
 } from './errors.js';
+import { extractPlatformFromUrl } from './platform.js';
 import {
-  extractPlatformFromUrl,
   normalizeVideoInput,
   sanitizeLang,
   validateAndDownloadSubtitles,
@@ -424,11 +425,14 @@ function toolCallLogFields({ args, extra }: ToolCall) {
       host = resolved ? 'bare_id' : hostOfSchemeless(input);
     }
   }
+  // Hashed video id beside the hashed address: it counts spellings of one video.
+  const videoId = url ? extractYouTubeVideoId(url) : null;
   return {
     platform: url ? extractPlatformFromUrl(url) : undefined,
     host,
     explicit: args.type !== undefined || args.lang !== undefined,
     addr: url ? createHash('sha256').update(url).digest('hex').slice(0, 12) : undefined,
+    vid: videoId ? createHash('sha256').update(videoId).digest('hex').slice(0, 12) : undefined,
     source: extra._meta?.[WIDGET_SOURCE_META_KEY] === 'widget' ? 'widget' : 'model',
   };
 }

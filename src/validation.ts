@@ -15,6 +15,8 @@ import {
   type YtDlpVideoInfo,
   type VideoFrameFormat,
 } from './youtube.js';
+import { extractPlatformFromUrl } from './platform.js';
+import { assertSubtitlesNotRateLimited } from './subtitle-rate-limit.js';
 import { getWhisperConfig } from './whisper.js';
 import { parseIntEnv } from './env.js';
 import { startOrReuseWhisperJob } from './whisper-jobs.js';
@@ -311,36 +313,6 @@ function orderAutoForYouTube(auto: string[]): string[] {
   return [...withOrig, ...withoutOrig];
 }
 
-/** Extracts platform identifier from input URL hostname (youtube, reddit, vimeo, etc.). */
-export function extractPlatformFromUrl(url: string): string {
-  try {
-    const hostname = new URL(url).hostname.toLowerCase();
-    if (hostname.includes('youtube') || hostname.includes('youtu.be')) return 'youtube';
-    if (hostname.includes('reddit') || hostname.includes('v.redd.it')) return 'reddit';
-    if (hostname.includes('vimeo')) return 'vimeo';
-    if (hostname.includes('tiktok')) return 'tiktok';
-    if (hostname.includes('twitch')) return 'twitch';
-    if (hostname.includes('twitter') || hostname === 'x.com' || hostname.endsWith('.x.com'))
-      return 'twitter';
-    if (hostname.includes('instagram')) return 'instagram';
-    if (hostname.includes('facebook') || hostname.includes('fb.')) return 'facebook';
-    if (hostname.includes('bilibili')) return 'bilibili';
-    if (
-      hostname === 'vk.com' ||
-      hostname.endsWith('.vk.com') ||
-      hostname === 'vk.ru' ||
-      hostname.endsWith('.vk.ru') ||
-      hostname === 'vkvideo.ru' ||
-      hostname.endsWith('.vkvideo.ru')
-    )
-      return 'vk';
-    if (hostname.includes('dailymotion')) return 'dailymotion';
-    return 'unknown';
-  } catch {
-    return 'unknown';
-  }
-}
-
 /**
  * Auto-discovery: try official → auto (-orig first for YouTube) → all auto → Whisper.
  * @returns subtitle result or null if all attempts failed
@@ -590,6 +562,9 @@ async function handleAutoDiscoverFlow(
     }
   }
   recordCacheMiss('sub');
+  // Before the metadata run, not after it: a held request must cost the caller nothing and
+  // must not reach the platform at all.
+  assertSubtitlesNotRateLimited(url);
 
   const result = await downloadWithAutoDiscover(url, format, logger, {
     key: cacheKey,
@@ -651,6 +626,7 @@ async function handleExplicitRequestFlow(
     }
   }
   if (!skipCache) recordCacheMiss('sub');
+  assertSubtitlesNotRateLimited(url);
 
   // The JSON carries the track's own URL and the video id, and fills the info, track-list
   // and chapters caches that the widgets ask for right after a transcript.
