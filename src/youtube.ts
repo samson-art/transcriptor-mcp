@@ -15,7 +15,8 @@ import {
   YtDlpError,
   type YtDlpFailureReason,
 } from './errors.js';
-import { setYtDlpProcessGauges } from './metrics.js';
+import { recordSubtitleRequest, setYtDlpProcessGauges } from './metrics.js';
+import { extractPlatformFromUrl } from './platform.js';
 import {
   assertSubtitlesNotRateLimited,
   clearSubtitlesRateLimit,
@@ -169,12 +170,14 @@ function rethrowInfra(error: unknown): void {
 
 /**
  * One place to notice a platform said 429, whichever of the two caption paths said it:
- * the track's own URL throws a typed error, yt-dlp fails a process.
+ * the track's own URL throws a typed error, yt-dlp fails a process. Returns whether it was
+ * one, so the caller can label the request it just spent without classifying twice.
  */
-function noteIfRateLimited(url: string, error: unknown): void {
+function noteIfRateLimited(url: string, error: unknown): boolean {
   const reason =
     error instanceof YtDlpError ? error.reason : collectExecFileErrorDetails(error).reason;
   if (reason === 'rate_limited') noteSubtitlesRateLimited(url);
+  return reason === 'rate_limited';
 }
 
 /**
@@ -434,9 +437,17 @@ export async function downloadSubtitles(
   const subFormat = resolveSubtitleFormat(format);
   // Asking a platform that just answered 429 spends the quota that keeps it saying 429.
   assertSubtitlesNotRateLimited(url);
+  const platform = extractPlatformFromUrl(url);
   let direct: string | null;
   try {
-    direct = await downloadSubtitleTrackDirect(preFetchedData, type, lang, subFormat, logger);
+    direct = await downloadSubtitleTrackDirect(
+      preFetchedData,
+      type,
+      lang,
+      subFormat,
+      logger,
+      platform
+    );
   } catch (error) {
     noteIfRateLimited(url, error);
     throw error;
@@ -493,12 +504,14 @@ export async function downloadSubtitles(
       lang,
       logger
     );
+    recordSubtitleRequest(platform, 'yt_dlp', 'ok');
     // Only a track proves the caption endpoint answered: a run that found nothing may
     // never have asked it, and clearing on that would walk the server back into the limit.
     if (content) clearSubtitlesRateLimit(url);
     return content;
   } catch (error) {
-    noteIfRateLimited(url, error);
+    const limited = noteIfRateLimited(url, error);
+    recordSubtitleRequest(platform, 'yt_dlp', limited ? 'rate_limited' : 'error');
     rethrowInfra(error);
     logger?.error({ error }, 'Error downloading subtitles');
     return null;
@@ -532,7 +545,9 @@ export async function downloadSubtitleTrackDirect(
   type: 'official' | 'auto',
   lang: string,
   format: SubtitleFormat,
-  logger?: FastifyBaseLogger
+  logger?: FastifyBaseLogger,
+  /** Counted against this platform's caption budget; omit only where nothing is counted. */
+  platform = 'unknown'
 ): Promise<string | null> {
   const container = type === 'official' ? data?.subtitles : data?.automatic_captions;
   // `lang` is the caller's: `toString` must not read Object.prototype.
@@ -562,6 +577,7 @@ export async function downloadSubtitleTrackDirect(
       },
       signal: AbortSignal.timeout(parseIntEnv('SUBTITLE_FETCH_TIMEOUT_MS', 15000)),
     });
+    recordSubtitleRequest(platform, 'direct', response.status === 429 ? 'rate_limited' : 'ok');
     if (response.status === 429) {
       // Measured on both limit days: the yt-dlp run that would follow asks the same
       // endpoint and gets the same answer (82 refusals here, 198 there), so it is not
@@ -590,6 +606,8 @@ export async function downloadSubtitleTrackDirect(
     return content;
   } catch (error) {
     if (error instanceof HttpError) throw error;
+    // The request left the server even though the answer never arrived: it counts.
+    recordSubtitleRequest(platform, 'direct', 'error');
     logger?.warn(
       { type, lang, error: error instanceof Error ? error.message : String(error) },
       'Direct subtitle track fetch failed'

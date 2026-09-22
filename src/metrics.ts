@@ -67,6 +67,20 @@ export const subtitlesExtractionFailuresTotal = new Counter({
   registers: [register],
 });
 
+/**
+ * Requests this server makes to a platform's caption endpoint, split by the path that made
+ * them. The 429 that takes subtitles down for a day is a budget on exactly these requests,
+ * and the budget is not documented anywhere: counting them is the only way to learn how
+ * many fit in a day, and whether the two paths are counted against the same one.
+ * `outcome=error` includes a yt-dlp run that failed before it reached the endpoint.
+ */
+export const subtitleRequestsTotal = new Counter({
+  name: 'subtitle_requests_total',
+  help: 'Requests to a platform caption endpoint, by path (direct fetch or yt-dlp) and outcome',
+  labelNames: ['platform', 'path', 'outcome'],
+  registers: [register],
+});
+
 // Whisper transcription requests
 export const whisperRequestsTotal = new Counter({
   name: 'whisper_requests_total',
@@ -187,6 +201,14 @@ export function recordSubtitlesFailure(url: string, reason: string): void {
     failuresBuffer.shift();
   }
   failuresBuffer.push(entry);
+}
+
+export function recordSubtitleRequest(
+  platform: string,
+  path: 'direct' | 'yt_dlp',
+  outcome: 'ok' | 'rate_limited' | 'error'
+): void {
+  subtitleRequestsTotal.inc({ platform, path, outcome });
 }
 
 export function recordWhisperRequest(mode: 'local' | 'api'): void {

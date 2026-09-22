@@ -605,6 +605,62 @@ today to pay our respects to MCP, which
       globalThis.fetch = fetchMock as unknown as typeof fetch;
     });
 
+    async function captionRequests(labels: string): Promise<number> {
+      const line = (await renderPrometheus())
+        .split('\n')
+        .find((l) => l.startsWith(`subtitle_requests_total{${labels}`));
+      return line ? Number(line.split(' ').pop()) : 0;
+    }
+
+    it('counts what it spends on the caption endpoint, by path, and nothing else', async () => {
+      const direct429 = 'platform="youtube",path="direct",outcome="rate_limited"';
+      const ytDlpOk = 'platform="youtube",path="yt_dlp",outcome="ok"';
+      const before = {
+        direct: await captionRequests(direct429),
+        ytDlp: await captionRequests(ytDlpOk),
+      };
+
+      // One request to the endpoint, refused.
+      fetchMock.mockResolvedValue({ ok: false, status: 429, text: () => Promise.resolve('') });
+      await youtube
+        .downloadSubtitles(
+          'https://www.youtube.com/watch?v=x',
+          'official',
+          'en',
+          'vtt',
+          undefined,
+          data
+        )
+        .catch(() => undefined);
+      expect(await captionRequests(direct429)).toBe(before.direct + 1);
+      // The yt-dlp run never happened, so it must not be counted.
+      expect(await captionRequests(ytDlpOk)).toBe(before.ytDlp);
+
+      // One yt-dlp run that reached the platform and came back without a track.
+      resetSubtitleRateLimitsForTests();
+      execFileMock.mockImplementation(
+        (
+          _f: string,
+          _a: string[],
+          _o: unknown,
+          cb: (err: Error | null, result?: { stdout: string; stderr: string }) => void
+        ) => setImmediate(() => cb(null, { stdout: '', stderr: '' }))
+      );
+      await youtube.downloadSubtitles('https://www.youtube.com/watch?v=p', 'auto', 'en');
+      expect(await captionRequests(ytDlpOk)).toBe(before.ytDlp + 1);
+
+      // A yt-dlp run the platform refuses: the series that says which path hit the limit.
+      const ytDlp429 = 'platform="youtube",path="yt_dlp",outcome="rate_limited"';
+      const beforeRefused = await captionRequests(ytDlp429);
+      resetSubtitleRateLimitsForTests();
+      mockExecFileFailure('ERROR: HTTP Error 429: Too Many Requests');
+      await youtube
+        .downloadSubtitles('https://www.youtube.com/watch?v=r', 'auto', 'en')
+        .catch(() => undefined);
+      expect(await captionRequests(ytDlp429)).toBe(beforeRefused + 1);
+      expect(await captionRequests(ytDlpOk)).toBe(before.ytDlp + 1);
+    });
+
     it('answers the next call for that platform without spending a request', async () => {
       fetchMock.mockResolvedValue({ ok: false, status: 429, text: () => Promise.resolve('') });
 
