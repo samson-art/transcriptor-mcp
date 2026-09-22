@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.3] - 2026-09-22
+
+### Added
+
+- **`subtitle_requests_total`: a count of every request this server makes to a platform's caption endpoint, by path and outcome.** Three times in five days YouTube answered `HTTP 429` to that endpoint for hours, and 1.5.2 stopped the server from feeding the limit once it starts. Neither release answers the question that decides how to avoid the next one: how many requests fit before the limit, and whether the track's own address and a yt-dlp run are counted against the same budget. Logs cannot answer it — they die with the container at every deploy — so this is a counter, labelled `platform`, `path` (`direct` or `yt_dlp`) and `outcome` (`ok`, `rate_limited`, `error`). At the minute a limit starts, the requests in the preceding hour, six hours and day are then readable per path. Only requests that actually left the server are counted: a call refused by the hold, and a track the platform never listed, are not.
+
 ## [1.5.2] - 2026-09-22
 
 ### Fixed
