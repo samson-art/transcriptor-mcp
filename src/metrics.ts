@@ -81,6 +81,19 @@ export const subtitleRequestsTotal = new Counter({
   registers: [register],
 });
 
+/**
+ * Tracks that auto-discovery listed but never asked for, counted when it gave up with
+ * nothing. The ladder is capped to keep the platform's caption budget for calls that need
+ * it, and this is the upper bound on what that cap costs: every one of these is a track
+ * that might have answered. Read it against `subtitles_extraction_failures_total`.
+ */
+export const subtitleTracksUntriedTotal = new Counter({
+  name: 'subtitle_tracks_untried_total',
+  help: 'Listed subtitle tracks auto-discovery did not try before giving up',
+  labelNames: ['platform'],
+  registers: [register],
+});
+
 // Whisper transcription requests
 export const whisperRequestsTotal = new Counter({
   name: 'whisper_requests_total',
@@ -201,6 +214,10 @@ export function recordSubtitlesFailure(url: string, reason: string): void {
     failuresBuffer.shift();
   }
   failuresBuffer.push(entry);
+}
+
+export function recordUntriedTracks(platform: string, count: number): void {
+  if (count > 0) subtitleTracksUntriedTotal.inc({ platform }, count);
 }
 
 export function recordSubtitleRequest(

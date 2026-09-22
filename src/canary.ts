@@ -13,6 +13,7 @@ import type { FastifyBaseLogger } from 'fastify';
 import { parseIntEnv } from './env.js';
 import { errorReason, ServerBusyError } from './errors.js';
 import { setCanaryResult } from './metrics.js';
+import { lastSubtitlesAnswered } from './subtitle-rate-limit.js';
 import { validateAndDownloadSubtitles } from './validation.js';
 
 /** "Me at the zoo": public since 2005, 19 seconds, official English captions (no auto track). */
@@ -26,6 +27,19 @@ let consecutiveFailures = 0;
 /** Runs one canary probe and records its outcome. Never throws. */
 export async function runCanary(log: FastifyBaseLogger): Promise<void> {
   const url = process.env.CANARY_URL?.trim() || DEFAULT_CANARY_URL;
+  // A transcript that came back from this platform within the last interval proves exactly
+  // what this probe would, and it cost a request somebody actually wanted. Platforms meter
+  // caption requests hard enough to take the tool down for a day, so the probe only runs
+  // when nothing has answered lately — which is also the only time its answer is news.
+  if (
+    Date.now() - lastSubtitlesAnswered(url) <
+    parseIntEnv('CANARY_INTERVAL_MS', DEFAULT_INTERVAL_MS)
+  ) {
+    log.debug({ url }, 'canary: skipped, a real call just came back from this platform');
+    setCanaryResult(true);
+    consecutiveFailures = 0;
+    return;
+  }
   try {
     // Explicit type and lang keep this to one caption download (the YouTube URL already
     // carries the id); omitting them would fan out over the auto-discovery ladder.

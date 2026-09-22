@@ -268,6 +268,8 @@ export type YtDlpVideoInfo = {
   is_live?: boolean;
   was_live?: boolean;
   availability?: string;
+  /** The audio's language as the platform reports it, when it does. */
+  language?: string | null;
   thumbnail?: string;
   thumbnails?: Array<{ url?: string; width?: number; height?: number; id?: string }>;
   chapters?: YtDlpChapter[];

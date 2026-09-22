@@ -17,6 +17,7 @@ import {
 } from './validation.js';
 import { extractPlatformFromUrl } from './platform.js';
 import * as youtube from './youtube.js';
+import { renderPrometheus } from './metrics.js';
 import { get as cacheGet, set as cacheSet } from './cache.js';
 import * as whisper from './whisper.js';
 import * as whisperJobs from './whisper-jobs.js';
@@ -338,6 +339,72 @@ describe('validation', () => {
   });
 
   describe('validateAndDownloadSubtitles', () => {
+    async function untriedTracks(): Promise<number> {
+      const line = (await renderPrometheus())
+        .split('\n')
+        .find((l) => l.startsWith('subtitle_tracks_untried_total{platform="youtube"'));
+      return line ? Number(line.split(' ').pop()) : 0;
+    }
+
+    it('asks for the track anyone wanted, not the alphabetically first one', async () => {
+      jest.spyOn(youtube, 'fetchYtDlpJson').mockResolvedValue({
+        id: 'dQw4w9WgXcQ',
+        subtitles: { ar: [{ ext: 'vtt' }], de: [{ ext: 'vtt' }], en: [{ ext: 'vtt' }] },
+      } as never);
+      const download = jest.spyOn(youtube, 'downloadSubtitles').mockResolvedValue('WEBVTT\n\nhi');
+
+      const result = await validateAndDownloadSubtitles({
+        url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+      });
+
+      expect(result.lang).toBe('en');
+      expect(download).toHaveBeenCalledTimes(1);
+      expect(download).toHaveBeenCalledWith(
+        expect.any(String),
+        'official',
+        'en',
+        undefined,
+        undefined,
+        expect.anything()
+      );
+    });
+
+    it("prefers the video's own language over English", async () => {
+      jest.spyOn(youtube, 'fetchYtDlpJson').mockResolvedValue({
+        id: 'dQw4w9WgXcQ',
+        language: 'de',
+        subtitles: { ar: [{ ext: 'vtt' }], de: [{ ext: 'vtt' }], en: [{ ext: 'vtt' }] },
+      } as never);
+      jest.spyOn(youtube, 'downloadSubtitles').mockResolvedValue('WEBVTT\n\nhi');
+
+      const result = await validateAndDownloadSubtitles({
+        url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+      });
+
+      expect(result.lang).toBe('de');
+    });
+
+    it('asks twice at most, and counts the tracks it left untried', async () => {
+      const many = (langs: string[]) => Object.fromEntries(langs.map((l) => [l, [{ ext: 'vtt' }]]));
+      jest.spyOn(youtube, 'fetchYtDlpJson').mockResolvedValue({
+        id: 'dQw4w9WgXcQ',
+        subtitles: many(['ar', 'de', 'es', 'fr', 'it']),
+        automatic_captions: many(['ar', 'de', 'es', 'fr', 'it']),
+      } as never);
+      // Every track listed, none of them downloadable: the ladder must stop, not walk.
+      const download = jest.spyOn(youtube, 'downloadSubtitles').mockResolvedValue(null);
+      const before = await untriedTracks();
+
+      await expect(
+        validateAndDownloadSubtitles({ url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ' })
+      ).rejects.toThrow(NotFoundError);
+
+      expect(download).toHaveBeenCalledTimes(2);
+      // Ten listed, two asked for: the other eight are what the cap cost, and they are
+      // the number to watch if callers start hearing "no subtitles" for videos that have some.
+      expect(await untriedTracks()).toBe(before + 8);
+    });
+
     it('should surface a classified yt-dlp failure instead of "no subtitles"', async () => {
       jest.spyOn(youtube, 'downloadSubtitles').mockRejectedValue(new YtDlpError('rate_limited'));
       const whisperSpy = jest.spyOn(whisperJobs, 'startOrReuseWhisperJob');
