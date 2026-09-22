@@ -19,6 +19,7 @@ import { extractPlatformFromUrl } from './platform.js';
 type Hold = { until: number; strikes: number };
 
 const holds = new Map<string, Hold>();
+const lastAnswered = new Map<string, number>();
 
 const DEFAULT_HOLD_MS = 10 * 60 * 1000;
 const MAX_HOLD_MS = 60 * 60 * 1000;
@@ -54,10 +55,18 @@ export function noteSubtitlesRateLimited(url: string): void {
 
 /** The platform answered with a track: it is not limiting this server any more. */
 export function clearSubtitlesRateLimit(url: string): void {
-  holds.delete(extractPlatformFromUrl(url));
+  const platform = extractPlatformFromUrl(url);
+  holds.delete(platform);
+  lastAnswered.set(platform, Date.now());
+}
+
+/** When this platform last handed over a track, or 0. A real call proves what a probe would. */
+export function lastSubtitlesAnswered(url: string): number {
+  return lastAnswered.get(extractPlatformFromUrl(url)) ?? 0;
 }
 
 /** Test helper: forgets every hold between cases. */
 export function resetSubtitleRateLimitsForTests(): void {
   holds.clear();
+  lastAnswered.clear();
 }

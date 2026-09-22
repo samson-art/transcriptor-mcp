@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.4] - 2026-09-23
+
+### Changed
+
+- **Auto-discovery asks for the track somebody wanted, and asks at most twice.** It used to walk up to three official languages and then three automatic ones, in alphabetical order, so a video listing `ar, de, en` spent two requests before reaching the one the caller would use, and a single call could spend six requests against a caption budget a day-long 429 is measured in. Tracks are now ranked before anything is asked for — the audio's own language first (YouTube's `-orig` track, or the language the platform reports), then English, then the rest — and the ladder stops after the best official and the best automatic track. Most videos are answered by the first request rather than the third. `subtitle_tracks_untried_total` counts every listed track the cap left unasked when the ladder came back empty: that is the upper bound on transcripts this costs, and the number to watch if callers start hearing "no subtitles" for videos that have some.
+- **The canary does not probe when a real transcript just came back from the same platform.** The probe exists to prove the caption path still works, and it spent a request every interval whether or not the path had just proved itself. A successful transcript is the same proof, already paid for. The probe now runs only when nothing has answered for a whole interval — which is also the only time its answer is news. The gauge and the alert are unchanged: an observed success sets `transcriptor_canary_ok` exactly as a probe would, so a platform that stops answering still shows up within one interval. On the hosted server this drops the probe from 24 caption requests a day to none during any hour with traffic.
+
 ## [1.5.3] - 2026-09-22
 
 ### Added

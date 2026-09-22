@@ -21,7 +21,12 @@ import { getWhisperConfig } from './whisper.js';
 import { parseIntEnv } from './env.js';
 import { startOrReuseWhisperJob } from './whisper-jobs.js';
 import { getCacheConfig, get, set, buildCacheKey } from './cache.js';
-import { recordCacheHit, recordCacheMiss, recordSubtitlesFailure } from './metrics.js';
+import {
+  recordCacheHit,
+  recordCacheMiss,
+  recordSubtitlesFailure,
+  recordUntriedTracks,
+} from './metrics.js';
 
 /** Allowed video hostnames for top-10 platforms (exact or suffix match). */
 export const ALLOWED_VIDEO_DOMAINS = [
@@ -306,12 +311,30 @@ export function validateYouTubeRequest(url: string): { videoId: string } {
   return { videoId };
 }
 
-/** Order auto languages for YouTube: -orig first, then rest. */
-function orderAutoForYouTube(auto: string[]): string[] {
-  const withOrig = auto.filter((l) => l.endsWith('-orig'));
-  const withoutOrig = auto.filter((l) => !l.endsWith('-orig'));
-  return [...withOrig, ...withoutOrig];
+/**
+ * Best track first. The lists arrive sorted alphabetically, which is why a video listing
+ * `ar, de, en` used to spend two caption requests before reaching the one anybody wanted.
+ */
+function preferredTrackOrder(langs: string[], videoLanguage?: string | null): string[] {
+  const base = (lang: string): string => lang.split('-')[0].toLowerCase();
+  const spoken = videoLanguage ? base(videoLanguage) : undefined;
+  const rank = (lang: string): number => {
+    if (lang.endsWith('-orig')) return 0; // YouTube's track in the audio's own language
+    if (spoken && base(lang) === spoken) return 1;
+    if (base(lang) === 'en') return 2;
+    return 3;
+  };
+  return [...langs].sort((a, b) => rank(a) - rank(b) || a.localeCompare(b));
 }
+
+/**
+ * How many tracks auto-discovery may ask the platform for. It used to be three official
+ * plus three auto, so one call could spend six requests against a caption budget that a
+ * day-long 429 is measured in. One of each covers a video whose official track is broken
+ * and one whose auto track is missing; past that it is guessing with someone else's quota,
+ * and `subtitle_tracks_untried_total` counts what the guessing would have covered.
+ */
+const AUTO_DISCOVERY_ATTEMPTS = 2;
 
 /**
  * Auto-discovery: try official → auto (-orig first for YouTube) → all auto → Whisper.
@@ -334,38 +357,36 @@ async function downloadWithAutoDiscover(
 } | null> {
   const available = await loadAvailableSubtitles(url, logger);
   const { videoId, official, auto, data } = available;
-  const isYouTube = extractYouTubeVideoId(url) !== null;
   const platform = extractPlatformFromUrl(url);
 
-  // 1. Try official subtitles (limit to first 3 to avoid O(N) yt-dlp calls)
-  const officialToTry = official.slice(0, 3);
-  for (const lang of officialToTry) {
-    const content = await downloadSubtitles(url, 'official', lang, format, logger, data);
-    if (content && content.trim().length > 0) {
-      return {
-        videoId,
-        type: 'official',
-        lang,
-        subtitlesContent: content,
-        source: platform,
-      };
+  const officialRanked = preferredTrackOrder(official, data?.language);
+  const autoRanked = preferredTrackOrder(auto, data?.language);
+  const attempts: Array<{ type: 'official' | 'auto'; lang: string }> = [];
+  for (let i = 0; attempts.length < AUTO_DISCOVERY_ATTEMPTS; i += 1) {
+    if (!officialRanked[i] && !autoRanked[i]) break;
+    if (officialRanked[i]) attempts.push({ type: 'official', lang: officialRanked[i] });
+    if (attempts.length < AUTO_DISCOVERY_ATTEMPTS && autoRanked[i]) {
+      attempts.push({ type: 'auto', lang: autoRanked[i] });
     }
   }
 
-  // 2. Try auto subtitles (for YouTube: -orig first; limit to first 3 to avoid O(N) yt-dlp calls)
-  const orderedAuto = isYouTube ? orderAutoForYouTube(auto) : auto;
-  const autoToTry = orderedAuto.slice(0, 3);
-  for (const lang of autoToTry) {
-    const content = await downloadSubtitles(url, 'auto', lang, format, logger, data);
+  for (const { type, lang } of attempts) {
+    const content = await downloadSubtitles(url, type, lang, format, logger, data);
     if (content && content.trim().length > 0) {
-      return {
-        videoId,
-        type: 'auto',
-        lang,
-        subtitlesContent: content,
-        source: platform,
-      };
+      return { videoId, type, lang, subtitlesContent: content, source: platform };
     }
+  }
+
+  // Everything listed that we chose not to ask for: the price of the cap, counted in tracks
+  // that might have answered. Only when the ladder came back empty, because that is the one
+  // case where the untried ones could have changed the answer.
+  const untried = officialRanked.length + autoRanked.length - attempts.length;
+  if (untried > 0) {
+    recordUntriedTracks(platform, untried);
+    logger?.info(
+      { listed: officialRanked.length + autoRanked.length, tried: attempts.length, untried },
+      'Auto-discovery gave up with tracks left untried'
+    );
   }
 
   // 3. Whisper fallback (background job: survives per-request WHISPER_TIMEOUT for cache)

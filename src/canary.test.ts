@@ -3,6 +3,7 @@ import * as Sentry from '@sentry/node';
 import { ServerBusyError, YtDlpError } from './errors.js';
 import { runCanary, startCanary, resetCanaryForTests } from './canary.js';
 import { renderPrometheus } from './metrics.js';
+import { clearSubtitlesRateLimit, resetSubtitleRateLimitsForTests } from './subtitle-rate-limit.js';
 import * as validation from './validation.js';
 
 jest.mock('@sentry/node', () => ({
@@ -17,18 +18,41 @@ const captureMessageMock = Sentry.captureMessage as unknown as jest.Mock;
 const validateAndDownloadSubtitlesMock = validation.validateAndDownloadSubtitles as jest.Mock;
 
 function createLogger() {
-  return { error: jest.fn(), info: jest.fn(), warn: jest.fn() };
+  return { error: jest.fn(), info: jest.fn(), warn: jest.fn(), debug: jest.fn() };
 }
 
 describe('canary', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     resetCanaryForTests();
+    resetSubtitleRateLimitsForTests();
     delete process.env.CANARY_INTERVAL_MS;
     delete process.env.CANARY_URL;
   });
 
   describe('runCanary', () => {
+    it('does not probe when a real call just came back from the platform', async () => {
+      // The probe exists to prove the caption path works. A transcript that came back
+      // proves it for free, and the probe's own request is metered by the platform.
+      clearSubtitlesRateLimit('https://www.youtube.com/watch?v=jNQXAC9IVRw');
+
+      await runCanary(createLogger() as any);
+
+      expect(validateAndDownloadSubtitlesMock).not.toHaveBeenCalled();
+      expect(await renderPrometheus()).toMatch(/transcriptor_canary_ok\{[^}]*\} 1/);
+    });
+
+    it('probes again once nothing has answered for a whole interval', async () => {
+      process.env.CANARY_INTERVAL_MS = '1';
+      clearSubtitlesRateLimit('https://www.youtube.com/watch?v=jNQXAC9IVRw');
+      validateAndDownloadSubtitlesMock.mockResolvedValue({ subtitlesContent: 'hello' });
+
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      await runCanary(createLogger() as any);
+
+      expect(validateAndDownloadSubtitlesMock).toHaveBeenCalled();
+    });
+
     it('probes CANARY_URL with one explicit language and skips the cache', async () => {
       process.env.CANARY_URL = 'https://www.youtube.com/watch?v=other123';
       validateAndDownloadSubtitlesMock.mockResolvedValue({ subtitlesContent: 'hello' });
