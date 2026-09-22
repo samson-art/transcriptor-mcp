@@ -18,6 +18,7 @@ import * as Sentry from '@sentry/node';
 import {
   detectSubtitleFormat,
   downloadPlaylistSubtitles,
+  extractYouTubeVideoId,
   parseSubtitles,
   searchVideos,
   type VideoChapter,
@@ -424,11 +425,16 @@ function toolCallLogFields({ args, extra }: ToolCall) {
       host = resolved ? 'bare_id' : hostOfSchemeless(input);
     }
   }
+  // `addr` is the address as it arrived, so `youtu.be/X` and `watch?v=X` hash apart.
+  // `vid` is the video behind them, and the two together say how many spellings of one
+  // video the cache is asked for — the number that decides whether to canonicalize.
+  const videoId = url ? extractYouTubeVideoId(url) : null;
   return {
     platform: url ? extractPlatformFromUrl(url) : undefined,
     host,
     explicit: args.type !== undefined || args.lang !== undefined,
     addr: url ? createHash('sha256').update(url).digest('hex').slice(0, 12) : undefined,
+    vid: videoId ? createHash('sha256').update(videoId).digest('hex').slice(0, 12) : undefined,
     source: extra._meta?.[WIDGET_SOURCE_META_KEY] === 'widget' ? 'widget' : 'model',
   };
 }

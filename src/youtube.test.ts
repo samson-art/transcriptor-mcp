@@ -3,6 +3,10 @@ import { tmpdir } from 'os';
 import { join, basename } from 'path';
 import { access, constants, writeFile, unlink } from 'node:fs/promises';
 import * as youtube from './youtube.js';
+import {
+  noteSubtitlesRateLimited,
+  resetSubtitleRateLimitsForTests,
+} from './subtitle-rate-limit.js';
 import { renderPrometheus } from './metrics.js';
 
 jest.mock('node:child_process', () => ({
@@ -37,6 +41,12 @@ const {
 } = youtube;
 
 describe('youtube', () => {
+  // The hold lives in a module-level map: a case that sets one would silently refuse
+  // every later download in this file.
+  beforeEach(() => {
+    resetSubtitleRateLimitsForTests();
+  });
+
   describe('extractYouTubeVideoId', () => {
     it('should extract video ID from standard YouTube URLs', () => {
       expect(extractYouTubeVideoId('https://www.youtube.com/watch?v=dQw4w9WgXcQ')).toBe(
@@ -309,6 +319,14 @@ today to pay our respects to MCP, which
       expect(fetchMock.mock.calls[0][0]).toBe(TIMEDTEXT);
     });
 
+    it('should ask as the browser yt-dlp claims to be', async () => {
+      answer('WEBVTT\n\n00:00:01.000 --> 00:00:02.000\nhi');
+      await youtube.downloadSubtitleTrackDirect(data, 'official', 'en', 'vtt');
+      const headers = (fetchMock.mock.calls[0][1] as { headers: Record<string, string> }).headers;
+      expect(headers['User-Agent']).toMatch(/^Mozilla\/5\.0 .*Chrome\/\d+\.0\.0\.0 Safari/);
+      expect(headers['Accept-Language']).toBe('en-us,en;q=0.5');
+    });
+
     it('should read only listed tracks, not Object.prototype', async () => {
       for (const lang of ['toString', 'constructor', 'hasOwnProperty']) {
         await expect(
@@ -552,6 +570,226 @@ today to pay our respects to MCP, which
       await expect(access(subtitleFilePath, constants.F_OK)).rejects.toThrow();
 
       dateSpy.mockRestore();
+    });
+  });
+
+  describe('downloadSubtitles under a platform rate limit', () => {
+    const TIMEDTEXT = 'https://www.youtube.com/api/timedtext?v=x&fmt=vtt&lang=en';
+    const data = { id: 'x', subtitles: { en: [{ ext: 'vtt', url: TIMEDTEXT }] } };
+    const CUE = 'WEBVTT\n\n00:00:01.000 --> 00:00:02.000\nhi';
+    let fetchMock: jest.Mock;
+
+    beforeEach(() => {
+      jest.clearAllMocks();
+      resetSubtitleRateLimitsForTests();
+      fetchMock = jest.fn();
+      globalThis.fetch = fetchMock as unknown as typeof fetch;
+    });
+
+    afterEach(() => {
+      resetSubtitleRateLimitsForTests();
+    });
+
+    it('reports a 429 on the track URL as a rate limit, without asking yt-dlp the same thing', async () => {
+      fetchMock.mockResolvedValue({ ok: false, status: 429, text: () => Promise.resolve('') });
+
+      await expect(
+        youtube.downloadSubtitles(
+          'https://www.youtube.com/watch?v=x',
+          'official',
+          'en',
+          'vtt',
+          undefined,
+          data
+        )
+      ).rejects.toMatchObject({ name: 'YtDlpError', reason: 'rate_limited' });
+      expect(execFileMock).not.toHaveBeenCalled();
+    });
+
+    it('answers the next call for that platform without spending a request', async () => {
+      fetchMock.mockResolvedValue({ ok: false, status: 429, text: () => Promise.resolve('') });
+      await youtube
+        .downloadSubtitles(
+          'https://www.youtube.com/watch?v=x',
+          'official',
+          'en',
+          'vtt',
+          undefined,
+          data
+        )
+        .catch(() => undefined);
+      fetchMock.mockClear();
+
+      // Another spelling of the same platform: the limit is the platform's, not the URL's.
+      const err = (await youtube
+        .downloadSubtitles('https://youtu.be/y', 'official', 'en', 'vtt', undefined, data)
+        .then(() => null)
+        .catch((e: unknown) => e)) as Error;
+
+      expect(err).toMatchObject({ name: 'YtDlpError', reason: 'rate_limited' });
+      expect(err.message).toContain('will not ask it again for');
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(execFileMock).not.toHaveBeenCalled();
+    });
+
+    it('asks again once the wait is over, and a download clears the limit', async () => {
+      const t0 = 1_700_000_000_000;
+      const minute = 60 * 1000;
+      const dateSpy = jest.spyOn(Date, 'now').mockReturnValue(t0);
+      const call = () =>
+        youtube.downloadSubtitles(
+          'https://www.youtube.com/watch?v=x',
+          'official',
+          'en',
+          'vtt',
+          undefined,
+          data
+        );
+      const refuse = () =>
+        fetchMock.mockResolvedValue({ ok: false, status: 429, text: () => Promise.resolve('') });
+      const answerCue = () =>
+        fetchMock.mockResolvedValue({ ok: true, status: 200, text: () => Promise.resolve(CUE) });
+
+      refuse();
+      await call().catch(() => undefined);
+
+      dateSpy.mockReturnValue(t0 + 11 * minute);
+      answerCue();
+      await expect(call()).resolves.toContain('WEBVTT');
+
+      // The download cleared the count, so a later 429 waits the base time again and not
+      // twice it: without the clear this call would still be held back at +22 minutes.
+      refuse();
+      await call().catch(() => undefined);
+      dateSpy.mockReturnValue(t0 + 22 * minute);
+      answerCue();
+      await expect(call()).resolves.toContain('WEBVTT');
+      dateSpy.mockRestore();
+    });
+
+    it('clears the limit only when yt-dlp brings back a track', async () => {
+      const t0 = 1_700_000_000_000;
+      const minute = 60 * 1000;
+      const url = 'https://www.youtube.com/watch?v=q';
+      const dateSpy = jest.spyOn(Date, 'now').mockReturnValue(t0);
+      type Cb = (err: Error | null, result?: { stdout: string; stderr: string }) => void;
+      const refuse = () =>
+        execFileMock.mockImplementation((_f: string, _a: string[], _o: unknown, cb: Cb) => {
+          const err = new Error('Command failed: yt-dlp') as Error & {
+            code?: number;
+            stderr?: string;
+          };
+          err.code = 1;
+          err.stderr = 'ERROR: HTTP Error 429: Too Many Requests';
+          setImmediate(() => cb(err));
+        });
+      // yt-dlp writes the track next to the output path, which carries the current clock.
+      const answerWithTrack = async () => {
+        await writeFile(
+          join(tmpdir(), `${urlToSafeBase(url, 'subtitles')}.en.srt`),
+          '1\n00:00:01,000 --> 00:00:02,000\nhi\n',
+          'utf-8'
+        );
+        execFileMock.mockImplementation((_f: string, _a: string[], _o: unknown, cb: Cb) =>
+          setImmediate(() => cb(null, { stdout: '', stderr: '' }))
+        );
+      };
+      const call = () => youtube.downloadSubtitles(url, 'auto', 'en');
+
+      refuse();
+      await call().catch(() => undefined);
+
+      dateSpy.mockReturnValue(t0 + 11 * minute);
+      await answerWithTrack();
+      await expect(call()).resolves.toContain('hi');
+
+      // Cleared: a later limit waits the base time again, not twice it.
+      refuse();
+      await call().catch(() => undefined);
+      dateSpy.mockReturnValue(t0 + 22 * minute);
+      await answerWithTrack();
+      await expect(call()).resolves.toContain('hi');
+      dateSpy.mockRestore();
+    });
+
+    it('keeps the limit when yt-dlp answers without a track', async () => {
+      const t0 = 1_700_000_000_000;
+      const minute = 60 * 1000;
+      const dateSpy = jest.spyOn(Date, 'now').mockReturnValue(t0);
+      type Cb = (err: Error | null, result?: { stdout: string; stderr: string }) => void;
+      execFileMock.mockImplementation((_f: string, _a: string[], _o: unknown, cb: Cb) => {
+        const err = new Error('Command failed: yt-dlp') as Error & {
+          code?: number;
+          stderr?: string;
+        };
+        err.code = 1;
+        err.stderr = 'ERROR: HTTP Error 429: Too Many Requests';
+        setImmediate(() => cb(err));
+      });
+      await youtube
+        .downloadSubtitles('https://www.youtube.com/watch?v=n', 'auto', 'en')
+        .catch(() => undefined);
+
+      // A run that finds no file may never have asked the caption endpoint at all.
+      dateSpy.mockReturnValue(t0 + 11 * minute);
+      execFileMock.mockImplementation((_f: string, _a: string[], _o: unknown, cb: Cb) =>
+        setImmediate(() => cb(null, { stdout: '', stderr: '' }))
+      );
+      await expect(
+        youtube.downloadSubtitles('https://www.youtube.com/watch?v=n', 'auto', 'en')
+      ).resolves.toBeNull();
+
+      execFileMock.mockImplementation((_f: string, _a: string[], _o: unknown, cb: Cb) => {
+        const err = new Error('Command failed: yt-dlp') as Error & {
+          code?: number;
+          stderr?: string;
+        };
+        err.code = 1;
+        err.stderr = 'ERROR: HTTP Error 429: Too Many Requests';
+        setImmediate(() => cb(err));
+      });
+      await youtube
+        .downloadSubtitles('https://www.youtube.com/watch?v=n', 'auto', 'en')
+        .catch(() => undefined);
+      // Second strike, so the wait is 20 minutes: still held 11 minutes later, and being
+      // held means no process runs — a cleared count would have let this call through.
+      dateSpy.mockReturnValue(t0 + 22 * minute);
+      execFileMock.mockClear();
+      await expect(
+        youtube.downloadSubtitles('https://www.youtube.com/watch?v=n', 'auto', 'en')
+      ).rejects.toMatchObject({ name: 'YtDlpError', reason: 'rate_limited' });
+      expect(execFileMock).not.toHaveBeenCalled();
+      dateSpy.mockRestore();
+    });
+
+    it('holds the platform back after yt-dlp itself is rate-limited', async () => {
+      execFileMock.mockImplementation(
+        (
+          _file: string,
+          _args: string[],
+          _opts: unknown,
+          cb: (err: Error & { code?: number; stderr?: string }) => void
+        ) => {
+          const err = new Error('Command failed: yt-dlp') as Error & {
+            code?: number;
+            stderr?: string;
+          };
+          err.code = 1;
+          err.stderr =
+            'ERROR: Unable to download video subtitles: HTTP Error 429: Too Many Requests';
+          setImmediate(() => cb(err));
+        }
+      );
+
+      await expect(
+        youtube.downloadSubtitles('https://www.youtube.com/watch?v=z', 'auto', 'en')
+      ).rejects.toMatchObject({ name: 'YtDlpError', reason: 'rate_limited' });
+
+      execFileMock.mockClear();
+      await expect(
+        youtube.downloadSubtitles('https://www.youtube.com/watch?v=z2', 'auto', 'en')
+      ).rejects.toMatchObject({ name: 'YtDlpError', reason: 'rate_limited' });
+      expect(execFileMock).not.toHaveBeenCalled();
     });
   });
 
@@ -1943,6 +2181,64 @@ today to pay our respects to MCP, which
       await expect(
         downloadPlaylistSubtitles('https://www.youtube.com/playlist?list=PLxxx', {})
       ).rejects.toMatchObject({ name: 'YtDlpError', reason: 'private' });
+    });
+
+    it('reports a cancelled queue that produced nothing and hit a limit as that limit', async () => {
+      execFileMock.mockImplementation(
+        (
+          _file: string,
+          _args: string[],
+          _opts: unknown,
+          cb: (err: Error | null, stdout: string, stderr: string) => void
+        ) => {
+          const err = new Error('Command failed: yt-dlp') as Error & {
+            code?: number;
+            stderr?: string;
+          };
+          err.code = 101;
+          err.stderr =
+            'ERROR: Unable to download video subtitles: HTTP Error 429: Too Many Requests';
+          setImmediate(() => cb(err, '', ''));
+        }
+      );
+
+      await expect(
+        downloadPlaylistSubtitles('https://www.youtube.com/playlist?list=PLxxx', { maxItems: 2 })
+      ).rejects.toMatchObject({ name: 'YtDlpError', reason: 'rate_limited' });
+    });
+
+    it('does not run while the platform is holding subtitle downloads back', async () => {
+      noteSubtitlesRateLimited('https://www.youtube.com/watch?v=x');
+
+      await expect(
+        downloadPlaylistSubtitles('https://www.youtube.com/playlist?list=PLxxx', { maxItems: 2 })
+      ).rejects.toMatchObject({ name: 'YtDlpError', reason: 'rate_limited' });
+      expect(execFileMock).not.toHaveBeenCalled();
+    });
+
+    it('treats exit 101 as the end of a bounded run, not as a failure', async () => {
+      // `--max-downloads` reached: yt-dlp cancels the queue on purpose and says so on
+      // stdout, which `--quiet` swallows — so the call used to fail with `unknown`.
+      execFileMock.mockImplementation(
+        (
+          _file: string,
+          _args: string[],
+          _opts: unknown,
+          cb: (err: Error | null, stdout: string, stderr: string) => void
+        ) => {
+          const err = new Error('Command failed: yt-dlp') as Error & {
+            code?: number;
+            stderr?: string;
+          };
+          err.code = 101;
+          err.stderr = '';
+          setImmediate(() => cb(err, '', ''));
+        }
+      );
+
+      await expect(
+        downloadPlaylistSubtitles('https://www.youtube.com/playlist?list=PLxxx', { maxItems: 2 })
+      ).resolves.toEqual([]);
     });
   });
 

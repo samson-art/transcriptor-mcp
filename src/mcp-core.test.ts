@@ -56,6 +56,9 @@ jest.mock('@sentry/node', () => ({
 jest.mock('./youtube.js', () => ({
   detectSubtitleFormat: jest.fn(),
   downloadPlaylistSubtitles: jest.fn(),
+  extractYouTubeVideoId: jest.fn(
+    (url: string) => /(?:[?&]v=|youtu\.be\/)([\w-]+)/.exec(url)?.[1] ?? null
+  ),
   parseSubtitles: jest.fn(),
   searchVideos: jest.fn(),
 }));
@@ -459,7 +462,7 @@ describe('mcp-core tools', () => {
 
       expect(result).toMatchObject({ isError: true });
       expect(result.content[0].text).toBe(
-        'The platform is rate-limiting this server right now. Wait a few minutes, then retry once; until then most requests to this platform will fail the same way. Videos on other platforms are not affected.'
+        'The platform is rate-limiting this server right now. Most requests to this platform keep failing while the limit lasts, and it can last hours: do not retry this request. Videos on other platforms are not affected.'
       );
     });
 
@@ -493,11 +496,25 @@ describe('mcp-core tools', () => {
           host: 'www.youtube.com',
           explicit: false,
           addr: expect.stringMatching(/^[0-9a-f]{12}$/),
+          vid: expect.stringMatching(/^[0-9a-f]{12}$/),
           source: 'widget',
         }),
         expect.objectContaining({ explicit: true, source: 'model' }),
       ]);
       expect(lines[0].addr).toBe(lines[1].addr);
+
+      // Two spellings of one video: different addresses, one video.
+      logger.warn.mockClear();
+      const short = 'https://youtu.be/video123';
+      normalizeVideoInputMock.mockReturnValue(short);
+      validateAndFetchVideoInfoMock.mockRejectedValue(new YtDlpError('private'));
+      await handler({ url: short }, {});
+      const viaShortLink = (logger.warn.mock.calls as Array<[Record<string, unknown>, string]>)
+        .filter((c) => c[1] === 'MCP tool call')
+        .map((c) => c[0])[0];
+      expect(viaShortLink.addr).not.toBe(lines[0].addr);
+      expect(viaShortLink.vid).toBe(lines[0].vid);
+      normalizeVideoInputMock.mockReturnValue(testUrl);
 
       // A link without https:// is rejected: it must not look like a bare video id.
       logger.warn.mockClear();

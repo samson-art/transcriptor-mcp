@@ -16,6 +16,11 @@ import {
   type YtDlpFailureReason,
 } from './errors.js';
 import { setYtDlpProcessGauges } from './metrics.js';
+import {
+  assertSubtitlesNotRateLimited,
+  clearSubtitlesRateLimit,
+  noteSubtitlesRateLimited,
+} from './subtitle-rate-limit.js';
 
 const execFileRaw = promisify(execFile);
 
@@ -160,6 +165,16 @@ function rethrowInfra(error: unknown): void {
   if (reason && YT_DLP_INFRA_REASONS.has(reason)) {
     throw new YtDlpError(reason);
   }
+}
+
+/**
+ * One place to notice a platform said 429, whichever of the two caption paths said it:
+ * the track's own URL throws a typed error, yt-dlp fails a process.
+ */
+function noteIfRateLimited(url: string, error: unknown): void {
+  const reason =
+    error instanceof YtDlpError ? error.reason : collectExecFileErrorDetails(error).reason;
+  if (reason === 'rate_limited') noteSubtitlesRateLimited(url);
 }
 
 /**
@@ -417,8 +432,19 @@ export async function downloadSubtitles(
   preFetchedData?: YtDlpVideoInfo | null
 ): Promise<string | null> {
   const subFormat = resolveSubtitleFormat(format);
-  const direct = await downloadSubtitleTrackDirect(preFetchedData, type, lang, subFormat, logger);
-  if (direct) return direct;
+  // Asking a platform that just answered 429 spends the quota that keeps it saying 429.
+  assertSubtitlesNotRateLimited(url);
+  let direct: string | null;
+  try {
+    direct = await downloadSubtitleTrackDirect(preFetchedData, type, lang, subFormat, logger);
+  } catch (error) {
+    noteIfRateLimited(url, error);
+    throw error;
+  }
+  if (direct) {
+    clearSubtitlesRateLimit(url);
+    return direct;
+  }
   const tempDir = tmpdir();
   const outputPath = join(tempDir, urlToSafeBase(url, 'subtitles'));
   const { jsRuntimes, remoteComponents, cookiesFilePathFromEnv } = getYtDlpEnv();
@@ -458,7 +484,7 @@ export async function downloadSubtitles(
       `Downloading ${type} subtitles in language ${lang}`
     );
 
-    return await runYtDlpAndExtractSubtitles(
+    const content = await runYtDlpAndExtractSubtitles(
       args,
       outputPath,
       tempDir,
@@ -467,7 +493,12 @@ export async function downloadSubtitles(
       lang,
       logger
     );
+    // Only a track proves the caption endpoint answered: a run that found nothing may
+    // never have asked it, and clearing on that would walk the server back into the limit.
+    if (content) clearSubtitlesRateLimit(url);
+    return content;
   } catch (error) {
+    noteIfRateLimited(url, error);
     rethrowInfra(error);
     logger?.error({ error }, 'Error downloading subtitles');
     return null;
@@ -475,6 +506,19 @@ export async function downloadSubtitles(
     await cookiesCleanup?.();
   }
 }
+
+/**
+ * What yt-dlp sends (`std_headers`, with a fixed Chrome version from the range it picks
+ * from), so this request stops looking like a bare Node runtime asking the endpoint a
+ * browser asked a second ago. Not a disguise: undici adds `Sec-Fetch-Mode: cors` of its
+ * own, which yt-dlp never sends, and the TLS fingerprint stays Node's.
+ */
+const DIRECT_TRACK_HEADERS: Record<string, string> = {
+  'User-Agent':
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36',
+  Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+  'Accept-Language': 'en-us,en;q=0.5',
+};
 
 /** A listed track we can fetch ourselves: not an HLS manifest, and an absolute https URL. */
 function directTrackUrl(
@@ -519,8 +563,16 @@ export async function downloadSubtitleTrackDirect(
   const started = Date.now();
   try {
     const response = await fetch(trackUrl, {
+      headers: DIRECT_TRACK_HEADERS,
       signal: AbortSignal.timeout(parseIntEnv('SUBTITLE_FETCH_TIMEOUT_MS', 15000)),
     });
+    if (response.status === 429) {
+      // Measured on both limit days: the yt-dlp run that would follow asks the same
+      // endpoint and gets the same answer (82 refusals here, 198 there), so it is not
+      // worth the request. Its cookies do not exempt it — the canary carries them too.
+      logger?.warn({ type, lang }, 'Direct subtitle track fetch rate-limited');
+      throw new YtDlpError('rate_limited');
+    }
     if (!response.ok) {
       logger?.warn({ type, lang, status: response.status }, 'Direct subtitle track fetch failed');
       return null;
@@ -541,6 +593,7 @@ export async function downloadSubtitleTrackDirect(
     logger?.info({ type, lang, format, ms: Date.now() - started }, 'Downloaded subtitles directly');
     return content;
   } catch (error) {
+    if (error instanceof HttpError) throw error;
     logger?.warn(
       { type, lang, error: error instanceof Error ? error.message : String(error) },
       'Direct subtitle track fetch failed'
@@ -680,6 +733,23 @@ async function handlePlaylistDownloadError(
   logger?: FastifyBaseLogger
 ): Promise<PlaylistSubtitlesResult[]> {
   const details = collectExecFileErrorDetails(error);
+  // Exit 101 is yt-dlp cancelling the queue on purpose: `--max-downloads` reached, which
+  // is what `maxItems` asks for, or `--break-on-existing`. The items before it were
+  // written, so this is the normal end of a bounded run. yt-dlp says so on stdout only,
+  // and `--quiet` swallows that, which is why it used to be classified `unknown` and
+  // failed a call that had done exactly what was asked. A cancelled queue that produced
+  // nothing is not proof of that, though: a platform refusing every item ends the same
+  // way, and a classified refusal must still be reported as one.
+  if (details.exitCode === 101) {
+    const stopped = await readResults().catch(() => []);
+    if (stopped.length > 0 || !details.reason || !YT_DLP_INFRA_REASONS.has(details.reason)) {
+      logger?.info(
+        { count: stopped.length, tempDir },
+        'yt-dlp cancelled the playlist queue (item limit or download archive)'
+      );
+      return stopped;
+    }
+  }
   logger?.error(execDetailsToLogFields(details), 'Error downloading playlist subtitles');
 
   const partial = await readResults().catch(() => []);
@@ -710,6 +780,9 @@ export async function downloadPlaylistSubtitles(
 ): Promise<PlaylistSubtitlesResult[]> {
   const { type = 'auto', lang = 'en', format, playlistItems, maxItems } = options;
   const subFormat = resolveSubtitleFormat(format);
+  // One playlist run asks for as many tracks as it has items: the heaviest caller of the
+  // caption endpoint must be the first to stop while the platform is refusing.
+  assertSubtitlesNotRateLimited(url);
   const tempDir = join(
     tmpdir(),
     `playlist_subs_${Date.now()}_${Math.random().toString(36).slice(2)}`
@@ -787,9 +860,12 @@ export async function downloadPlaylistSubtitles(
       });
       logger?.debug({ tempDir }, 'yt-dlp playlist subtitles completed');
 
-      return await readPlaylistSubtitleResults();
+      const results = await readPlaylistSubtitleResults();
+      if (results.length > 0) clearSubtitlesRateLimit(url);
+      return results;
     } catch (error: unknown) {
       if (error instanceof HttpError) throw error;
+      noteIfRateLimited(url, error);
       return handlePlaylistDownloadError(
         error,
         readPlaylistSubtitleResults,

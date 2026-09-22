@@ -83,7 +83,7 @@ const YT_DLP_MESSAGES: Record<YtDlpFailureReason, string> = {
   bot_check:
     'The platform answered this server with a bot detection check, so this request could not be completed. This is about the server, not about what was asked for: do not retry now; other requests to this platform will likely fail the same way. Other platforms still work.',
   rate_limited:
-    'The platform is rate-limiting this server right now. Wait a few minutes, then retry once; until then most requests to this platform will fail the same way. Videos on other platforms are not affected.',
+    'The platform is rate-limiting this server right now. Most requests to this platform keep failing while the limit lasts, and it can last hours: do not retry this request. Videos on other platforms are not affected.',
   timeout:
     'The server ran out of time on this request (the platform was slow or the job was too large). Retry once; if it times out again, do not retry.',
   extractor:
@@ -108,9 +108,15 @@ const YT_DLP_MESSAGES: Record<YtDlpFailureReason, string> = {
 export class YtDlpError extends HttpError {
   readonly reason: YtDlpFailureReason;
 
-  constructor(reason: YtDlpFailureReason) {
+  /**
+   * `detail` is appended to the fixed sentence when the server knows more than the class
+   * itself says — how long a rate limit has already been on, for example. Like every
+   * message here it goes to the caller, so it carries no command line, URL or path.
+   */
+  constructor(reason: YtDlpFailureReason, detail?: string) {
     const infra = YT_DLP_INFRA_REASONS.has(reason);
-    super(infra ? 502 : 404, YT_DLP_MESSAGES[reason], infra ? 'Upstream error' : 'Not found');
+    const message = detail ? `${YT_DLP_MESSAGES[reason]} ${detail}` : YT_DLP_MESSAGES[reason];
+    super(infra ? 502 : 404, message, infra ? 'Upstream error' : 'Not found');
     this.name = 'YtDlpError';
     this.reason = reason;
     Object.setPrototypeOf(this, new.target.prototype);

@@ -20,6 +20,10 @@ import * as youtube from './youtube.js';
 import { get as cacheGet, set as cacheSet } from './cache.js';
 import * as whisper from './whisper.js';
 import * as whisperJobs from './whisper-jobs.js';
+import {
+  noteSubtitlesRateLimited,
+  resetSubtitleRateLimitsForTests,
+} from './subtitle-rate-limit.js';
 
 jest.mock('./whisper.js', () => ({
   getWhisperConfig: jest.fn(() => ({ mode: 'off', timeout: 600_000 })),
@@ -347,6 +351,35 @@ describe('validation', () => {
       ).rejects.toThrow(YtDlpError);
       // The platform is throttling us; transcribing audio would hit the same wall.
       expect(whisperSpy).not.toHaveBeenCalled();
+    });
+
+    it('refuses a held platform before it runs yt-dlp for metadata', async () => {
+      // The point of the hold is that nothing leaves the server, and that the caller is
+      // not kept waiting for a metadata run whose answer cannot be used anyway.
+      resetSubtitleRateLimitsForTests();
+      noteSubtitlesRateLimited('https://www.youtube.com/watch?v=dQw4w9WgXcQ');
+      const jsonSpy = jest.spyOn(youtube, 'fetchYtDlpJson');
+      const downloadSpy = jest.spyOn(youtube, 'downloadSubtitles');
+
+      try {
+        await expect(
+          validateAndDownloadSubtitles({
+            url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+            type: 'auto',
+            lang: 'en',
+          })
+        ).rejects.toMatchObject({ name: 'YtDlpError', reason: 'rate_limited' });
+
+        // Auto-discovery reads the track list first, so it must be refused there too.
+        await expect(
+          validateAndDownloadSubtitles({ url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ' })
+        ).rejects.toMatchObject({ name: 'YtDlpError', reason: 'rate_limited' });
+
+        expect(jsonSpy).not.toHaveBeenCalled();
+        expect(downloadSpy).not.toHaveBeenCalled();
+      } finally {
+        resetSubtitleRateLimitsForTests();
+      }
     });
 
     it('should throw ValidationError for invalid YouTube URL', async () => {
