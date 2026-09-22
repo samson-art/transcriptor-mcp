@@ -64,7 +64,6 @@ jest.mock('./youtube.js', () => ({
 }));
 
 jest.mock('./validation.js', () => ({
-  extractPlatformFromUrl: jest.fn(() => 'youtube'),
   normalizeVideoInput: jest.fn(),
   sanitizeLang: jest.fn(),
   validateAndDownloadSubtitles: jest.fn(),

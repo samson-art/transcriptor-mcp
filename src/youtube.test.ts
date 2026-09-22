@@ -47,6 +47,26 @@ describe('youtube', () => {
     resetSubtitleRateLimitsForTests();
   });
 
+  /** yt-dlp exits non-zero with this on stderr. `promisify` drops everything after the error. */
+  function mockExecFileFailure(stderr: string, code = 1) {
+    execFileMock.mockImplementation(
+      (
+        _file: string,
+        _args: string[],
+        _options: unknown,
+        callback: (error: Error | null, result?: { stdout: string; stderr: string }) => void
+      ) => {
+        const error = new Error('Command failed: yt-dlp --cookies /cookies.txt') as Error & {
+          code?: number;
+          stderr?: string;
+        };
+        error.code = code;
+        error.stderr = stderr;
+        setImmediate(() => callback(error, { stdout: '', stderr }));
+      }
+    );
+  }
+
   describe('extractYouTubeVideoId', () => {
     it('should extract video ID from standard YouTube URLs', () => {
       expect(extractYouTubeVideoId('https://www.youtube.com/watch?v=dQw4w9WgXcQ')).toBe(
@@ -581,18 +601,15 @@ today to pay our respects to MCP, which
 
     beforeEach(() => {
       jest.clearAllMocks();
-      resetSubtitleRateLimitsForTests();
       fetchMock = jest.fn();
       globalThis.fetch = fetchMock as unknown as typeof fetch;
     });
 
-    afterEach(() => {
-      resetSubtitleRateLimitsForTests();
-    });
-
-    it('reports a 429 on the track URL as a rate limit, without asking yt-dlp the same thing', async () => {
+    it('answers the next call for that platform without spending a request', async () => {
       fetchMock.mockResolvedValue({ ok: false, status: 429, text: () => Promise.resolve('') });
 
+      // A 429 on the track URL is the platform's answer for the whole platform: reported
+      // as a rate limit, and without handing the doomed request on to yt-dlp.
       await expect(
         youtube.downloadSubtitles(
           'https://www.youtube.com/watch?v=x',
@@ -604,30 +621,12 @@ today to pay our respects to MCP, which
         )
       ).rejects.toMatchObject({ name: 'YtDlpError', reason: 'rate_limited' });
       expect(execFileMock).not.toHaveBeenCalled();
-    });
-
-    it('answers the next call for that platform without spending a request', async () => {
-      fetchMock.mockResolvedValue({ ok: false, status: 429, text: () => Promise.resolve('') });
-      await youtube
-        .downloadSubtitles(
-          'https://www.youtube.com/watch?v=x',
-          'official',
-          'en',
-          'vtt',
-          undefined,
-          data
-        )
-        .catch(() => undefined);
       fetchMock.mockClear();
 
       // Another spelling of the same platform: the limit is the platform's, not the URL's.
-      const err = (await youtube
-        .downloadSubtitles('https://youtu.be/y', 'official', 'en', 'vtt', undefined, data)
-        .then(() => null)
-        .catch((e: unknown) => e)) as Error;
-
-      expect(err).toMatchObject({ name: 'YtDlpError', reason: 'rate_limited' });
-      expect(err.message).toContain('will not ask it again for');
+      await expect(
+        youtube.downloadSubtitles('https://youtu.be/y', 'official', 'en', 'vtt', undefined, data)
+      ).rejects.toMatchObject({ name: 'YtDlpError', reason: 'rate_limited' });
       expect(fetchMock).not.toHaveBeenCalled();
       expect(execFileMock).not.toHaveBeenCalled();
     });
@@ -673,16 +672,7 @@ today to pay our respects to MCP, which
       const url = 'https://www.youtube.com/watch?v=q';
       const dateSpy = jest.spyOn(Date, 'now').mockReturnValue(t0);
       type Cb = (err: Error | null, result?: { stdout: string; stderr: string }) => void;
-      const refuse = () =>
-        execFileMock.mockImplementation((_f: string, _a: string[], _o: unknown, cb: Cb) => {
-          const err = new Error('Command failed: yt-dlp') as Error & {
-            code?: number;
-            stderr?: string;
-          };
-          err.code = 1;
-          err.stderr = 'ERROR: HTTP Error 429: Too Many Requests';
-          setImmediate(() => cb(err));
-        });
+      const refuse = () => mockExecFileFailure('ERROR: HTTP Error 429: Too Many Requests');
       // yt-dlp writes the track next to the output path, which carries the current clock.
       const answerWithTrack = async () => {
         await writeFile(
@@ -717,15 +707,7 @@ today to pay our respects to MCP, which
       const minute = 60 * 1000;
       const dateSpy = jest.spyOn(Date, 'now').mockReturnValue(t0);
       type Cb = (err: Error | null, result?: { stdout: string; stderr: string }) => void;
-      execFileMock.mockImplementation((_f: string, _a: string[], _o: unknown, cb: Cb) => {
-        const err = new Error('Command failed: yt-dlp') as Error & {
-          code?: number;
-          stderr?: string;
-        };
-        err.code = 1;
-        err.stderr = 'ERROR: HTTP Error 429: Too Many Requests';
-        setImmediate(() => cb(err));
-      });
+      mockExecFileFailure('ERROR: HTTP Error 429: Too Many Requests');
       await youtube
         .downloadSubtitles('https://www.youtube.com/watch?v=n', 'auto', 'en')
         .catch(() => undefined);
@@ -739,15 +721,7 @@ today to pay our respects to MCP, which
         youtube.downloadSubtitles('https://www.youtube.com/watch?v=n', 'auto', 'en')
       ).resolves.toBeNull();
 
-      execFileMock.mockImplementation((_f: string, _a: string[], _o: unknown, cb: Cb) => {
-        const err = new Error('Command failed: yt-dlp') as Error & {
-          code?: number;
-          stderr?: string;
-        };
-        err.code = 1;
-        err.stderr = 'ERROR: HTTP Error 429: Too Many Requests';
-        setImmediate(() => cb(err));
-      });
+      mockExecFileFailure('ERROR: HTTP Error 429: Too Many Requests');
       await youtube
         .downloadSubtitles('https://www.youtube.com/watch?v=n', 'auto', 'en')
         .catch(() => undefined);
@@ -763,22 +737,8 @@ today to pay our respects to MCP, which
     });
 
     it('holds the platform back after yt-dlp itself is rate-limited', async () => {
-      execFileMock.mockImplementation(
-        (
-          _file: string,
-          _args: string[],
-          _opts: unknown,
-          cb: (err: Error & { code?: number; stderr?: string }) => void
-        ) => {
-          const err = new Error('Command failed: yt-dlp') as Error & {
-            code?: number;
-            stderr?: string;
-          };
-          err.code = 1;
-          err.stderr =
-            'ERROR: Unable to download video subtitles: HTTP Error 429: Too Many Requests';
-          setImmediate(() => cb(err));
-        }
+      mockExecFileFailure(
+        'ERROR: Unable to download video subtitles: HTTP Error 429: Too Many Requests'
       );
 
       await expect(
@@ -1880,25 +1840,6 @@ today to pay our respects to MCP, which
   describe('yt-dlp failures that are about the server, not the video', () => {
     const botCheck = "ERROR: [youtube] x: Sign in to confirm you're not a bot";
 
-    function mockExecFileFailure(stderr: string) {
-      execFileMock.mockImplementation(
-        (
-          _file: string,
-          _args: string[],
-          _options: unknown,
-          callback: (error: Error | null, result?: { stdout: string; stderr: string }) => void
-        ) => {
-          const error = new Error('Command failed: yt-dlp --cookies /cookies.txt') as Error & {
-            code?: number;
-            stderr?: string;
-          };
-          error.code = 1;
-          error.stderr = stderr;
-          setImmediate(() => callback(error, { stdout: '', stderr }));
-        }
-      );
-    }
-
     beforeEach(() => {
       jest.clearAllMocks();
     });
@@ -2184,22 +2125,9 @@ today to pay our respects to MCP, which
     });
 
     it('reports a cancelled queue that produced nothing and hit a limit as that limit', async () => {
-      execFileMock.mockImplementation(
-        (
-          _file: string,
-          _args: string[],
-          _opts: unknown,
-          cb: (err: Error | null, stdout: string, stderr: string) => void
-        ) => {
-          const err = new Error('Command failed: yt-dlp') as Error & {
-            code?: number;
-            stderr?: string;
-          };
-          err.code = 101;
-          err.stderr =
-            'ERROR: Unable to download video subtitles: HTTP Error 429: Too Many Requests';
-          setImmediate(() => cb(err, '', ''));
-        }
+      mockExecFileFailure(
+        'ERROR: Unable to download video subtitles: HTTP Error 429: Too Many Requests',
+        101
       );
 
       await expect(
@@ -2219,22 +2147,7 @@ today to pay our respects to MCP, which
     it('treats exit 101 as the end of a bounded run, not as a failure', async () => {
       // `--max-downloads` reached: yt-dlp cancels the queue on purpose and says so on
       // stdout, which `--quiet` swallows — so the call used to fail with `unknown`.
-      execFileMock.mockImplementation(
-        (
-          _file: string,
-          _args: string[],
-          _opts: unknown,
-          cb: (err: Error | null, stdout: string, stderr: string) => void
-        ) => {
-          const err = new Error('Command failed: yt-dlp') as Error & {
-            code?: number;
-            stderr?: string;
-          };
-          err.code = 101;
-          err.stderr = '';
-          setImmediate(() => cb(err, '', ''));
-        }
-      );
+      mockExecFileFailure('', 101);
 
       await expect(
         downloadPlaylistSubtitles('https://www.youtube.com/playlist?list=PLxxx', { maxItems: 2 })

@@ -17,10 +17,6 @@ import {
 } from './youtube.js';
 import { extractPlatformFromUrl } from './platform.js';
 import { assertSubtitlesNotRateLimited } from './subtitle-rate-limit.js';
-
-// Lives in its own module so youtube.ts can use it without importing this one back;
-// re-exported because callers and tests have always found it here.
-export { extractPlatformFromUrl };
 import { getWhisperConfig } from './whisper.js';
 import { parseIntEnv } from './env.js';
 import { startOrReuseWhisperJob } from './whisper-jobs.js';

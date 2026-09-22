@@ -31,8 +31,8 @@ import {
   ValidationError,
   YtDlpError,
 } from './errors.js';
+import { extractPlatformFromUrl } from './platform.js';
 import {
-  extractPlatformFromUrl,
   normalizeVideoInput,
   sanitizeLang,
   validateAndDownloadSubtitles,
@@ -425,9 +425,7 @@ function toolCallLogFields({ args, extra }: ToolCall) {
       host = resolved ? 'bare_id' : hostOfSchemeless(input);
     }
   }
-  // `addr` is the address as it arrived, so `youtu.be/X` and `watch?v=X` hash apart.
-  // `vid` is the video behind them, and the two together say how many spellings of one
-  // video the cache is asked for — the number that decides whether to canonicalize.
+  // Hashed video id beside the hashed address: it counts spellings of one video.
   const videoId = url ? extractYouTubeVideoId(url) : null;
   return {
     platform: url ? extractPlatformFromUrl(url) : undefined,

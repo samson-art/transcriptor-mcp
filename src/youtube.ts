@@ -507,19 +507,6 @@ export async function downloadSubtitles(
   }
 }
 
-/**
- * What yt-dlp sends (`std_headers`, with a fixed Chrome version from the range it picks
- * from), so this request stops looking like a bare Node runtime asking the endpoint a
- * browser asked a second ago. Not a disguise: undici adds `Sec-Fetch-Mode: cors` of its
- * own, which yt-dlp never sends, and the TLS fingerprint stays Node's.
- */
-const DIRECT_TRACK_HEADERS: Record<string, string> = {
-  'User-Agent':
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36',
-  Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-  'Accept-Language': 'en-us,en;q=0.5',
-};
-
 /** A listed track we can fetch ourselves: not an HLS manifest, and an absolute https URL. */
 function directTrackUrl(
   track: { ext?: string; url?: string },
@@ -563,7 +550,16 @@ export async function downloadSubtitleTrackDirect(
   const started = Date.now();
   try {
     const response = await fetch(trackUrl, {
-      headers: DIRECT_TRACK_HEADERS,
+      // What yt-dlp sends (`std_headers`, with a fixed Chrome version from the range it
+      // picks from), so this stops looking like a bare Node runtime asking the endpoint a
+      // browser asked a second ago. Not a disguise: undici adds a `Sec-Fetch-Mode` of its
+      // own that yt-dlp never sends, and the TLS fingerprint stays Node's.
+      headers: {
+        'User-Agent':
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36',
+        Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'en-us,en;q=0.5',
+      },
       signal: AbortSignal.timeout(parseIntEnv('SUBTITLE_FETCH_TIMEOUT_MS', 15000)),
     });
     if (response.status === 429) {
@@ -733,26 +729,22 @@ async function handlePlaylistDownloadError(
   logger?: FastifyBaseLogger
 ): Promise<PlaylistSubtitlesResult[]> {
   const details = collectExecFileErrorDetails(error);
-  // Exit 101 is yt-dlp cancelling the queue on purpose: `--max-downloads` reached, which
-  // is what `maxItems` asks for, or `--break-on-existing`. The items before it were
-  // written, so this is the normal end of a bounded run. yt-dlp says so on stdout only,
-  // and `--quiet` swallows that, which is why it used to be classified `unknown` and
-  // failed a call that had done exactly what was asked. A cancelled queue that produced
-  // nothing is not proof of that, though: a platform refusing every item ends the same
-  // way, and a classified refusal must still be reported as one.
-  if (details.exitCode === 101) {
-    const stopped = await readResults().catch(() => []);
-    if (stopped.length > 0 || !details.reason || !YT_DLP_INFRA_REASONS.has(details.reason)) {
-      logger?.info(
-        { count: stopped.length, tempDir },
-        'yt-dlp cancelled the playlist queue (item limit or download archive)'
-      );
-      return stopped;
-    }
+  const partial = await readResults().catch(() => []);
+
+  // Exit 101 is yt-dlp cancelling the queue on purpose: `--max-downloads` reached, which is
+  // what `maxItems` asks for. It says so on stdout only and `--quiet` swallows that, which
+  // is why this used to fail a call that had done exactly what was asked. A queue cancelled
+  // with nothing written is not proof of that, though: a platform refusing every item ends
+  // the same way, and a classified refusal must still be reported as one.
+  if (
+    details.exitCode === 101 &&
+    (partial.length > 0 || !details.reason || !YT_DLP_INFRA_REASONS.has(details.reason))
+  ) {
+    logger?.info({ count: partial.length, tempDir }, 'yt-dlp cancelled the playlist queue');
+    return partial;
   }
   logger?.error(execDetailsToLogFields(details), 'Error downloading playlist subtitles');
 
-  const partial = await readResults().catch(() => []);
   if (partial.length > 0) {
     logger?.warn(
       { count: partial.length, tempDir },

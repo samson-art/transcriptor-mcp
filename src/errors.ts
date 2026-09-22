@@ -108,15 +108,9 @@ const YT_DLP_MESSAGES: Record<YtDlpFailureReason, string> = {
 export class YtDlpError extends HttpError {
   readonly reason: YtDlpFailureReason;
 
-  /**
-   * `detail` is appended to the fixed sentence when the server knows more than the class
-   * itself says — how long a rate limit has already been on, for example. Like every
-   * message here it goes to the caller, so it carries no command line, URL or path.
-   */
-  constructor(reason: YtDlpFailureReason, detail?: string) {
+  constructor(reason: YtDlpFailureReason) {
     const infra = YT_DLP_INFRA_REASONS.has(reason);
-    const message = detail ? `${YT_DLP_MESSAGES[reason]} ${detail}` : YT_DLP_MESSAGES[reason];
-    super(infra ? 502 : 404, message, infra ? 'Upstream error' : 'Not found');
+    super(infra ? 502 : 404, YT_DLP_MESSAGES[reason], infra ? 'Upstream error' : 'Not found');
     this.name = 'YtDlpError';
     this.reason = reason;
     Object.setPrototypeOf(this, new.target.prototype);
