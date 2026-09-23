@@ -319,12 +319,12 @@ export function validateYouTubeRequest(url: string): { videoId: string } {
  * Best track first. The lists arrive sorted alphabetically, which is why a video listing
  * `ar, de, en` used to spend two caption requests before reaching the one anybody wanted.
  */
-function preferredTrackOrder(langs: string[], videoLanguage?: string | null): string[] {
+export function preferredTrackOrder(langs: string[], promote?: string | null): string[] {
   const base = (lang: string): string => lang.split('-')[0].toLowerCase();
-  const spoken = videoLanguage ? base(videoLanguage) : undefined;
+  const first = promote ? base(promote) : undefined;
   const rank = (lang: string): number => {
     if (lang.endsWith('-orig')) return 0; // YouTube's track in the audio's own language
-    if (spoken && base(lang) === spoken) return 1;
+    if (first && base(lang) === first) return 1;
     if (base(lang) === 'en') return 2;
     return 3;
   };
@@ -398,17 +398,7 @@ async function downloadWithAutoDiscover(
   if (whisperConfig.mode !== 'off') {
     logger?.info('Trying Whisper fallback for auto-discovery');
     const job = startOrReuseWhisperJob(url, '', 'srt', logger);
-    // The loser of the race has to be cleaned up: an uncleared WHISPER_TIMEOUT timer
-    // holds its closure — and the event loop — for the full ten minutes after the job
-    // already answered.
-    let whisperTimer: NodeJS.Timeout | undefined;
-    const outcome = await Promise.race([
-      job.then((content) => ({ kind: 'done' as const, content })),
-      new Promise<{ kind: 'timeout' }>((resolve) => {
-        whisperTimer = setTimeout(() => resolve({ kind: 'timeout' }), whisperConfig.timeout);
-      }),
-    ]);
-    clearTimeout(whisperTimer);
+    const outcome = await raceWhisperJob(job, whisperConfig.timeout);
 
     let content: string | null = null;
     if (outcome.kind === 'timeout') {
@@ -527,30 +517,35 @@ async function loadAvailableSubtitles(
   return { ...loaded.avail, data: loaded.data };
 }
 
-/** What the caller asked for. The two flows fail for different reasons and end differently. */
-type SubtitleRequestShape =
-  | { kind: 'auto' }
-  | { kind: 'explicit'; type: 'official' | 'auto'; lang: string; defaulted: boolean };
-
 /**
- * What speech-to-text has to say, as a fact. Whether it is also the caller's next step
- * is decided below: on a server with a length ceiling the job will never run for this
- * video again, so the useful step is a different track, not another wait.
+ * Waits for the Whisper job or for the per-request deadline, whichever answers first. The
+ * loser has to be cleaned up: an uncleared WHISPER_TIMEOUT timer holds its callback — and
+ * the event loop — for the full ten minutes after the job already answered.
  */
-function whisperFact(maxSeconds: number): string {
-  return maxSeconds > 0
-    ? `Speech-to-text produced nothing either; this server transcribes only videos up to ${maxSeconds} seconds long.`
-    : 'Speech-to-text was also tried and produced nothing; if it timed out it may still finish in the background.';
+async function raceWhisperJob<T>(
+  job: Promise<T>,
+  timeoutMs: number
+): Promise<{ kind: 'done'; content: T } | { kind: 'timeout' }> {
+  let timer: NodeJS.Timeout | undefined;
+  const outcome = await Promise.race([
+    job.then((content) => ({ kind: 'done' as const, content })),
+    new Promise<{ kind: 'timeout' }>((resolve) => {
+      timer = setTimeout(() => resolve({ kind: 'timeout' }), timeoutMs);
+    }),
+  ]);
+  clearTimeout(timer);
+  return outcome;
 }
 
 async function throwNoSubtitlesError(opts: {
   url: string;
-  request: SubtitleRequestShape;
-  whisperTried: boolean;
+  /** What the caller asked for by name; absent means auto-discovery chose. */
+  asked?: { type: 'official' | 'auto'; lang: string; defaulted: boolean };
   /** The list the caller already read; without it this costs another yt-dlp run. */
   available?: AvailableSubtitles;
   logger?: FastifyBaseLogger;
 }): Promise<never> {
+  const whisperTried = getWhisperConfig().mode !== 'off';
   const available =
     opts.available ??
     (await validateAndFetchAvailableSubtitles({ url: opts.url }, opts.logger).catch(
@@ -561,20 +556,23 @@ async function throwNoSubtitlesError(opts: {
         return undefined;
       }
     ));
-  if (opts.whisperTried) recordSubtitlesFailure(opts.url, 'no_subtitles');
+  if (whisperTried) recordSubtitlesFailure(opts.url, 'no_subtitles');
 
-  const base =
-    opts.request.kind === 'auto'
-      ? `No subtitles could be downloaded for this video (auto-discovery asked for at most ${AUTO_DISCOVERY_ATTEMPTS} of the tracks this platform lists, best match first).`
-      : `No ${opts.request.type} subtitles could be downloaded for language "${opts.request.lang}".` +
-        (opts.request.defaulted
-          ? ' When only one of type and lang is given, the other defaults to type "auto" and lang "en".'
-          : '');
+  const base = !opts.asked
+    ? `No subtitles could be downloaded for this video (auto-discovery asked for at most ${AUTO_DISCOVERY_ATTEMPTS} of the tracks this platform lists, best match first).`
+    : `No ${opts.asked.type} subtitles could be downloaded for language "${opts.asked.lang}".` +
+      (opts.asked.defaulted
+        ? ' When only one of type and lang is given, the other defaults to type "auto" and lang "en".'
+        : '');
 
+  // A length ceiling means the job will never run for this video again, so the useful next
+  // step is a different track rather than another wait — that is what the ladder below reads.
   const whisperCeiling = parseIntEnv('WHISPER_MAX_DURATION_SECONDS', 0);
-  const verdict = opts.whisperTried
-    ? whisperFact(whisperCeiling)
-    : 'This server does not transcribe audio.';
+  const verdict = !whisperTried
+    ? 'This server does not transcribe audio.'
+    : whisperCeiling > 0
+      ? `Speech-to-text produced nothing either; this server transcribes only videos up to ${whisperCeiling} seconds long.`
+      : 'Speech-to-text was also tried and produced nothing; if it timed out it may still finish in the background.';
 
   // "Could not be read" and "is empty" are different answers: one says try again another
   // way, the other says nothing will work. Collapsing them is the mistake to avoid here.
@@ -588,11 +586,11 @@ async function throwNoSubtitlesError(opts: {
   // Exactly one next step, whatever the branch: two of them in one message is how a
   // caller ends up repeating the call it was just told not to repeat.
   const nextStep =
-    opts.whisperTried && whisperCeiling === 0
+    whisperTried && whisperCeiling === 0
       ? 'You may retry the same call once in a few minutes; if it fails again, do not retry.'
       : trackFact !== ''
         ? 'Do not repeat the same call.'
-        : opts.request.kind === 'auto'
+        : !opts.asked
           ? 'To try a track auto-discovery skipped, pass type and lang explicitly.'
           : 'Omit type and lang to let the server choose, or pass a type and lang the video actually has.';
 
@@ -603,7 +601,7 @@ async function throwNoSubtitlesError(opts: {
       ? {
           official: available.official,
           auto: available.auto,
-          ...(opts.request.kind === 'explicit' ? { tried: opts.request.lang } : {}),
+          ...(opts.asked ? { tried: opts.asked.lang } : {}),
         }
       : undefined
   );
@@ -647,8 +645,7 @@ async function handleAutoDiscoverFlow(
     ttl: cacheConfig.ttlSubtitlesSeconds,
   });
   if (!result) {
-    const whisperTried = getWhisperConfig().mode !== 'off';
-    await throwNoSubtitlesError({ url, request: { kind: 'auto' }, whisperTried, logger });
+    await throwNoSubtitlesError({ url, logger });
   }
 
   const found = result as SubtitleResult;
@@ -718,14 +715,7 @@ async function handleExplicitRequestFlow(
     if (whisperConfig.mode !== 'off') {
       logger?.info({ lang: sanitizedLang }, 'Trying Whisper fallback');
       const job = startOrReuseWhisperJob(url, sanitizedLang, 'srt', logger);
-      let whisperTimer: NodeJS.Timeout | undefined;
-      const outcome = await Promise.race([
-        job.then((content) => ({ kind: 'done' as const, content })),
-        new Promise<{ kind: 'timeout' }>((resolve) => {
-          whisperTimer = setTimeout(() => resolve({ kind: 'timeout' }), whisperConfig.timeout);
-        }),
-      ]);
-      clearTimeout(whisperTimer);
+      const outcome = await raceWhisperJob(job, whisperConfig.timeout);
 
       if (outcome.kind === 'timeout') {
         void job.then(async (text) => {
@@ -750,18 +740,15 @@ async function handleExplicitRequestFlow(
   }
 
   if (!subtitlesContent) {
-    const whisperTried = getWhisperConfig().mode !== 'off';
     await throwNoSubtitlesError({
       url,
-      request: {
-        kind: 'explicit',
+      // Only one of the two given means the server substituted the other, and the caller
+      // cannot see which value it substituted unless the text says so.
+      asked: {
         type,
         lang: sanitizedLang,
-        // Only one of the two given means the server substituted the other, and the
-        // caller cannot see which value it substituted unless the text says so.
         defaulted: (request.type === undefined) !== (request.lang === undefined),
       },
-      whisperTried,
       available: loaded?.avail,
       logger,
     });

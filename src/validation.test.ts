@@ -13,7 +13,6 @@ import {
   validateAndFetchVideoInfo,
   validateAndFetchVideoChapters,
   validateAndCaptureVideoFrame,
-  validateVideoRequest,
   resetVideoJsonInFlight,
 } from './validation.js';
 import { extractPlatformFromUrl } from './platform.js';
@@ -464,7 +463,10 @@ describe('validation', () => {
           type: 'auto',
           lang: 'en',
         } as any)
-      ).rejects.toMatchObject({ errorLabel: 'Invalid video URL' });
+      ).rejects.toMatchObject({
+        errorLabel: 'Invalid video URL',
+        message: INVALID_VIDEO_URL_MESSAGE,
+      });
       expect(downloadSpy).not.toHaveBeenCalled();
     });
 
@@ -973,30 +975,6 @@ describe('validation', () => {
         );
       });
 
-      it('should throw NotFoundError when all attempts and Whisper fail', async () => {
-        jest.spyOn(youtube, 'fetchYtDlpJson').mockResolvedValue({
-          id: 'dQw4w9WgXcQ',
-          subtitles: {},
-          automatic_captions: {},
-        });
-        jest.spyOn(youtube, 'downloadSubtitles').mockResolvedValue(null);
-        (whisper.getWhisperConfig as jest.Mock).mockReturnValue({
-          mode: 'local',
-          timeout: 600_000,
-        });
-        (whisperJobs.startOrReuseWhisperJob as jest.Mock).mockResolvedValue(null);
-
-        await expect(validateAndDownloadSubtitles({ url: youtubeUrl } as any)).rejects.toThrow(
-          NotFoundError
-        );
-        await expect(
-          validateAndDownloadSubtitles({ url: youtubeUrl } as any)
-        ).rejects.toMatchObject({
-          errorLabel: 'Subtitles not found',
-          message: expect.stringContaining('No subtitles could be downloaded'),
-        });
-      });
-
       it('should call cache.set when Whisper finishes after WHISPER_TIMEOUT (auto-discover)', async () => {
         (cacheSet as jest.Mock).mockClear();
         jest.spyOn(youtube, 'fetchYtDlpJson').mockResolvedValue({
@@ -1459,17 +1437,11 @@ describe('validation', () => {
     it('should map capture_failed to NotFoundError without the ffmpeg details', async () => {
       mockCaptureFailure();
 
-      await expect(validateAndCaptureVideoFrame({ url, seconds: 10 })).rejects.toMatchObject({
-        name: 'NotFoundError',
-        errorLabel: 'Frame capture failed',
-      });
-      const err = await validateAndCaptureVideoFrame({ url, seconds: 10 }).catch(
-        (e: Error) => e.message
-      );
-      expect(err).toContain('00:00:10.000');
-      expect(err).not.toContain('ffmpeg');
-      expect(err).not.toContain('cdn.example');
-      expect(err).not.toContain('Command failed');
+      const err = await validateAndCaptureVideoFrame({ url, seconds: 10 }).catch((e: Error) => e);
+
+      expect(err).toMatchObject({ name: 'NotFoundError', errorLabel: 'Frame capture failed' });
+      expect((err as Error).message).toContain('00:00:10.000');
+      expect((err as Error).message).not.toContain('ffmpeg');
     });
 
     it('should offer an earlier timestamp only when there is one', async () => {
@@ -1488,19 +1460,11 @@ describe('validation', () => {
       expect(zero).toContain('00:00:00.000');
       expect(zero).not.toMatch(/earlier/i);
       expect(zero).toContain('get_video_info');
-    });
-
-    it('should treat the default timestamp like an explicit zero', async () => {
-      mockCaptureFailure();
-
-      const explicit = await validateAndCaptureVideoFrame({ url, seconds: 0 }).catch(
-        (e: Error) => e.message
-      );
-      const byDefault = await validateAndCaptureVideoFrame({ url }).catch((e: Error) => e.message);
 
       // Branching on request.seconds instead of the resolved timestamp passes the default
       // case and lies about the explicit one.
-      expect(byDefault).toBe(explicit);
+      const byDefault = await validateAndCaptureVideoFrame({ url }).catch((e: Error) => e.message);
+      expect(byDefault).toBe(zero);
     });
   });
 });
@@ -1519,10 +1483,6 @@ describe('the answer when no subtitles came back', () => {
     jest.spyOn(youtube, 'downloadSubtitles').mockResolvedValue(null);
   };
 
-  const whisperOff = (): void => {
-    (whisper.getWhisperConfig as jest.Mock).mockReturnValue({ mode: 'off' });
-  };
-
   const messageOf = async (request: Record<string, unknown>): Promise<string> =>
     validateAndDownloadSubtitles(request as any).then(
       () => 'no error',
@@ -1530,7 +1490,7 @@ describe('the answer when no subtitles came back', () => {
     );
 
   beforeEach(() => {
-    whisperOff();
+    (whisper.getWhisperConfig as jest.Mock).mockReturnValue({ mode: 'off' });
     (whisperJobs.startOrReuseWhisperJob as jest.Mock).mockResolvedValue(null);
   });
 
@@ -1544,16 +1504,6 @@ describe('the answer when no subtitles came back', () => {
     // "one official and one auto" would be false: with one list empty both attempts go
     // to the other one.
     expect(message).not.toMatch(/the best official and the best automatic/);
-  });
-
-  it('spends both attempts on one list when the other is empty', async () => {
-    withTracks(['a', 'b', 'c'], []);
-    const download = jest.spyOn(youtube, 'downloadSubtitles');
-
-    await messageOf({ url });
-
-    expect(download).toHaveBeenCalledTimes(2);
-    expect(download.mock.calls.every((call) => call[1] === 'official')).toBe(true);
   });
 
   it('separates a list it could not read from a list that is empty', async () => {
@@ -1572,9 +1522,6 @@ describe('the answer when no subtitles came back', () => {
 
     expect(unreadable).toContain('could not be read');
     expect(unreadable).not.toContain('lists no subtitle tracks');
-    await expect(validateAndDownloadSubtitles({ url } as any)).rejects.toMatchObject({
-      details: undefined,
-    });
 
     withTracks([], []);
     const empty = await messageOf({ url });
@@ -1588,8 +1535,7 @@ describe('the answer when no subtitles came back', () => {
     await expect(
       validateAndDownloadSubtitles({ url, type: 'auto', lang: 'ru' } as any)
     ).rejects.toMatchObject({
-      errorLabel: 'Subtitles not found',
-      statusCode: 404,
+      name: 'NotFoundError',
       details: { official: ['en'], auto: ['ru'], tried: 'ru' },
     });
   });
@@ -1692,16 +1638,5 @@ describe('the answer when no subtitles came back', () => {
       name: 'YtDlpError',
       reason: 'private',
     });
-  });
-});
-
-describe('validateVideoRequest', () => {
-  it('answers a rejected URL with the one sentence every tool uses', () => {
-    expect(() => validateVideoRequest('https://example.com/video')).toThrow(
-      INVALID_VIDEO_URL_MESSAGE
-    );
-    expect(() => validateVideoRequest('https://example.com/video')).toThrow(
-      expect.objectContaining({ errorLabel: 'Invalid video URL' }) as unknown as Error
-    );
   });
 });

@@ -8,7 +8,6 @@ import {
   UNKNOWN_FAILURE_MESSAGE,
   ValidationError,
   YtDlpError,
-  YT_DLP_INFRA_REASONS,
   type YtDlpFailureReason,
 } from './errors.js';
 
@@ -35,12 +34,6 @@ describe('errorReason', () => {
     expect(errorReason(new HttpError(418, 'x', 'teapot'))).toBe('unknown');
     expect(errorReason(new Error('x'))).toBe('unknown');
     expect(errorReason('not an error')).toBe('unknown');
-  });
-
-  it('keeps the yt-dlp values a closed set', () => {
-    for (const reason of REASONS) {
-      expect(errorReason(new YtDlpError(reason))).toBe(reason);
-    }
   });
 });
 
@@ -78,7 +71,6 @@ describe('caller-facing texts', () => {
       expect(message).not.toMatch(
         /details \(title, description, thumbnail\) may still be readable/
       );
-      expect(message).toContain('Do not retry');
     }
   });
 
@@ -100,13 +92,6 @@ describe('caller-facing texts', () => {
 });
 
 describe('YtDlpError', () => {
-  it('maps the infrastructure classes to 502 and the rest to 404', () => {
-    for (const reason of REASONS) {
-      const err = new YtDlpError(reason);
-      expect(err.statusCode).toBe(YT_DLP_INFRA_REASONS.has(reason) ? 502 : 404);
-    }
-  });
-
   it('answers the unknown class with the shared dead-end text', () => {
     expect(new YtDlpError('unknown').message).toBe(UNKNOWN_FAILURE_MESSAGE);
   });

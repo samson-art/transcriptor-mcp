@@ -37,6 +37,7 @@ import {
 import { extractPlatformFromUrl } from './platform.js';
 import {
   normalizeVideoInput,
+  preferredTrackOrder,
   sanitizeLang,
   validateAndDownloadSubtitles,
   validateAndFetchAvailableSubtitles,
@@ -393,29 +394,19 @@ function toolError(message: string): ToolErrorResult {
 const TRACK_HINT_LIMIT = 15;
 
 /**
- * The codes the caller can actually ask for, appended to a "no subtitles" answer.
- * Ranked, because the lists arrive alphabetically: the language just tried, the video's
- * own `-orig` track and English are the ones worth reading first. (validation.ts ranks
- * by the language the video is spoken in; here the key is what the caller asked for.)
+ * The codes the caller can actually ask for, appended to a "no subtitles" answer. Ranked
+ * by the same rule auto-discovery uses, with the language the caller just asked for in the
+ * place the spoken language takes there.
  */
 function trackHint(details?: NotFoundDetails): string {
   const official = details?.official ?? [];
   const auto = details?.auto ?? [];
   if (official.length === 0 && auto.length === 0) return '';
-  const base = (lang: string): string => lang.split('-')[0].toLowerCase();
-  const tried = details?.tried ? base(details.tried) : undefined;
-  const rank = (lang: string): number => {
-    if (lang.endsWith('-orig')) return 0;
-    if (tried && base(lang) === tried) return 1;
-    if (base(lang) === 'en') return 2;
-    return 3;
-  };
   const show = (codes: string[]): string => {
     if (codes.length === 0) return 'none';
-    const ranked = [...codes].sort((a, b) => rank(a) - rank(b) || a.localeCompare(b));
-    const head = ranked.slice(0, TRACK_HINT_LIMIT);
-    const rest = ranked.length - head.length;
-    return `${head.join(', ')}${rest > 0 ? ` (+${rest} more, full list: get_available_subtitles)` : ''}`;
+    const ranked = preferredTrackOrder(codes, details?.tried);
+    const rest = ranked.length - TRACK_HINT_LIMIT;
+    return `${ranked.slice(0, TRACK_HINT_LIMIT).join(', ')}${rest > 0 ? ` (+${rest} more, full list: get_available_subtitles)` : ''}`;
   };
   return ` Available tracks — official: ${show(official)}; auto: ${show(auto)}.`;
 }
@@ -445,7 +436,7 @@ function hostOfSchemeless(input: string): string {
  */
 function toolCallLogFields({ args, extra }: ToolCall) {
   const input = typeof args.url === 'string' ? args.url.trim() : '';
-  const resolved = input ? resolveVideoUrl(input) : null;
+  const resolved = input ? normalizeVideoInput(input) : null;
   const url = input ? (resolved ?? input) : '';
   let host: string | undefined;
   if (input) {
@@ -719,8 +710,7 @@ export function createMcpServer(opts?: CreateMcpServerOptions) {
     async (args: z.infer<typeof baseInputSchema>, extra) =>
       withToolErrorHandling(TOOL_GET_VIDEO_INFO, log, { args, extra }, async () => {
         const url = requireVideoUrl(args.url);
-        const result = await validateAndFetchVideoInfo({ url }, log);
-        const { videoId, info } = result;
+        const { videoId, info } = await validateAndFetchVideoInfo({ url }, log);
         const textLines = [
           info.title ? `Title: ${info.title}` : null,
           info.channel ? `Channel: ${info.channel}` : null,
@@ -882,7 +872,7 @@ export function createMcpServer(opts?: CreateMcpServerOptions) {
     },
     async (args, extra) =>
       withToolErrorHandling(TOOL_GET_PLAYLIST_TRANSCRIPTS, log, { args, extra }, async () => {
-        const url = resolveVideoUrl(args.url);
+        const url = normalizeVideoInput(args.url);
         if (!url) {
           throw new ValidationError(
             'Invalid URL. Use a playlist URL (e.g. youtube.com/playlist?list=XXX) or watch URL with list= parameter.'
@@ -1349,15 +1339,12 @@ export function createMcpServer(opts?: CreateMcpServerOptions) {
 function resolveSubtitleArgs(args: z.infer<typeof subtitleInputSchema>) {
   const url = requireVideoUrl(args.url);
 
-  const isAutoDiscover = args.type === undefined && args.lang === undefined;
-
+  // Both absent is the auto-discovery request, and both stay undefined so the flow below
+  // can tell it from a caller who named one of the two.
   let type: 'official' | 'auto' | undefined;
   let lang: string | undefined;
 
-  if (isAutoDiscover) {
-    type = undefined;
-    lang = undefined;
-  } else {
+  if (args.type !== undefined || args.lang !== undefined) {
     type = args.type ?? 'auto';
     if (args.lang === undefined || args.lang === null) {
       lang = 'en';
@@ -1370,22 +1357,20 @@ function resolveSubtitleArgs(args: z.infer<typeof subtitleInputSchema>) {
     }
   }
 
-  const responseLimit = args.response_limit ?? Infinity;
-  const nextCursor = args.next_cursor;
-  const format =
-    args.format && ['srt', 'vtt', 'ass', 'lrc'].includes(args.format) ? args.format : undefined;
-
-  return { url, type, lang, format, responseLimit, nextCursor };
+  return {
+    url,
+    type,
+    lang,
+    format: args.format,
+    responseLimit: args.response_limit ?? Infinity,
+    nextCursor: args.next_cursor,
+  };
 }
 
 function requireVideoUrl(input: string): string {
-  const url = resolveVideoUrl(input);
+  const url = normalizeVideoInput(input);
   if (!url) throw new ValidationError(INVALID_VIDEO_URL_MESSAGE, 'Invalid video URL');
   return url;
-}
-
-function resolveVideoUrl(input: string): string | null {
-  return normalizeVideoInput(input);
 }
 
 function paginateText(text: string, limit: number, nextCursor?: string) {

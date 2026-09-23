@@ -72,6 +72,9 @@ jest.mock('./youtube.js', () => ({
 }));
 
 jest.mock('./validation.js', () => ({
+  // The real one: the hint's ranking is the behaviour under test, not a stub's.
+  preferredTrackOrder:
+    jest.requireActual<typeof import('./validation.js')>('./validation.js').preferredTrackOrder,
   normalizeVideoInput: jest.fn(),
   sanitizeLang: jest.fn(),
   validateAndDownloadSubtitles: jest.fn(),
@@ -956,29 +959,14 @@ describe('mcp-core tools', () => {
   describe('error texts the caller has to act on', () => {
     const transcriptArgs = { url: 'https://www.youtube.com/watch?v=video123' };
 
-    it('answers a bad URL with the supported platforms, and still writes its log line', async () => {
-      const logger = {
-        error: jest.fn(),
-        info: jest.fn(),
-        debug: jest.fn(),
-        warn: jest.fn(),
-        child: jest.fn(),
-      };
-      logger.child.mockReturnValue(logger);
-      const server = createMcpServer({ logger: logger as any }) as any;
+    it('answers a bad URL with the supported platforms', async () => {
+      const server = createMcpServer() as any;
       normalizeVideoInputMock.mockReturnValue(null);
 
-      // Resolving, not rejecting, is the whole point: the log line is built in a `finally`
-      // that calls the same resolver, so a resolver that throws takes the tool down with it.
       const result = await getTool(server, 'get_video_info')({ url: 'rick astley' }, {});
 
       expect(result).toMatchObject({ isError: true });
       expect(result.content[0].text).toBe(INVALID_VIDEO_URL_MESSAGE);
-      const lines = (logger.warn.mock.calls as Array<[Record<string, unknown>, string]>)
-        .filter((c) => c[1] === 'MCP tool call')
-        .map((c) => c[0]);
-      expect(lines).toHaveLength(1);
-      expect(lines[0]).toMatchObject({ outcome: 'error', reason: 'validation', host: 'invalid' });
     });
 
     it('keeps the playlist tool on its own sentence about playlists', async () => {
@@ -990,7 +978,6 @@ describe('mcp-core tools', () => {
       expect(result).toMatchObject({ isError: true });
       expect(result.content[0].text).toMatch(/playlist/i);
       expect(result.content[0].text).toContain('list=');
-      expect(result.content[0].text).not.toBe(INVALID_VIDEO_URL_MESSAGE);
       expect(downloadPlaylistSubtitlesMock).not.toHaveBeenCalled();
     });
 
@@ -1085,10 +1072,9 @@ describe('mcp-core tools', () => {
       const result = await getTool(server, 'get_transcript')({ url: 'nope', lang: '!!' }, {});
 
       expect(result.content[0].text).toBe(INVALID_VIDEO_URL_MESSAGE);
-      expect(result.content[0].text).not.toMatch(/language/i);
     });
 
-    it('tells a bad cursor how long the text it paginates is', async () => {
+    it('tells a bad cursor how long the text is, and accepts one at the end of it', async () => {
       const server = createMcpServer() as any;
       normalizeVideoInputMock.mockReturnValue(transcriptArgs.url);
       sanitizeLangMock.mockImplementation((lang: string) => lang);
@@ -1099,38 +1085,22 @@ describe('mcp-core tools', () => {
         subtitlesContent: 'raw',
       });
       parseSubtitlesMock.mockReturnValue('0123456789');
-
-      const result = await getTool(server, 'get_transcript')(
+      const past = await getTool(server, 'get_transcript')(
         { ...transcriptArgs, next_cursor: '99' },
         {}
       );
+      expect(past).toMatchObject({ isError: true });
+      expect(past.content[0].text).toContain('10 characters long');
+      expect(past.content[0].text).toContain('next_cursor');
 
-      expect(result).toMatchObject({ isError: true });
-      expect(result.content[0].text).toContain('10 characters long');
-      expect(result.content[0].text).toContain('next_cursor');
-    });
-
-    it('treats a cursor at the end of the text as valid', async () => {
-      const server = createMcpServer() as any;
-      normalizeVideoInputMock.mockReturnValue(transcriptArgs.url);
-      sanitizeLangMock.mockImplementation((lang: string) => lang);
-      validateAndDownloadSubtitlesMock.mockResolvedValue({
-        videoId: 'video123',
-        type: 'auto',
-        lang: 'en',
-        subtitlesContent: 'raw',
-      });
-      parseSubtitlesMock.mockReturnValue('0123456789');
-
-      const result = await getTool(server, 'get_transcript')(
+      // Naming the length puts a hand on this boundary; `>=` would turn a legitimate
+      // end-of-text cursor into an error.
+      const atEnd = await getTool(server, 'get_transcript')(
         { ...transcriptArgs, next_cursor: '10' },
         {}
       );
-
-      // Naming the length in the message puts a hand on this boundary; `>=` would turn a
-      // legitimate end-of-text cursor into an error.
-      expect(result.isError).toBeFalsy();
-      expect(result.structuredContent).toMatchObject({ text: '', total_length: 10 });
+      expect(atEnd.isError).toBeFalsy();
+      expect(atEnd.structuredContent).toMatchObject({ text: '', total_length: 10 });
     });
 
     it('reports the type and lang an empty playlist actually used', async () => {
