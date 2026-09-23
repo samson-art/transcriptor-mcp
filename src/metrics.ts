@@ -220,6 +220,25 @@ export function recordUntriedTracks(platform: string, count: number): void {
   if (count > 0) subtitleTracksUntriedTotal.inc({ platform }, count);
 }
 
+const SUBTITLE_PATHS = ['direct', 'yt_dlp'] as const;
+const SUBTITLE_OUTCOMES = ['ok', 'rate_limited', 'error'] as const;
+
+/**
+ * Gives a platform all six series at zero before its first request goes out. A counter
+ * that first appears already holding the value it was incremented to leaves `increase()`
+ * nothing to diff against, so the first 429 after a restart produces no step and an alert
+ * built on it stays silent — which is the one moment the alert exists for. Measured on
+ * 2026-09-23: a refusal at 15:00 UTC raised the series from nothing straight to 1, and the
+ * rule saw a flat line.
+ */
+export function primeSubtitleRequests(platform: string): void {
+  for (const path of SUBTITLE_PATHS) {
+    for (const outcome of SUBTITLE_OUTCOMES) {
+      subtitleRequestsTotal.inc({ platform, path, outcome }, 0);
+    }
+  }
+}
+
 export function recordSubtitleRequest(
   platform: string,
   path: 'direct' | 'yt_dlp',

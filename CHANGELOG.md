@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.6] - 2026-09-23
+
+### Fixed
+
+- **The first rate limit after a restart was invisible to anything watching `subtitle_requests_total`.** A Prometheus counter series that first appears already holding the value it was incremented to gives `increase()` no earlier sample to compare against, so the step it should produce reads as a flat line. Measured on this server: a caption request was refused with `HTTP 429` at 15:00 UTC on 2026-09-23, the series `{outcome="rate_limited"}` came into existence at 1, and a rule watching for an increase over the last fifteen minutes stayed silent — at exactly the moment such a rule exists for, since a restart also clears the in-process hold that keeps the server from feeding the limit. Every platform now gets all six series (two paths by three outcomes) at zero before its first request leaves the server, so a refusal is a step from a value that was already being scraped. Counting is unchanged; only the zeroes are new.
+
 ## [1.5.5] - 2026-09-23
 
 ### Changed
