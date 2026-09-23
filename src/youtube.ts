@@ -15,7 +15,7 @@ import {
   YtDlpError,
   type YtDlpFailureReason,
 } from './errors.js';
-import { recordSubtitleRequest, setYtDlpProcessGauges } from './metrics.js';
+import { primeSubtitleRequests, recordSubtitleRequest, setYtDlpProcessGauges } from './metrics.js';
 import { extractPlatformFromUrl } from './platform.js';
 import {
   assertSubtitlesNotRateLimited,
@@ -440,6 +440,9 @@ export async function downloadSubtitles(
   // Asking a platform that just answered 429 spends the quota that keeps it saying 429.
   assertSubtitlesNotRateLimited(url);
   const platform = extractPlatformFromUrl(url);
+  // Before the request, not after it: the series have to exist for the increment to read
+  // as a step rather than as a series being born.
+  primeSubtitleRequests(platform);
   let direct: string | null;
   try {
     direct = await downloadSubtitleTrackDirect(

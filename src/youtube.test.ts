@@ -612,6 +612,33 @@ today to pay our respects to MCP, which
       return line ? Number(line.split(' ').pop()) : 0;
     }
 
+    async function seriesExists(labels: string): Promise<boolean> {
+      return (await renderPrometheus())
+        .split('\n')
+        .some((l) => l.startsWith(`subtitle_requests_total{${labels}`));
+    }
+
+    it('gives a platform every outcome before it asks, so a refusal reads as a step', async () => {
+      // Vimeo is untouched by the other cases here, so the series cannot pre-exist.
+      const refused = 'platform="vimeo",path="direct",outcome="rate_limited"';
+      expect(await seriesExists(refused)).toBe(false);
+
+      execFileMock.mockImplementation(
+        (
+          _f: string,
+          _a: string[],
+          _o: unknown,
+          cb: (err: Error | null, result?: { stdout: string; stderr: string }) => void
+        ) => setImmediate(() => cb(null, { stdout: '', stderr: '' }))
+      );
+      await youtube.downloadSubtitles('https://vimeo.com/76979871', 'auto', 'en');
+
+      // A refusal has something to be a step from now: an alert on increase() over a series
+      // born at 1 sees a flat line, which is how the 429 of 2026-09-23 went unreported.
+      expect(await seriesExists(refused)).toBe(true);
+      expect(await captionRequests(refused)).toBe(0);
+    });
+
     it('counts what it spends on the caption endpoint, by path, and nothing else', async () => {
       const direct429 = 'platform="youtube",path="direct",outcome="rate_limited"';
       const ytDlpOk = 'platform="youtube",path="yt_dlp",outcome="ok"';
