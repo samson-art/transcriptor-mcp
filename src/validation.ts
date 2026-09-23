@@ -1,6 +1,13 @@
 import { FastifyBaseLogger } from 'fastify';
 import { Type, Static } from '@sinclair/typebox';
-import { NotFoundError, ValidationError, YtDlpError } from './errors.js';
+import {
+  INVALID_LANGUAGE_MESSAGE,
+  INVALID_VIDEO_URL_MESSAGE,
+  NotFoundError,
+  UNKNOWN_FAILURE_MESSAGE,
+  ValidationError,
+  YtDlpError,
+} from './errors.js';
 import {
   extractYouTubeVideoId,
   downloadSubtitles,
@@ -237,10 +244,7 @@ export function normalizeVideoInput(urlOrId: string): string | null {
 export function validateVideoRequest(url: string): { url: string } {
   const normalized = normalizeVideoInput(url);
   if (!normalized) {
-    throw new ValidationError(
-      'Please provide a valid video URL (YouTube, Twitter/X, Instagram, TikTok, Twitch, Vimeo, Facebook, Bilibili, VK, Dailymotion, Reddit) or YouTube video ID',
-      'Invalid video URL'
-    );
+    throw new ValidationError(INVALID_VIDEO_URL_MESSAGE, 'Invalid video URL');
   }
   return { url: normalized };
 }
@@ -394,12 +398,17 @@ async function downloadWithAutoDiscover(
   if (whisperConfig.mode !== 'off') {
     logger?.info('Trying Whisper fallback for auto-discovery');
     const job = startOrReuseWhisperJob(url, '', 'srt', logger);
+    // The loser of the race has to be cleaned up: an uncleared WHISPER_TIMEOUT timer
+    // holds its closure — and the event loop — for the full ten minutes after the job
+    // already answered.
+    let whisperTimer: NodeJS.Timeout | undefined;
     const outcome = await Promise.race([
       job.then((content) => ({ kind: 'done' as const, content })),
       new Promise<{ kind: 'timeout' }>((resolve) => {
-        setTimeout(() => resolve({ kind: 'timeout' }), whisperConfig.timeout);
+        whisperTimer = setTimeout(() => resolve({ kind: 'timeout' }), whisperConfig.timeout);
       }),
     ]);
+    clearTimeout(whisperTimer);
 
     let content: string | null = null;
     if (outcome.kind === 'timeout') {
@@ -513,23 +522,30 @@ async function loadAvailableSubtitles(
 
   const loaded = await loadVideoJson(url, logger);
   if (!loaded) {
-    throw new NotFoundError('Could not fetch video data for the provided URL', 'Video not found');
+    throw new NotFoundError(UNKNOWN_FAILURE_MESSAGE, 'Video not found');
   }
   return { ...loaded.avail, data: loaded.data };
 }
 
-/** Told to the caller when Whisper is on and produced nothing; operator settings stay out of it. */
-function whisperHint(): string {
-  const maxSeconds = parseIntEnv('WHISPER_MAX_DURATION_SECONDS', 0);
+/** What the caller asked for. The two flows fail for different reasons and end differently. */
+type SubtitleRequestShape =
+  | { kind: 'auto' }
+  | { kind: 'explicit'; type: 'official' | 'auto'; lang: string; defaulted: boolean };
+
+/**
+ * What speech-to-text has to say, as a fact. Whether it is also the caller's next step
+ * is decided below: on a server with a length ceiling the job will never run for this
+ * video again, so the useful step is a different track, not another wait.
+ */
+function whisperFact(maxSeconds: number): string {
   return maxSeconds > 0
-    ? `Speech-to-text produced nothing either; this server transcribes only videos up to ${maxSeconds} seconds long. Do not repeat the same call.`
-    : 'Speech-to-text was also tried and produced nothing; if it timed out it may still finish in the background, so you may retry the same call once in a few minutes.';
+    ? `Speech-to-text produced nothing either; this server transcribes only videos up to ${maxSeconds} seconds long.`
+    : 'Speech-to-text was also tried and produced nothing; if it timed out it may still finish in the background.';
 }
 
 async function throwNoSubtitlesError(opts: {
   url: string;
-  baseMsg: string;
-  whisperHintPrefix: '' | ' ';
+  request: SubtitleRequestShape;
   whisperTried: boolean;
   /** The list the caller already read; without it this costs another yt-dlp run. */
   available?: AvailableSubtitles;
@@ -546,11 +562,50 @@ async function throwNoSubtitlesError(opts: {
       }
     ));
   if (opts.whisperTried) recordSubtitlesFailure(opts.url, 'no_subtitles');
-  const hint = opts.whisperTried ? `${opts.whisperHintPrefix}${whisperHint()}` : '';
+
+  const base =
+    opts.request.kind === 'auto'
+      ? `No subtitles could be downloaded for this video (auto-discovery asked for at most ${AUTO_DISCOVERY_ATTEMPTS} of the tracks this platform lists, best match first).`
+      : `No ${opts.request.type} subtitles could be downloaded for language "${opts.request.lang}".` +
+        (opts.request.defaulted
+          ? ' When only one of type and lang is given, the other defaults to type "auto" and lang "en".'
+          : '');
+
+  const whisperCeiling = parseIntEnv('WHISPER_MAX_DURATION_SECONDS', 0);
+  const verdict = opts.whisperTried
+    ? whisperFact(whisperCeiling)
+    : 'This server does not transcribe audio.';
+
+  // "Could not be read" and "is empty" are different answers: one says try again another
+  // way, the other says nothing will work. Collapsing them is the mistake to avoid here.
+  const trackFact =
+    available === undefined
+      ? 'The list of available tracks could not be read either.'
+      : available.official.length === 0 && available.auto.length === 0
+        ? 'The platform lists no subtitle tracks for this video, so no type or lang will work.'
+        : '';
+
+  // Exactly one next step, whatever the branch: two of them in one message is how a
+  // caller ends up repeating the call it was just told not to repeat.
+  const nextStep =
+    opts.whisperTried && whisperCeiling === 0
+      ? 'You may retry the same call once in a few minutes; if it fails again, do not retry.'
+      : trackFact !== ''
+        ? 'Do not repeat the same call.'
+        : opts.request.kind === 'auto'
+          ? 'To try a track auto-discovery skipped, pass type and lang explicitly.'
+          : 'Omit type and lang to let the server choose, or pass a type and lang the video actually has.';
+
   throw new NotFoundError(
-    `${opts.baseMsg}${hint} Use get_available_subtitles (or GET /subtitles/available) to list supported languages, or omit type and lang for auto-discovery.`,
+    [base, verdict, trackFact, nextStep].filter((part) => part !== '').join(' '),
     'Subtitles not found',
-    available ? { official: available.official, auto: available.auto } : undefined
+    available
+      ? {
+          official: available.official,
+          auto: available.auto,
+          ...(opts.request.kind === 'explicit' ? { tried: opts.request.lang } : {}),
+        }
+      : undefined
   );
 }
 
@@ -593,13 +648,7 @@ async function handleAutoDiscoverFlow(
   });
   if (!result) {
     const whisperTried = getWhisperConfig().mode !== 'off';
-    await throwNoSubtitlesError({
-      url,
-      baseMsg: 'No subtitles available (tried official, auto, and Whisper fallback). ',
-      whisperHintPrefix: '',
-      whisperTried,
-      logger,
-    });
+    await throwNoSubtitlesError({ url, request: { kind: 'auto' }, whisperTried, logger });
   }
 
   const found = result as SubtitleResult;
@@ -630,7 +679,7 @@ async function handleExplicitRequestFlow(
 
   const sanitizedLang = sanitizeLang(lang);
   if (!sanitizedLang) {
-    throw new ValidationError('Language code contains invalid characters', 'Invalid language code');
+    throw new ValidationError(INVALID_LANGUAGE_MESSAGE, 'Invalid language code');
   }
 
   const cacheConfig = getCacheConfig();
@@ -669,12 +718,14 @@ async function handleExplicitRequestFlow(
     if (whisperConfig.mode !== 'off') {
       logger?.info({ lang: sanitizedLang }, 'Trying Whisper fallback');
       const job = startOrReuseWhisperJob(url, sanitizedLang, 'srt', logger);
+      let whisperTimer: NodeJS.Timeout | undefined;
       const outcome = await Promise.race([
         job.then((content) => ({ kind: 'done' as const, content })),
         new Promise<{ kind: 'timeout' }>((resolve) => {
-          setTimeout(() => resolve({ kind: 'timeout' }), whisperConfig.timeout);
+          whisperTimer = setTimeout(() => resolve({ kind: 'timeout' }), whisperConfig.timeout);
         }),
       ]);
+      clearTimeout(whisperTimer);
 
       if (outcome.kind === 'timeout') {
         void job.then(async (text) => {
@@ -702,8 +753,14 @@ async function handleExplicitRequestFlow(
     const whisperTried = getWhisperConfig().mode !== 'off';
     await throwNoSubtitlesError({
       url,
-      baseMsg: `No subtitles for language "${sanitizedLang}".`,
-      whisperHintPrefix: ' ',
+      request: {
+        kind: 'explicit',
+        type,
+        lang: sanitizedLang,
+        // Only one of the two given means the server substituted the other, and the
+        // caller cannot see which value it substituted unless the text says so.
+        defaulted: (request.type === undefined) !== (request.lang === undefined),
+      },
       whisperTried,
       available: loaded?.avail,
       logger,
@@ -771,7 +828,7 @@ export async function validateAndFetchAvailableSubtitles(
 export async function validateAndFetchVideoInfo(
   request: GetVideoInfoRequest,
   logger?: FastifyBaseLogger
-): Promise<{ videoId: string; info: Awaited<ReturnType<typeof fetchVideoInfo>> }> {
+): Promise<{ videoId: string; info: NonNullable<Awaited<ReturnType<typeof fetchVideoInfo>>> }> {
   const validated = validateVideoRequest(request.url);
   const { url } = validated;
 
@@ -781,7 +838,7 @@ export async function validateAndFetchVideoInfo(
     try {
       const parsed = JSON.parse(cached) as {
         videoId: string;
-        info: Awaited<ReturnType<typeof fetchVideoInfo>>;
+        info: NonNullable<Awaited<ReturnType<typeof fetchVideoInfo>>>;
       };
       recordCacheHit('info');
       return parsed;
@@ -792,10 +849,11 @@ export async function validateAndFetchVideoInfo(
   recordCacheMiss('info');
 
   const loaded = await loadVideoJson(url, logger);
-  if (!loaded?.info.info) {
-    throw new NotFoundError('Could not fetch video info for the provided URL', 'Video not found');
+  const info = loaded?.info.info;
+  if (!info) {
+    throw new NotFoundError(UNKNOWN_FAILURE_MESSAGE, 'Video not found');
   }
-  return loaded.info;
+  return { videoId: loaded.info.videoId, info };
 }
 
 /**
@@ -827,7 +885,7 @@ export async function validateAndFetchVideoChapters(
 
   const loaded = await loadVideoJson(url, logger);
   if (!loaded || loaded.chapters.chapters === null) {
-    throw new NotFoundError('Could not fetch chapters for the provided URL', 'Video not found');
+    throw new NotFoundError(UNKNOWN_FAILURE_MESSAGE, 'Video not found');
   }
   return loaded.chapters;
 }
@@ -953,7 +1011,14 @@ export async function validateAndCaptureVideoFrame(
         'Invalid timestamp'
       );
     }
-    throw new NotFoundError('Failed to capture a frame for this video.', 'Frame capture failed');
+    throw new NotFoundError(
+      `Could not capture a frame at ${formatTimestamp(timestampSeconds)}: the server could not read the video stream.` +
+        (timestampSeconds > 0
+          ? ' If the timestamp may be past the end of the video, retry once with an earlier one; otherwise do not retry'
+          : ' Do not retry') +
+        " — get_video_info returns the video's thumbnail.",
+      'Frame capture failed'
+    );
   }
 
   return {

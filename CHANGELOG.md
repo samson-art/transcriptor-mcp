@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.5] - 2026-09-23
+
+### Changed
+
+- **Every error a tool returns now names one next step, and no tool overwrites the sentence below it any more.** Four tools replaced whatever the layer beneath them had said with a fixed line of their own — "Failed to fetch video info.", "Failed to capture a frame for this video." — so a caller that had been told *why* never saw it. In the week of 2026-09-17, 50 failed calls came from 39 addresses with up to six repeats of one address: the texts said what failed and nothing about whether repeating would help. The overrides are gone, the reason from below reaches the caller, and where a video does have tracks the answer now ends with them, ranked (`-orig` first, then the language just asked for, then English) and cut at fifteen per list with a pointer to the full list.
+- **"No subtitles" says what was asked for, what speech-to-text did, what the track list looks like, and exactly one thing to do next.** The old sentence claimed Whisper had been tried when this server has it off, pointed at `GET /subtitles/available` (a route that is POST, and means nothing to an MCP caller), and told a caller who had passed neither `type` nor `lang` to omit them. It also said auto-discovery tries three official and three automatic tracks, which stopped being true in 1.5.4. Each of those is now a separate fact with its own branch — including the difference between a track list that is empty and one that could not be read, which used to be the same sentence.
+- **The dead ends that could not name a reason answer with one text instead of three**, and the same is true of the five tools that rejected a URL: they each said "Invalid video URL." without saying which platforms are supported or that a link without `https://` is refused even on a supported one. The language code text now describes the rule the server actually enforces — letters, digits, hyphens and underscores, up to 32 characters — rather than a narrower one it invented; a caller following the old wording would have rejected the very track names this server hands out (`en_US`, `en-nP7-2PuUl7o`). The cursor error says how long the text it paginates is, the search failure names the arguments worth dropping, and an empty playlist reports the `type` and `lang` the server actually used rather than the ones it was passed.
+- **A frame that could not be captured says at which timestamp.** At any timestamp past zero it offers one earlier retry; at `00:00:00.000` it does not, because "retry with an earlier timestamp" there is byte for byte the call that just failed.
+- `get_video_info` no longer answers 404 when its own result is malformed. That shape means a fault in this server, not a missing video, so it is now reported as one — masked text to the caller, event to Sentry.
+- The `geo_blocked` and `age_restricted` texts no longer promise that a video's title and description stay readable. That is true on YouTube and false on TikTok, where the same block hides the page, and the promise sent callers to another tool for nothing.
+
+### Fixed
+
+- **Every Whisper attempt left a ten-minute timer running.** The per-request deadline raced the job with `setTimeout(…, WHISPER_TIMEOUT)` and never cleared it, so the loser of the race held its callback — and the event loop — for the full timeout after the job had already answered. Found by a new test that hung the suite for ten minutes at exit.
+
 ## [1.5.4] - 2026-09-23
 
 ### Changed
