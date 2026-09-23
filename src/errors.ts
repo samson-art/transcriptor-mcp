@@ -26,6 +26,8 @@ export class ValidationError extends HttpError {
 export type NotFoundDetails = {
   official?: string[];
   auto?: string[];
+  /** The language the caller just asked for, so a hint can list it before the alphabet. */
+  tried?: string;
 };
 
 /** 404 Not Found – resource or subtitles not found */
@@ -78,6 +80,26 @@ export const YT_DLP_INFRA_REASONS: ReadonlySet<YtDlpFailureReason> = new Set<YtD
   'extractor',
 ]);
 
+/**
+ * One answer for "the server could not read this and cannot say why". Shared by the
+ * yt-dlp `unknown` class and by the places that reach the same dead end without a
+ * classified failure, so the caller cannot tell them apart — because they are not.
+ */
+export const UNKNOWN_FAILURE_MESSAGE =
+  'The server could not read this URL and could not determine why. Retry once; if it fails again, do not retry.';
+
+/**
+ * Said by every tool that takes a video URL. Naming the platforms matters: the server
+ * also rejects a supported platform's URL when the scheme is missing, and a caller with
+ * "Invalid video URL." alone cannot tell which of the two it hit.
+ */
+export const INVALID_VIDEO_URL_MESSAGE =
+  'Invalid video URL. Pass a full link starting with https:// to one video on YouTube, Twitter/X, Instagram, TikTok, Twitch, Vimeo, Facebook, Bilibili, VK, Dailymotion or Reddit, or a bare YouTube video ID. Short links and redirects may not be accepted — use the full page URL. Fix the argument and call again; if the link is from another site, it is not supported.';
+
+/** Says the real rule, which is wider than a two-letter code: tracks are named `en_US`, `en-nP7-2PuUl7o`. */
+export const INVALID_LANGUAGE_MESSAGE =
+  'Invalid language code. Use a code such as "en", "ru" or "pt-BR" — letters, digits, hyphens and underscores, up to 32 characters. The list of available subtitles gives the exact codes a video has. Fix the argument and call again.';
+
 /** User-facing text per reason. Never includes a command line, stderr or operator hints. */
 const YT_DLP_MESSAGES: Record<YtDlpFailureReason, string> = {
   bot_check:
@@ -89,15 +111,14 @@ const YT_DLP_MESSAGES: Record<YtDlpFailureReason, string> = {
   extractor:
     'The server could not get a usable response from the platform for this request. This is on the server side: do not retry this request. If another request to the same platform fails the same way, stop and report that this platform is not working on this server right now; other platforms still work.',
   geo_blocked:
-    'This video is not available where this server runs: the platform blocks it for the server’s region or address. Do not retry this request; the video’s details (title, description, thumbnail) may still be readable.',
+    'This video is not available where this server runs: the platform blocks it for the server’s region or address. Do not retry this request. On some platforms the title and description stay readable, on others the block covers the whole page.',
   private:
     'This video is private, so the server cannot read it. Do not retry; other requests for this video will fail the same way.',
   age_restricted:
-    'This video is age-restricted and this server cannot view it. Do not retry this request; the video’s details (title, description, thumbnail) may still be readable.',
+    'This video is age-restricted and this server cannot view it. Do not retry this request. On some platforms the title and description stay readable, on others the restriction covers the whole page.',
   unavailable:
     'The content at this URL is unavailable: it was removed or deleted, or the URL is wrong or points to a page this server cannot read (for example a channel, profile or search page where one video is expected). Do not retry the same URL; check the link.',
-  unknown:
-    'The server could not read this URL and could not determine why. Retry once; if it fails again, do not retry.',
+  unknown: UNKNOWN_FAILURE_MESSAGE,
 };
 
 /**

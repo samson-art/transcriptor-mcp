@@ -1,6 +1,13 @@
 import { FastifyBaseLogger } from 'fastify';
 import { Type, Static } from '@sinclair/typebox';
-import { NotFoundError, ValidationError, YtDlpError } from './errors.js';
+import {
+  INVALID_LANGUAGE_MESSAGE,
+  INVALID_VIDEO_URL_MESSAGE,
+  NotFoundError,
+  UNKNOWN_FAILURE_MESSAGE,
+  ValidationError,
+  YtDlpError,
+} from './errors.js';
 import {
   extractYouTubeVideoId,
   downloadSubtitles,
@@ -237,10 +244,7 @@ export function normalizeVideoInput(urlOrId: string): string | null {
 export function validateVideoRequest(url: string): { url: string } {
   const normalized = normalizeVideoInput(url);
   if (!normalized) {
-    throw new ValidationError(
-      'Please provide a valid video URL (YouTube, Twitter/X, Instagram, TikTok, Twitch, Vimeo, Facebook, Bilibili, VK, Dailymotion, Reddit) or YouTube video ID',
-      'Invalid video URL'
-    );
+    throw new ValidationError(INVALID_VIDEO_URL_MESSAGE, 'Invalid video URL');
   }
   return { url: normalized };
 }
@@ -315,12 +319,12 @@ export function validateYouTubeRequest(url: string): { videoId: string } {
  * Best track first. The lists arrive sorted alphabetically, which is why a video listing
  * `ar, de, en` used to spend two caption requests before reaching the one anybody wanted.
  */
-function preferredTrackOrder(langs: string[], videoLanguage?: string | null): string[] {
+export function preferredTrackOrder(langs: string[], promote?: string | null): string[] {
   const base = (lang: string): string => lang.split('-')[0].toLowerCase();
-  const spoken = videoLanguage ? base(videoLanguage) : undefined;
+  const first = promote ? base(promote) : undefined;
   const rank = (lang: string): number => {
     if (lang.endsWith('-orig')) return 0; // YouTube's track in the audio's own language
-    if (spoken && base(lang) === spoken) return 1;
+    if (first && base(lang) === first) return 1;
     if (base(lang) === 'en') return 2;
     return 3;
   };
@@ -394,12 +398,7 @@ async function downloadWithAutoDiscover(
   if (whisperConfig.mode !== 'off') {
     logger?.info('Trying Whisper fallback for auto-discovery');
     const job = startOrReuseWhisperJob(url, '', 'srt', logger);
-    const outcome = await Promise.race([
-      job.then((content) => ({ kind: 'done' as const, content })),
-      new Promise<{ kind: 'timeout' }>((resolve) => {
-        setTimeout(() => resolve({ kind: 'timeout' }), whisperConfig.timeout);
-      }),
-    ]);
+    const outcome = await raceWhisperJob(job, whisperConfig.timeout);
 
     let content: string | null = null;
     if (outcome.kind === 'timeout') {
@@ -513,28 +512,40 @@ async function loadAvailableSubtitles(
 
   const loaded = await loadVideoJson(url, logger);
   if (!loaded) {
-    throw new NotFoundError('Could not fetch video data for the provided URL', 'Video not found');
+    throw new NotFoundError(UNKNOWN_FAILURE_MESSAGE, 'Video not found');
   }
   return { ...loaded.avail, data: loaded.data };
 }
 
-/** Told to the caller when Whisper is on and produced nothing; operator settings stay out of it. */
-function whisperHint(): string {
-  const maxSeconds = parseIntEnv('WHISPER_MAX_DURATION_SECONDS', 0);
-  return maxSeconds > 0
-    ? `Speech-to-text produced nothing either; this server transcribes only videos up to ${maxSeconds} seconds long. Do not repeat the same call.`
-    : 'Speech-to-text was also tried and produced nothing; if it timed out it may still finish in the background, so you may retry the same call once in a few minutes.';
+/**
+ * Waits for the Whisper job or for the per-request deadline, whichever answers first. The
+ * loser has to be cleaned up: an uncleared WHISPER_TIMEOUT timer holds its callback — and
+ * the event loop — for the full ten minutes after the job already answered.
+ */
+async function raceWhisperJob<T>(
+  job: Promise<T>,
+  timeoutMs: number
+): Promise<{ kind: 'done'; content: T } | { kind: 'timeout' }> {
+  let timer: NodeJS.Timeout | undefined;
+  const outcome = await Promise.race([
+    job.then((content) => ({ kind: 'done' as const, content })),
+    new Promise<{ kind: 'timeout' }>((resolve) => {
+      timer = setTimeout(() => resolve({ kind: 'timeout' }), timeoutMs);
+    }),
+  ]);
+  clearTimeout(timer);
+  return outcome;
 }
 
 async function throwNoSubtitlesError(opts: {
   url: string;
-  baseMsg: string;
-  whisperHintPrefix: '' | ' ';
-  whisperTried: boolean;
+  /** What the caller asked for by name; absent means auto-discovery chose. */
+  asked?: { type: 'official' | 'auto'; lang: string; defaulted: boolean };
   /** The list the caller already read; without it this costs another yt-dlp run. */
   available?: AvailableSubtitles;
   logger?: FastifyBaseLogger;
 }): Promise<never> {
+  const whisperTried = getWhisperConfig().mode !== 'off';
   const available =
     opts.available ??
     (await validateAndFetchAvailableSubtitles({ url: opts.url }, opts.logger).catch(
@@ -545,12 +556,54 @@ async function throwNoSubtitlesError(opts: {
         return undefined;
       }
     ));
-  if (opts.whisperTried) recordSubtitlesFailure(opts.url, 'no_subtitles');
-  const hint = opts.whisperTried ? `${opts.whisperHintPrefix}${whisperHint()}` : '';
+  if (whisperTried) recordSubtitlesFailure(opts.url, 'no_subtitles');
+
+  const base = !opts.asked
+    ? `No subtitles could be downloaded for this video (auto-discovery asked for at most ${AUTO_DISCOVERY_ATTEMPTS} of the tracks this platform lists, best match first).`
+    : `No ${opts.asked.type} subtitles could be downloaded for language "${opts.asked.lang}".` +
+      (opts.asked.defaulted
+        ? ' When only one of type and lang is given, the other defaults to type "auto" and lang "en".'
+        : '');
+
+  // A length ceiling means the job will never run for this video again, so the useful next
+  // step is a different track rather than another wait — that is what the ladder below reads.
+  const whisperCeiling = parseIntEnv('WHISPER_MAX_DURATION_SECONDS', 0);
+  const verdict = !whisperTried
+    ? 'This server does not transcribe audio.'
+    : whisperCeiling > 0
+      ? `Speech-to-text produced nothing either; this server transcribes only videos up to ${whisperCeiling} seconds long.`
+      : 'Speech-to-text was also tried and produced nothing; if it timed out it may still finish in the background.';
+
+  // "Could not be read" and "is empty" are different answers: one says try again another
+  // way, the other says nothing will work. Collapsing them is the mistake to avoid here.
+  const trackFact =
+    available === undefined
+      ? 'The list of available tracks could not be read either.'
+      : available.official.length === 0 && available.auto.length === 0
+        ? 'The platform lists no subtitle tracks for this video, so no type or lang will work.'
+        : '';
+
+  // Exactly one next step, whatever the branch: two of them in one message is how a
+  // caller ends up repeating the call it was just told not to repeat.
+  const nextStep =
+    whisperTried && whisperCeiling === 0
+      ? 'You may retry the same call once in a few minutes; if it fails again, do not retry.'
+      : trackFact !== ''
+        ? 'Do not repeat the same call.'
+        : !opts.asked
+          ? 'To try a track auto-discovery skipped, pass type and lang explicitly.'
+          : 'Omit type and lang to let the server choose, or pass a type and lang the video actually has.';
+
   throw new NotFoundError(
-    `${opts.baseMsg}${hint} Use get_available_subtitles (or GET /subtitles/available) to list supported languages, or omit type and lang for auto-discovery.`,
+    [base, verdict, trackFact, nextStep].filter((part) => part !== '').join(' '),
     'Subtitles not found',
-    available ? { official: available.official, auto: available.auto } : undefined
+    available
+      ? {
+          official: available.official,
+          auto: available.auto,
+          ...(opts.asked ? { tried: opts.asked.lang } : {}),
+        }
+      : undefined
   );
 }
 
@@ -592,14 +645,7 @@ async function handleAutoDiscoverFlow(
     ttl: cacheConfig.ttlSubtitlesSeconds,
   });
   if (!result) {
-    const whisperTried = getWhisperConfig().mode !== 'off';
-    await throwNoSubtitlesError({
-      url,
-      baseMsg: 'No subtitles available (tried official, auto, and Whisper fallback). ',
-      whisperHintPrefix: '',
-      whisperTried,
-      logger,
-    });
+    await throwNoSubtitlesError({ url, logger });
   }
 
   const found = result as SubtitleResult;
@@ -630,7 +676,7 @@ async function handleExplicitRequestFlow(
 
   const sanitizedLang = sanitizeLang(lang);
   if (!sanitizedLang) {
-    throw new ValidationError('Language code contains invalid characters', 'Invalid language code');
+    throw new ValidationError(INVALID_LANGUAGE_MESSAGE, 'Invalid language code');
   }
 
   const cacheConfig = getCacheConfig();
@@ -669,12 +715,7 @@ async function handleExplicitRequestFlow(
     if (whisperConfig.mode !== 'off') {
       logger?.info({ lang: sanitizedLang }, 'Trying Whisper fallback');
       const job = startOrReuseWhisperJob(url, sanitizedLang, 'srt', logger);
-      const outcome = await Promise.race([
-        job.then((content) => ({ kind: 'done' as const, content })),
-        new Promise<{ kind: 'timeout' }>((resolve) => {
-          setTimeout(() => resolve({ kind: 'timeout' }), whisperConfig.timeout);
-        }),
-      ]);
+      const outcome = await raceWhisperJob(job, whisperConfig.timeout);
 
       if (outcome.kind === 'timeout') {
         void job.then(async (text) => {
@@ -699,12 +740,15 @@ async function handleExplicitRequestFlow(
   }
 
   if (!subtitlesContent) {
-    const whisperTried = getWhisperConfig().mode !== 'off';
     await throwNoSubtitlesError({
       url,
-      baseMsg: `No subtitles for language "${sanitizedLang}".`,
-      whisperHintPrefix: ' ',
-      whisperTried,
+      // Only one of the two given means the server substituted the other, and the caller
+      // cannot see which value it substituted unless the text says so.
+      asked: {
+        type,
+        lang: sanitizedLang,
+        defaulted: (request.type === undefined) !== (request.lang === undefined),
+      },
       available: loaded?.avail,
       logger,
     });
@@ -771,7 +815,7 @@ export async function validateAndFetchAvailableSubtitles(
 export async function validateAndFetchVideoInfo(
   request: GetVideoInfoRequest,
   logger?: FastifyBaseLogger
-): Promise<{ videoId: string; info: Awaited<ReturnType<typeof fetchVideoInfo>> }> {
+): Promise<{ videoId: string; info: NonNullable<Awaited<ReturnType<typeof fetchVideoInfo>>> }> {
   const validated = validateVideoRequest(request.url);
   const { url } = validated;
 
@@ -781,7 +825,7 @@ export async function validateAndFetchVideoInfo(
     try {
       const parsed = JSON.parse(cached) as {
         videoId: string;
-        info: Awaited<ReturnType<typeof fetchVideoInfo>>;
+        info: NonNullable<Awaited<ReturnType<typeof fetchVideoInfo>>>;
       };
       recordCacheHit('info');
       return parsed;
@@ -792,10 +836,11 @@ export async function validateAndFetchVideoInfo(
   recordCacheMiss('info');
 
   const loaded = await loadVideoJson(url, logger);
-  if (!loaded?.info.info) {
-    throw new NotFoundError('Could not fetch video info for the provided URL', 'Video not found');
+  const info = loaded?.info.info;
+  if (!info) {
+    throw new NotFoundError(UNKNOWN_FAILURE_MESSAGE, 'Video not found');
   }
-  return loaded.info;
+  return { videoId: loaded.info.videoId, info };
 }
 
 /**
@@ -827,7 +872,7 @@ export async function validateAndFetchVideoChapters(
 
   const loaded = await loadVideoJson(url, logger);
   if (!loaded || loaded.chapters.chapters === null) {
-    throw new NotFoundError('Could not fetch chapters for the provided URL', 'Video not found');
+    throw new NotFoundError(UNKNOWN_FAILURE_MESSAGE, 'Video not found');
   }
   return loaded.chapters;
 }
@@ -953,7 +998,14 @@ export async function validateAndCaptureVideoFrame(
         'Invalid timestamp'
       );
     }
-    throw new NotFoundError('Failed to capture a frame for this video.', 'Frame capture failed');
+    throw new NotFoundError(
+      `Could not capture a frame at ${formatTimestamp(timestampSeconds)}: the server could not read the video stream.` +
+        (timestampSeconds > 0
+          ? ' If the timestamp may be past the end of the video, retry once with an earlier one; otherwise do not retry'
+          : ' Do not retry') +
+        " — get_video_info returns the video's thumbnail.",
+      'Frame capture failed'
+    );
   }
 
   return {

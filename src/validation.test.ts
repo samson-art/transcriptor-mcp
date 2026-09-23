@@ -1,4 +1,4 @@
-import { NotFoundError, ValidationError, YtDlpError } from './errors.js';
+import { INVALID_VIDEO_URL_MESSAGE, NotFoundError, ValidationError, YtDlpError } from './errors.js';
 import {
   isValidYouTubeUrl,
   isValidSupportedUrl,
@@ -463,7 +463,10 @@ describe('validation', () => {
           type: 'auto',
           lang: 'en',
         } as any)
-      ).rejects.toMatchObject({ errorLabel: 'Invalid video URL' });
+      ).rejects.toMatchObject({
+        errorLabel: 'Invalid video URL',
+        message: INVALID_VIDEO_URL_MESSAGE,
+      });
       expect(downloadSpy).not.toHaveBeenCalled();
     });
 
@@ -972,30 +975,6 @@ describe('validation', () => {
         );
       });
 
-      it('should throw NotFoundError when all attempts and Whisper fail', async () => {
-        jest.spyOn(youtube, 'fetchYtDlpJson').mockResolvedValue({
-          id: 'dQw4w9WgXcQ',
-          subtitles: {},
-          automatic_captions: {},
-        });
-        jest.spyOn(youtube, 'downloadSubtitles').mockResolvedValue(null);
-        (whisper.getWhisperConfig as jest.Mock).mockReturnValue({
-          mode: 'local',
-          timeout: 600_000,
-        });
-        (whisperJobs.startOrReuseWhisperJob as jest.Mock).mockResolvedValue(null);
-
-        await expect(validateAndDownloadSubtitles({ url: youtubeUrl } as any)).rejects.toThrow(
-          NotFoundError
-        );
-        await expect(
-          validateAndDownloadSubtitles({ url: youtubeUrl } as any)
-        ).rejects.toMatchObject({
-          errorLabel: 'Subtitles not found',
-          message: expect.stringContaining('No subtitles available'),
-        });
-      });
-
       it('should call cache.set when Whisper finishes after WHISPER_TIMEOUT (auto-discover)', async () => {
         (cacheSet as jest.Mock).mockClear();
         jest.spyOn(youtube, 'fetchYtDlpJson').mockResolvedValue({
@@ -1446,18 +1425,218 @@ describe('validation', () => {
       );
     });
 
-    it('should map capture_failed to NotFoundError without the ffmpeg details', async () => {
+    const mockCaptureFailure = (): void => {
       jest.spyOn(youtube, 'captureVideoFrame').mockResolvedValue({
         ok: false,
         reason: 'capture_failed',
         videoId: 'dQw4w9WgXcQ',
         details: { message: 'Command failed: ffmpeg -i https://cdn.example/stream.mp4' },
       });
+    };
 
-      await expect(validateAndCaptureVideoFrame({ url, seconds: 10 })).rejects.toMatchObject({
-        name: 'NotFoundError',
-        message: 'Failed to capture a frame for this video.',
-      });
+    it('should map capture_failed to NotFoundError without the ffmpeg details', async () => {
+      mockCaptureFailure();
+
+      const err = await validateAndCaptureVideoFrame({ url, seconds: 10 }).catch((e: Error) => e);
+
+      expect(err).toMatchObject({ name: 'NotFoundError', errorLabel: 'Frame capture failed' });
+      expect((err as Error).message).toContain('00:00:10.000');
+      expect((err as Error).message).not.toContain('ffmpeg');
+    });
+
+    it('should offer an earlier timestamp only when there is one', async () => {
+      mockCaptureFailure();
+
+      const past = await validateAndCaptureVideoFrame({ url, seconds: 10 }).catch(
+        (e: Error) => e.message
+      );
+      const zero = await validateAndCaptureVideoFrame({ url, seconds: 0 }).catch(
+        (e: Error) => e.message
+      );
+
+      expect(past).toMatch(/earlier/i);
+      // At 00:00:00.000 "retry with an earlier timestamp" is the same call again, which is
+      // the loop this text exists to close.
+      expect(zero).toContain('00:00:00.000');
+      expect(zero).not.toMatch(/earlier/i);
+      expect(zero).toContain('get_video_info');
+
+      // Branching on request.seconds instead of the resolved timestamp passes the default
+      // case and lies about the explicit one.
+      const byDefault = await validateAndCaptureVideoFrame({ url }).catch((e: Error) => e.message);
+      expect(byDefault).toBe(zero);
+    });
+  });
+});
+
+describe('the answer when no subtitles came back', () => {
+  const url = 'https://www.youtube.com/watch?v=dQw4w9WgXcQ';
+  const NEXT_STEPS =
+    /Do not repeat the same call|Do not retry|You may retry the same call once in a few minutes|To try a track auto-discovery skipped|Omit type and lang to let the server choose/g;
+
+  const withTracks = (official: string[], auto: string[]): void => {
+    jest.spyOn(youtube, 'fetchYtDlpJson').mockResolvedValue({
+      id: 'dQw4w9WgXcQ',
+      subtitles: Object.fromEntries(official.map((l) => [l, [{ ext: 'vtt', url: 'u' }]])),
+      automatic_captions: Object.fromEntries(auto.map((l) => [l, [{ ext: 'vtt', url: 'u' }]])),
+    } as any);
+    jest.spyOn(youtube, 'downloadSubtitles').mockResolvedValue(null);
+  };
+
+  const messageOf = async (request: Record<string, unknown>): Promise<string> =>
+    validateAndDownloadSubtitles(request as any).then(
+      () => 'no error',
+      (e: Error) => e.message
+    );
+
+  beforeEach(() => {
+    (whisper.getWhisperConfig as jest.Mock).mockReturnValue({ mode: 'off' });
+    (whisperJobs.startOrReuseWhisperJob as jest.Mock).mockResolvedValue(null);
+  });
+
+  it('says how many tracks auto-discovery asked for, without claiming which', async () => {
+    withTracks(['en'], ['ru']);
+
+    const message = await messageOf({ url });
+
+    expect(message).toContain('No subtitles could be downloaded');
+    expect(message).toContain('at most 2');
+    // "one official and one auto" would be false: with one list empty both attempts go
+    // to the other one.
+    expect(message).not.toMatch(/the best official and the best automatic/);
+  });
+
+  it('separates a list it could not read from a list that is empty', async () => {
+    withTracks(['en'], ['ru']);
+    // The probe at the throw site re-reads the list; this is the read that fails.
+    jest
+      .spyOn(youtube, 'fetchYtDlpJson')
+      .mockResolvedValueOnce({
+        id: 'dQw4w9WgXcQ',
+        subtitles: { en: [{ ext: 'vtt', url: 'u' }] },
+        automatic_captions: { ru: [{ ext: 'vtt', url: 'u' }] },
+      } as any)
+      .mockResolvedValue(null);
+
+    const unreadable = await messageOf({ url });
+
+    expect(unreadable).toContain('could not be read');
+    expect(unreadable).not.toContain('lists no subtitle tracks');
+
+    withTracks([], []);
+    const empty = await messageOf({ url });
+    expect(empty).toContain('lists no subtitle tracks');
+    expect(empty).not.toContain('could not be read');
+  });
+
+  it('hands the track lists and the language just tried to the caller', async () => {
+    withTracks(['en'], ['ru']);
+
+    await expect(
+      validateAndDownloadSubtitles({ url, type: 'auto', lang: 'ru' } as any)
+    ).rejects.toMatchObject({
+      name: 'NotFoundError',
+      details: { official: ['en'], auto: ['ru'], tried: 'ru' },
+    });
+  });
+
+  it('names the values the server substituted, and only when it substituted them', async () => {
+    withTracks(['en'], ['ru']);
+
+    const oneGiven = await messageOf({ url, lang: 'ru' });
+    const bothGiven = await messageOf({ url, type: 'auto', lang: 'ru' });
+
+    expect(oneGiven).toContain('No auto subtitles could be downloaded for language "ru"');
+    expect(oneGiven).toContain('defaults to type "auto" and lang "en"');
+    expect(bothGiven).not.toContain('defaults to');
+  });
+
+  it('gives the caller exactly one next step, whatever the branch', async () => {
+    const shapes: Array<Record<string, unknown>> = [
+      { url },
+      { url, type: 'auto', lang: 'ru' },
+      { url, lang: 'ru' },
+    ];
+
+    for (const tracks of [
+      [['en'], ['ru']],
+      [[], []],
+    ] as Array<[string[], string[]]>) {
+      for (const shape of shapes) {
+        withTracks(tracks[0], tracks[1]);
+        const message = await messageOf(shape);
+        expect(message.match(NEXT_STEPS) ?? []).toHaveLength(1);
+      }
+    }
+  });
+
+  it('offers the way out that fits the flow', async () => {
+    withTracks(['en'], ['ru']);
+
+    const auto = await messageOf({ url });
+    const explicit = await messageOf({ url, type: 'auto', lang: 'ru' });
+
+    expect(auto).toContain('pass type and lang explicitly');
+    expect(auto).not.toContain('Omit type and lang');
+    expect(explicit).toContain('Omit type and lang');
+  });
+
+  it('says this server does not transcribe audio when it does not', async () => {
+    withTracks(['en'], ['ru']);
+
+    const message = await messageOf({ url });
+
+    expect(message).toContain('does not transcribe audio');
+    expect(message).not.toContain('Speech-to-text');
+  });
+
+  it('lets the caller wait for speech-to-text only while it may still finish', async () => {
+    withTracks([], []);
+    (whisper.getWhisperConfig as jest.Mock).mockReturnValue({ mode: 'local', timeout: 600_000 });
+
+    const running = await messageOf({ url });
+    expect(running).toContain('may still finish in the background');
+    expect(running).toContain('retry the same call once in a few minutes');
+
+    process.env.WHISPER_MAX_DURATION_SECONDS = '120';
+    try {
+      const capped = await messageOf({ url });
+      // With a ceiling the job will never run for this video again, so waiting is not the
+      // step to offer.
+      expect(capped).toContain('only videos up to 120 seconds long');
+      expect(capped).not.toContain('retry the same call once in a few minutes');
+    } finally {
+      delete process.env.WHISPER_MAX_DURATION_SECONDS;
+    }
+  });
+
+  it('names no route and no tool of its own', async () => {
+    withTracks(['en'], ['ru']);
+
+    for (const shape of [{ url }, { url, type: 'auto', lang: 'ru' }]) {
+      const message = await messageOf(shape);
+      // This text reaches REST verbatim, where an MCP tool name means nothing, and the
+      // route it used to name is POST, not GET.
+      expect(message).not.toContain('/subtitles/available');
+      expect(message).not.toContain('get_available_subtitles');
+      expect(message).not.toMatch(/GET |WHISPER_/);
+    }
+  });
+
+  it('keeps a classified failure instead of reporting missing subtitles', async () => {
+    withTracks(['en'], ['ru']);
+    jest
+      .spyOn(youtube, 'fetchYtDlpJson')
+      .mockResolvedValueOnce({
+        id: 'dQw4w9WgXcQ',
+        subtitles: { en: [{ ext: 'vtt', url: 'u' }] },
+        automatic_captions: {},
+      } as any)
+      .mockRejectedValue(new YtDlpError('private'));
+
+    await expect(validateAndDownloadSubtitles({ url } as any)).rejects.toMatchObject({
+      name: 'YtDlpError',
+      reason: 'private',
     });
   });
 });

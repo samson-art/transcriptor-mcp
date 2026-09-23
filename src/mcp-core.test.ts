@@ -1,7 +1,15 @@
 import { registerAppResource } from '@modelcontextprotocol/ext-apps/server';
 import * as Sentry from '@sentry/node';
 import fs from 'node:fs/promises';
-import { NotFoundError, ServerBusyError, ValidationError, YtDlpError } from './errors.js';
+import {
+  INVALID_LANGUAGE_MESSAGE,
+  INVALID_VIDEO_URL_MESSAGE,
+  NotFoundError,
+  ServerBusyError,
+  UNKNOWN_FAILURE_MESSAGE,
+  ValidationError,
+  YtDlpError,
+} from './errors.js';
 import { createMcpServer, UNEXPECTED_TOOL_ERROR_MESSAGE } from './mcp-core.js';
 import { renderPrometheus } from './metrics.js';
 import * as youtube from './youtube.js';
@@ -64,6 +72,9 @@ jest.mock('./youtube.js', () => ({
 }));
 
 jest.mock('./validation.js', () => ({
+  // The real one: the hint's ranking is the behaviour under test, not a stub's.
+  preferredTrackOrder:
+    jest.requireActual<typeof import('./validation.js')>('./validation.js').preferredTrackOrder,
   normalizeVideoInput: jest.fn(),
   sanitizeLang: jest.fn(),
   validateAndDownloadSubtitles: jest.fn(),
@@ -405,13 +416,15 @@ describe('mcp-core tools', () => {
 
       normalizeVideoInputMock.mockReturnValue(testUrl);
       validateAndFetchVideoInfoMock.mockRejectedValue(
-        new NotFoundError('Not found', 'Video not found')
+        new NotFoundError(UNKNOWN_FAILURE_MESSAGE, 'Video not found')
       );
 
       const result = await handler({ url: 'video123' }, {});
 
       expect(result).toMatchObject({ isError: true });
-      expect(result.content[0].text).toContain('Failed to fetch video info');
+      // The tool used to answer with 'Failed to fetch video info.' whatever the layer
+      // below said. Pinned exactly, because the fact under test is "nobody rewrites it".
+      expect(result.content[0].text).toBe(UNKNOWN_FAILURE_MESSAGE);
     });
 
     it('should log and return error when video info fetch throws unexpected error', async () => {
@@ -657,13 +670,13 @@ describe('mcp-core tools', () => {
 
       normalizeVideoInputMock.mockReturnValue(testUrl);
       validateAndFetchVideoChaptersMock.mockRejectedValue(
-        new NotFoundError('Not found', 'Video not found')
+        new NotFoundError(UNKNOWN_FAILURE_MESSAGE, 'Video not found')
       );
 
       const result = await handler({ url: 'video123' }, {});
 
       expect(result).toMatchObject({ isError: true });
-      expect(result.content[0].text).toContain('Failed to fetch chapters');
+      expect(result.content[0].text).toBe(UNKNOWN_FAILURE_MESSAGE);
     });
 
     it('should return structured chapters on success', async () => {
@@ -785,18 +798,22 @@ describe('mcp-core tools', () => {
       expect(result.content[0].text).toContain('Provide either timecode or seconds');
     });
 
-    it('should return notFound message when capture fails', async () => {
+    it('should pass the capture failure text through unchanged', async () => {
       const server = createMcpServer() as any;
       const handler = getTool(server, 'get_video_frame');
+      const thrown =
+        'Could not capture a frame at 00:00:10.000: the server could not read the video stream.';
 
       validateAndCaptureVideoFrameMock.mockRejectedValue(
-        new NotFoundError('Failed to capture frame: boom', 'Frame capture failed')
+        new NotFoundError(thrown, 'Frame capture failed')
       );
 
       const result = await handler({ url: testUrl }, {});
 
       expect(result).toMatchObject({ isError: true });
-      expect(result.content[0].text).toContain('Failed to capture a frame for this video.');
+      // Exact: the timestamp is the only thing that tells the caller which retry is worth
+      // making, and the tool's own sentence never had it.
+      expect(result.content[0].text).toBe(thrown);
     });
   });
 
@@ -919,7 +936,11 @@ describe('mcp-core tools', () => {
       const result = await handler({ query: 'test' }, {});
 
       expect(result).toMatchObject({ isError: true });
-      expect(result.content[0].text).toContain('Failed to search videos');
+      const text = result.content[0].text;
+      expect(text).toContain('The search failed');
+      expect(text).toContain('matchFilter');
+      expect(text).toContain('dateBefore');
+      expect(text).toMatch(/retry once/i);
     });
 
     it('should return No results found when search returns empty array', async () => {
@@ -932,6 +953,189 @@ describe('mcp-core tools', () => {
 
       expect(result.structuredContent).toEqual({ results: [] });
       expect(result.content[0].text).toContain('No results found');
+    });
+  });
+
+  describe('error texts the caller has to act on', () => {
+    const transcriptArgs = { url: 'https://www.youtube.com/watch?v=video123' };
+
+    it('answers a bad URL with the supported platforms', async () => {
+      const server = createMcpServer() as any;
+      normalizeVideoInputMock.mockReturnValue(null);
+
+      const result = await getTool(server, 'get_video_info')({ url: 'rick astley' }, {});
+
+      expect(result).toMatchObject({ isError: true });
+      expect(result.content[0].text).toBe(INVALID_VIDEO_URL_MESSAGE);
+    });
+
+    it('keeps the playlist tool on its own sentence about playlists', async () => {
+      const server = createMcpServer() as any;
+      normalizeVideoInputMock.mockReturnValue(null);
+
+      const result = await getTool(server, 'get_playlist_transcripts')({ url: 'nope' }, {});
+
+      expect(result).toMatchObject({ isError: true });
+      expect(result.content[0].text).toMatch(/playlist/i);
+      expect(result.content[0].text).toContain('list=');
+      expect(downloadPlaylistSubtitlesMock).not.toHaveBeenCalled();
+    });
+
+    it('appends the tracks the video does have, best guesses first', async () => {
+      const server = createMcpServer() as any;
+      normalizeVideoInputMock.mockReturnValue(transcriptArgs.url);
+      sanitizeLangMock.mockImplementation((lang: string) => lang);
+      validateAndDownloadSubtitlesMock.mockRejectedValue(
+        new NotFoundError('No auto subtitles could be downloaded for language "de".', 'x', {
+          official: ['en'],
+          auto: ['ar', 'de', 'en', 'ru-orig', 'zu'],
+          tried: 'de',
+        })
+      );
+
+      const result = await getTool(server, 'get_transcript')(
+        { ...transcriptArgs, type: 'auto', lang: 'de' },
+        {}
+      );
+
+      const text = result.content[0].text as string;
+      expect(text).toContain('No auto subtitles could be downloaded');
+      expect(text).toContain('official: en;');
+      const autoCodes = /auto: ([^.]+)\./.exec(text)?.[1].split(', ');
+      // -orig first (it is the audio's own track), then what the caller just tried, then en.
+      expect(autoCodes?.slice(0, 3)).toEqual(['ru-orig', 'de', 'en']);
+    });
+
+    it('cuts the track list and says where the rest is', async () => {
+      const server = createMcpServer() as any;
+      normalizeVideoInputMock.mockReturnValue(transcriptArgs.url);
+      const many = Array.from({ length: 20 }, (_, i) => `l${String(i).padStart(2, '0')}`);
+      validateAndDownloadSubtitlesMock.mockRejectedValue(
+        new NotFoundError('none', 'x', { official: [], auto: many })
+      );
+
+      const result = await getTool(server, 'get_transcript')(transcriptArgs, {});
+
+      const text = result.content[0].text as string;
+      expect(text).toContain('official: none;');
+      expect(text).toContain('+5 more');
+      expect(text).toContain('get_available_subtitles');
+    });
+
+    it('adds no track list when the video has no tracks', async () => {
+      const server = createMcpServer() as any;
+      normalizeVideoInputMock.mockReturnValue(transcriptArgs.url);
+      validateAndDownloadSubtitlesMock.mockRejectedValue(
+        new NotFoundError('The platform lists no subtitle tracks for this video.', 'x', {
+          official: [],
+          auto: [],
+        })
+      );
+
+      const result = await getTool(server, 'get_transcript')(transcriptArgs, {});
+
+      expect(result.content[0].text).not.toContain('Available tracks');
+    });
+
+    it('passes the availability tool the reason it was given', async () => {
+      const server = createMcpServer() as any;
+      normalizeVideoInputMock.mockReturnValue(transcriptArgs.url);
+      validateAndFetchAvailableSubtitlesMock.mockRejectedValue(
+        new NotFoundError(UNKNOWN_FAILURE_MESSAGE, 'Video not found')
+      );
+
+      const result = await getTool(server, 'get_available_subtitles')(transcriptArgs, {});
+
+      // This override had no test at all: deleting it was the one change nothing made red.
+      expect(result.content[0].text).toBe(UNKNOWN_FAILURE_MESSAGE);
+    });
+
+    it('answers a bad language code with the rule the server enforces', async () => {
+      const server = createMcpServer() as any;
+      normalizeVideoInputMock.mockReturnValue(transcriptArgs.url);
+      sanitizeLangMock.mockReturnValue(null);
+
+      const result = await getTool(server, 'get_transcript')(
+        { ...transcriptArgs, lang: 'not a code' },
+        {}
+      );
+
+      expect(result.content[0].text).toBe(INVALID_LANGUAGE_MESSAGE);
+      expect(validateAndDownloadSubtitlesMock).not.toHaveBeenCalled();
+    });
+
+    it('rejects a bad URL before it looks at the language', async () => {
+      const server = createMcpServer() as any;
+      normalizeVideoInputMock.mockReturnValue(null);
+      sanitizeLangMock.mockReturnValue(null);
+
+      const result = await getTool(server, 'get_transcript')({ url: 'nope', lang: '!!' }, {});
+
+      expect(result.content[0].text).toBe(INVALID_VIDEO_URL_MESSAGE);
+    });
+
+    it('tells a bad cursor how long the text is, and accepts one at the end of it', async () => {
+      const server = createMcpServer() as any;
+      normalizeVideoInputMock.mockReturnValue(transcriptArgs.url);
+      sanitizeLangMock.mockImplementation((lang: string) => lang);
+      validateAndDownloadSubtitlesMock.mockResolvedValue({
+        videoId: 'video123',
+        type: 'auto',
+        lang: 'en',
+        subtitlesContent: 'raw',
+      });
+      parseSubtitlesMock.mockReturnValue('0123456789');
+      const past = await getTool(server, 'get_transcript')(
+        { ...transcriptArgs, next_cursor: '99' },
+        {}
+      );
+      expect(past).toMatchObject({ isError: true });
+      expect(past.content[0].text).toContain('10 characters long');
+      expect(past.content[0].text).toContain('next_cursor');
+
+      // Naming the length puts a hand on this boundary; `>=` would turn a legitimate
+      // end-of-text cursor into an error.
+      const atEnd = await getTool(server, 'get_transcript')(
+        { ...transcriptArgs, next_cursor: '10' },
+        {}
+      );
+      expect(atEnd.isError).toBeFalsy();
+      expect(atEnd.structuredContent).toMatchObject({ text: '', total_length: 10 });
+    });
+
+    it('reports the type and lang an empty playlist actually used', async () => {
+      const server = createMcpServer() as any;
+      normalizeVideoInputMock.mockReturnValue('https://www.youtube.com/playlist?list=PL1');
+      sanitizeLangMock.mockReturnValue(null);
+      downloadPlaylistSubtitlesMock.mockResolvedValue([]);
+
+      const result = await getTool(server, 'get_playlist_transcripts')(
+        { url: 'PL1', lang: 'zz!!' },
+        {}
+      );
+
+      const text = result.content[0].text as string;
+      // The server silently falls back to en here; reporting args.lang would describe an
+      // attempt it never made.
+      expect(text).toContain('type "auto"');
+      expect(text).toContain('lang "en"');
+      expect(text).not.toContain('zz!!');
+      expect(result.isError).toBeFalsy();
+      expect(result.structuredContent).toEqual({ results: [] });
+    });
+
+    it('masks an internal fault instead of answering 404 for it', async () => {
+      const server = createMcpServer() as any;
+      normalizeVideoInputMock.mockReturnValue(transcriptArgs.url);
+      // The dead `if (!info)` guard used to turn this into a 404 "Failed to fetch video
+      // info."; the layer below throws on a missing info, so this shape is a real fault.
+      validateAndFetchVideoInfoMock.mockResolvedValue({ videoId: 'video123', info: null });
+
+      const result = await getTool(server, 'get_video_info')(transcriptArgs, {});
+
+      expect(result).toMatchObject({ isError: true });
+      expect(result.content[0].text).toContain('Internal server error');
+      expect(captureExceptionMock).toHaveBeenCalled();
     });
   });
 });

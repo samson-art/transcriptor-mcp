@@ -26,7 +26,10 @@ import {
 import {
   errorReason,
   HttpError,
+  INVALID_LANGUAGE_MESSAGE,
+  INVALID_VIDEO_URL_MESSAGE,
   NotFoundError,
+  type NotFoundDetails,
   ServerBusyError,
   ValidationError,
   YtDlpError,
@@ -34,6 +37,7 @@ import {
 import { extractPlatformFromUrl } from './platform.js';
 import {
   normalizeVideoInput,
+  preferredTrackOrder,
   sanitizeLang,
   validateAndDownloadSubtitles,
   validateAndFetchAvailableSubtitles,
@@ -383,10 +387,29 @@ function toolError(message: string): ToolErrorResult {
   };
 }
 
-type WithToolErrorHandlingOptions = {
-  /** Custom message for NotFoundError (default: err.message) */
-  notFoundMessage?: string;
-};
+/**
+ * How many codes each list shows before it is cut. YouTube lists ~160 automatic tracks,
+ * and a caller that has to read all of them learns nothing the ranked head does not say.
+ */
+const TRACK_HINT_LIMIT = 15;
+
+/**
+ * The codes the caller can actually ask for, appended to a "no subtitles" answer. Ranked
+ * by the same rule auto-discovery uses, with the language the caller just asked for in the
+ * place the spoken language takes there.
+ */
+function trackHint(details?: NotFoundDetails): string {
+  const official = details?.official ?? [];
+  const auto = details?.auto ?? [];
+  if (official.length === 0 && auto.length === 0) return '';
+  const show = (codes: string[]): string => {
+    if (codes.length === 0) return 'none';
+    const ranked = preferredTrackOrder(codes, details?.tried);
+    const rest = ranked.length - TRACK_HINT_LIMIT;
+    return `${ranked.slice(0, TRACK_HINT_LIMIT).join(', ')}${rest > 0 ? ` (+${rest} more, full list: get_available_subtitles)` : ''}`;
+  };
+  return ` Available tracks — official: ${show(official)}; auto: ${show(auto)}.`;
+}
 
 /** What a tool was called with, as far as the per-call log line needs it. */
 type ToolCall = {
@@ -413,7 +436,7 @@ function hostOfSchemeless(input: string): string {
  */
 function toolCallLogFields({ args, extra }: ToolCall) {
   const input = typeof args.url === 'string' ? args.url.trim() : '';
-  const resolved = input ? resolveVideoUrl(input) : null;
+  const resolved = input ? normalizeVideoInput(input) : null;
   const url = input ? (resolved ?? input) : '';
   let host: string | undefined;
   if (input) {
@@ -444,8 +467,7 @@ async function withToolErrorHandling(
   toolName: string,
   log: FastifyBaseLogger,
   call: ToolCall,
-  fn: () => Promise<ToolSuccessResult>,
-  options?: WithToolErrorHandlingOptions
+  fn: () => Promise<ToolSuccessResult>
 ): Promise<ToolResult> {
   const start = performance.now();
   recordMcpToolCall(toolName);
@@ -456,7 +478,7 @@ async function withToolErrorHandling(
     reason = errorReason(err);
     recordMcpToolError(toolName, reason);
     if (err instanceof NotFoundError) {
-      return toolError(options?.notFoundMessage ?? err.message);
+      return toolError(err.message + trackHint(err.details));
     }
     // Load shedding is a state of this server, not a fault: say so and move on.
     if (err instanceof ServerBusyError) {
@@ -640,33 +662,22 @@ export function createMcpServer(opts?: CreateMcpServerOptions) {
       },
     },
     async (args, extra) =>
-      withToolErrorHandling(
-        TOOL_GET_AVAILABLE_SUBTITLES,
-        log,
-        { args, extra },
-        async () => {
-          const url = resolveVideoUrl(args.url);
-          if (!url) {
-            throw new ValidationError(
-              'Invalid video URL. Use a URL from a supported platform or YouTube video ID.'
-            );
-          }
-          const result = await validateAndFetchAvailableSubtitles({ url }, log);
-          const text = [
-            `Official: ${result.official.length ? result.official.join(', ') : 'none'}`,
-            `Auto: ${result.auto.length ? result.auto.join(', ') : 'none'}`,
-          ].join('\n');
-          return {
-            content: [textContent(text)],
-            structuredContent: {
-              videoId: result.videoId,
-              official: result.official,
-              auto: result.auto,
-            },
-          };
-        },
-        { notFoundMessage: 'Failed to fetch subtitle availability for this video.' }
-      )
+      withToolErrorHandling(TOOL_GET_AVAILABLE_SUBTITLES, log, { args, extra }, async () => {
+        const url = requireVideoUrl(args.url);
+        const result = await validateAndFetchAvailableSubtitles({ url }, log);
+        const text = [
+          `Official: ${result.official.length ? result.official.join(', ') : 'none'}`,
+          `Auto: ${result.auto.length ? result.auto.join(', ') : 'none'}`,
+        ].join('\n');
+        return {
+          content: [textContent(text)],
+          structuredContent: {
+            videoId: result.videoId,
+            official: result.official,
+            auto: result.auto,
+          },
+        };
+      })
   );
 
   /**
@@ -697,60 +708,45 @@ export function createMcpServer(opts?: CreateMcpServerOptions) {
       },
     },
     async (args: z.infer<typeof baseInputSchema>, extra) =>
-      withToolErrorHandling(
-        TOOL_GET_VIDEO_INFO,
-        log,
-        { args, extra },
-        async () => {
-          const url = resolveVideoUrl(args.url);
-          if (!url) {
-            throw new ValidationError(
-              'Invalid video URL. Use a URL from a supported platform or YouTube video ID.'
-            );
-          }
-          const result = await validateAndFetchVideoInfo({ url }, log);
-          const { videoId, info } = result;
-          if (!info) {
-            throw new NotFoundError('Failed to fetch video info.');
-          }
-          const textLines = [
-            info.title ? `Title: ${info.title}` : null,
-            info.channel ? `Channel: ${info.channel}` : null,
-            info.duration === null ? null : `Duration: ${info.duration}s`,
-            info.viewCount === null ? null : `Views: ${info.viewCount}`,
-            info.webpageUrl ? `URL: ${info.webpageUrl}` : null,
-          ].filter(Boolean) as string[];
+      withToolErrorHandling(TOOL_GET_VIDEO_INFO, log, { args, extra }, async () => {
+        const url = requireVideoUrl(args.url);
+        const { videoId, info } = await validateAndFetchVideoInfo({ url }, log);
+        const textLines = [
+          info.title ? `Title: ${info.title}` : null,
+          info.channel ? `Channel: ${info.channel}` : null,
+          info.duration === null ? null : `Duration: ${info.duration}s`,
+          info.viewCount === null ? null : `Views: ${info.viewCount}`,
+          info.webpageUrl ? `URL: ${info.webpageUrl}` : null,
+        ].filter(Boolean) as string[];
 
-          return {
-            content: [textContent(textLines.join('\n'))],
-            structuredContent: {
-              videoId,
-              title: info.title,
-              uploader: info.uploader,
-              uploaderId: info.uploaderId,
-              channel: info.channel,
-              channelId: info.channelId,
-              channelUrl: info.channelUrl,
-              duration: info.duration,
-              description: info.description,
-              uploadDate: info.uploadDate,
-              webpageUrl: info.webpageUrl,
-              viewCount: info.viewCount,
-              likeCount: info.likeCount,
-              commentCount: info.commentCount,
-              tags: info.tags,
-              categories: info.categories,
-              liveStatus: info.liveStatus,
-              isLive: info.isLive,
-              wasLive: info.wasLive,
-              availability: info.availability,
-              thumbnail: info.thumbnail,
-              thumbnails: info.thumbnails,
-            },
-          };
-        },
-        { notFoundMessage: 'Failed to fetch video info.' }
-      )
+        return {
+          content: [textContent(textLines.join('\n'))],
+          structuredContent: {
+            videoId,
+            title: info.title,
+            uploader: info.uploader,
+            uploaderId: info.uploaderId,
+            channel: info.channel,
+            channelId: info.channelId,
+            channelUrl: info.channelUrl,
+            duration: info.duration,
+            description: info.description,
+            uploadDate: info.uploadDate,
+            webpageUrl: info.webpageUrl,
+            viewCount: info.viewCount,
+            likeCount: info.likeCount,
+            commentCount: info.commentCount,
+            tags: info.tags,
+            categories: info.categories,
+            liveStatus: info.liveStatus,
+            isLive: info.isLive,
+            wasLive: info.wasLive,
+            availability: info.availability,
+            thumbnail: info.thumbnail,
+            thumbnails: info.thumbnails,
+          },
+        };
+      })
   );
 
   /**
@@ -773,36 +769,25 @@ export function createMcpServer(opts?: CreateMcpServerOptions) {
       },
     },
     async (args, extra) =>
-      withToolErrorHandling(
-        TOOL_GET_VIDEO_CHAPTERS,
-        log,
-        { args, extra },
-        async () => {
-          const url = resolveVideoUrl(args.url);
-          if (!url) {
-            throw new ValidationError(
-              'Invalid video URL. Use a URL from a supported platform or YouTube video ID.'
-            );
-          }
-          const result = await validateAndFetchVideoChapters({ url }, log);
-          const chapters = result.chapters ?? [];
-          const text =
-            chapters.length === 0
-              ? 'No chapters found.'
-              : chapters
-                  .map((ch: VideoChapter) => `${ch.startTime}s - ${ch.endTime}s: ${ch.title}`)
-                  .join('\n');
+      withToolErrorHandling(TOOL_GET_VIDEO_CHAPTERS, log, { args, extra }, async () => {
+        const url = requireVideoUrl(args.url);
+        const result = await validateAndFetchVideoChapters({ url }, log);
+        const chapters = result.chapters ?? [];
+        const text =
+          chapters.length === 0
+            ? 'No chapters found.'
+            : chapters
+                .map((ch: VideoChapter) => `${ch.startTime}s - ${ch.endTime}s: ${ch.title}`)
+                .join('\n');
 
-          return {
-            content: [textContent(text)],
-            structuredContent: {
-              videoId: result.videoId,
-              chapters,
-            },
-          };
-        },
-        { notFoundMessage: 'Failed to fetch chapters for this video.' }
-      )
+        return {
+          content: [textContent(text)],
+          structuredContent: {
+            videoId: result.videoId,
+            chapters,
+          },
+        };
+      })
   );
 
   /**
@@ -833,44 +818,38 @@ export function createMcpServer(opts?: CreateMcpServerOptions) {
       },
     },
     async (args: z.infer<typeof videoFrameInputSchema>, extra) =>
-      withToolErrorHandling(
-        TOOL_GET_VIDEO_FRAME,
-        log,
-        { args, extra },
-        async () => {
-          const result = await validateAndCaptureVideoFrame(
+      withToolErrorHandling(TOOL_GET_VIDEO_FRAME, log, { args, extra }, async () => {
+        const result = await validateAndCaptureVideoFrame(
+          {
+            url: args.url,
+            timecode: args.timecode,
+            seconds: args.seconds,
+            format: args.format,
+            width: args.width,
+            quality: args.quality,
+          },
+          log
+        );
+        return {
+          content: [
+            textContent(`Frame captured at ${result.timestamp}`),
             {
-              url: args.url,
-              timecode: args.timecode,
-              seconds: args.seconds,
-              format: args.format,
-              width: args.width,
-              quality: args.quality,
-            },
-            log
-          );
-          return {
-            content: [
-              textContent(`Frame captured at ${result.timestamp}`),
-              {
-                type: 'image',
-                data: result.data.toString('base64'),
-                mimeType: result.mimeType,
-              },
-            ],
-            structuredContent: {
-              videoId: result.videoId,
-              url: result.url,
-              timestampSeconds: result.timestampSeconds,
-              timestamp: result.timestamp,
+              type: 'image',
+              data: result.data.toString('base64'),
               mimeType: result.mimeType,
-              sizeBytes: result.sizeBytes,
-              width: result.width,
             },
-          };
-        },
-        { notFoundMessage: 'Failed to capture a frame for this video.' }
-      )
+          ],
+          structuredContent: {
+            videoId: result.videoId,
+            url: result.url,
+            timestampSeconds: result.timestampSeconds,
+            timestamp: result.timestamp,
+            mimeType: result.mimeType,
+            sizeBytes: result.sizeBytes,
+            width: result.width,
+          },
+        };
+      })
   );
 
   /**
@@ -893,13 +872,16 @@ export function createMcpServer(opts?: CreateMcpServerOptions) {
     },
     async (args, extra) =>
       withToolErrorHandling(TOOL_GET_PLAYLIST_TRANSCRIPTS, log, { args, extra }, async () => {
-        const url = resolveVideoUrl(args.url);
+        const url = normalizeVideoInput(args.url);
         if (!url) {
           throw new ValidationError(
             'Invalid URL. Use a playlist URL (e.g. youtube.com/playlist?list=XXX) or watch URL with list= parameter.'
           );
         }
 
+        // Kept as the values actually used, not as the arguments: the empty answer below
+        // reports what the server asked for, and a silent fallback is what it asked for.
+        const type = args.type ?? 'auto';
         const lang = args.lang ? (sanitizeLang(args.lang) ?? 'en') : 'en';
 
         const format =
@@ -910,7 +892,7 @@ export function createMcpServer(opts?: CreateMcpServerOptions) {
         const rawResults = await downloadPlaylistSubtitles(
           url,
           {
-            type: args.type ?? 'auto',
+            type,
             lang,
             format,
             playlistItems: args.playlistItems,
@@ -926,7 +908,7 @@ export function createMcpServer(opts?: CreateMcpServerOptions) {
 
         const text =
           results.length === 0
-            ? 'No transcripts found.'
+            ? `No transcripts could be downloaded for this selection with type "${type}" and lang "${lang}" (defaults: auto, en). Do not repeat the same call; ask the user for one video URL from this playlist and call get_available_subtitles on it, or retry with a different type and lang.`
             : results.map((r) => `[${r.videoId}]\n${r.text}`).join('\n\n---\n\n');
 
         return {
@@ -987,7 +969,10 @@ export function createMcpServer(opts?: CreateMcpServerOptions) {
         });
 
         if (results === null) {
-          throw new NotFoundError('Failed to search videos.');
+          throw new NotFoundError(
+            'The search failed and the server could not determine why. If you passed matchFilter, dateBefore or date, retry once without them and tell the user the filter was dropped; otherwise retry once. If it fails again, do not retry.',
+            'Search failed'
+          );
         }
 
         let text: string;
@@ -1352,44 +1337,40 @@ export function createMcpServer(opts?: CreateMcpServerOptions) {
 }
 
 function resolveSubtitleArgs(args: z.infer<typeof subtitleInputSchema>) {
-  const url = resolveVideoUrl(args.url);
-  if (!url) {
-    throw new ValidationError(
-      'Invalid video URL. Use a URL from a supported platform or YouTube video ID.'
-    );
-  }
+  const url = requireVideoUrl(args.url);
 
-  const isAutoDiscover = args.type === undefined && args.lang === undefined;
-
+  // Both absent is the auto-discovery request, and both stay undefined so the flow below
+  // can tell it from a caller who named one of the two.
   let type: 'official' | 'auto' | undefined;
   let lang: string | undefined;
 
-  if (isAutoDiscover) {
-    type = undefined;
-    lang = undefined;
-  } else {
+  if (args.type !== undefined || args.lang !== undefined) {
     type = args.type ?? 'auto';
     if (args.lang === undefined || args.lang === null) {
       lang = 'en';
     } else {
       const sanitized = sanitizeLang(args.lang);
       if (!sanitized) {
-        throw new ValidationError('Invalid language code.');
+        throw new ValidationError(INVALID_LANGUAGE_MESSAGE, 'Invalid language code');
       }
       lang = sanitized;
     }
   }
 
-  const responseLimit = args.response_limit ?? Infinity;
-  const nextCursor = args.next_cursor;
-  const format =
-    args.format && ['srt', 'vtt', 'ass', 'lrc'].includes(args.format) ? args.format : undefined;
-
-  return { url, type, lang, format, responseLimit, nextCursor };
+  return {
+    url,
+    type,
+    lang,
+    format: args.format,
+    responseLimit: args.response_limit ?? Infinity,
+    nextCursor: args.next_cursor,
+  };
 }
 
-function resolveVideoUrl(input: string): string | null {
-  return normalizeVideoInput(input);
+function requireVideoUrl(input: string): string {
+  const url = normalizeVideoInput(input);
+  if (!url) throw new ValidationError(INVALID_VIDEO_URL_MESSAGE, 'Invalid video URL');
+  return url;
 }
 
 function paginateText(text: string, limit: number, nextCursor?: string) {
@@ -1397,7 +1378,10 @@ function paginateText(text: string, limit: number, nextCursor?: string) {
   const startOffset = nextCursor ? Number.parseInt(nextCursor, 10) : 0;
 
   if (Number.isNaN(startOffset) || startOffset < 0 || startOffset > totalLength) {
-    throw new ValidationError('Invalid next_cursor value.');
+    throw new ValidationError(
+      `Invalid next_cursor. Use the next_cursor returned by the previous call for the same url, type and lang (this text is ${totalLength} characters long), or omit next_cursor to start from the beginning.`,
+      'Invalid next_cursor'
+    );
   }
 
   const endOffset = Math.min(startOffset + limit, totalLength);
