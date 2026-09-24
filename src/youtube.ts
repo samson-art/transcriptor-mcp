@@ -175,9 +175,9 @@ function rethrowInfra(error: unknown): void {
 }
 
 /**
- * One place to notice a platform said 429, whichever of the two caption paths said it:
- * the track's own URL throws a typed error, yt-dlp fails a process. Returns whether it was
- * one, so the caller can label the request it just spent without classifying twice.
+ * One place to notice a platform said 429: yt-dlp failed a process with it in stderr, or a
+ * refusal was already classified. Returns whether it was one, so the caller can label the
+ * request it just spent without classifying twice.
  */
 function noteIfRateLimited(url: string, error: unknown): boolean {
   const reason =
@@ -428,8 +428,8 @@ async function runYtDlpAndExtractSubtitles(
 /**
  * Downloads subtitles using yt-dlp — only yt-dlp, with the server's cookies and its browser
  * impersonation. Fetching a listed track's own URL from Node (1.4.0–1.5.7, 0.2 s against a
- * 4–7 s run) is what YouTube started refusing with 429 on 2026-09-24, every first request
- * after a hold, while the same track kept coming through yt-dlp.
+ * 4–7 s run) is what YouTube refused with 429 seven times on 2026-09-24 while the same
+ * track kept coming through yt-dlp.
  * @param url - Video URL (any supported platform)
  * @param type - subtitle type: 'official' or 'auto'
  * @param lang - subtitle language (e.g., 'en', 'ru')

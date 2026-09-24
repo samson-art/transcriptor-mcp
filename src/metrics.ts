@@ -68,11 +68,11 @@ export const subtitlesExtractionFailuresTotal = new Counter({
 });
 
 /**
- * Requests this server makes to a platform's caption endpoint, split by the path that made
- * them. The 429 that takes subtitles down for a day is a budget on exactly these requests,
- * and the budget is not documented anywhere: counting them is the only way to learn how
- * many fit in a day, and whether the two paths are counted against the same one.
- * `outcome=error` includes a yt-dlp run that failed before it reached the endpoint.
+ * Requests this server makes to a platform's caption endpoint. The 429 that takes subtitles
+ * down for a day is a budget on exactly these requests, and the budget is not documented
+ * anywhere: counting them is the only way to learn how many fit in a day. `path` is always
+ * `yt_dlp` since 1.5.8 and stays so the series continue. `outcome=error` includes a yt-dlp
+ * run that failed before it reached the endpoint.
  */
 export const subtitleRequestsTotal = new Counter({
   name: 'subtitle_requests_total',
@@ -175,7 +175,7 @@ export const canaryLastSuccessTimestampSeconds = new Gauge({
 // Set by subtitle-rate-limit.ts; the alert on it is `>= 2`.
 export const subtitleRateLimitStrikes = new Gauge({
   name: 'subtitle_rate_limit_strikes',
-  help: '429s in a row from a platform caption endpoint with no track in between; 0 once a track arrives. 2 or more: this address is banned',
+  help: '429s in a row from a platform caption endpoint with no track in between; 0 once a track arrives, and after a restart. 2 or more: this address is banned',
   labelNames: ['platform'],
   registers: [register],
 });

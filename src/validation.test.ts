@@ -746,11 +746,19 @@ describe('validation', () => {
         undefined,
         undefined
       );
-      // No id in the URL, so the id still costs one yt-dlp run.
+      // No id in the URL, so the id still costs one yt-dlp run — after the track, never in
+      // front of it: with the direct fetch gone, a JSON run first would double the wait.
       expect(youtube.fetchYtDlpJson).toHaveBeenCalled();
+      const [trackRun] = (youtube.downloadSubtitles as jest.Mock).mock.invocationCallOrder;
+      const [jsonRun] = (youtube.fetchYtDlpJson as jest.Mock).mock.invocationCallOrder;
+      expect(trackRun).toBeLessThan(jsonRun);
+      // That run still fills the caches the widgets read next.
+      expect((cacheSet as jest.Mock).mock.calls.map((c) => String(c[0]).split(':')[0])).toEqual(
+        expect.arrayContaining(['avail', 'info', 'chapters'])
+      );
     });
 
-    it('should read one JSON for the track URL, the id and the metadata caches', async () => {
+    it('should spend no JSON run on a YouTube URL: the id is in it, the track is the only run', async () => {
       jest.spyOn(youtube, 'downloadSubtitles').mockResolvedValue('content');
       const jsonSpy = jest
         .spyOn(youtube, 'fetchYtDlpJson')
@@ -763,11 +771,7 @@ describe('validation', () => {
       } as any);
 
       expect(result.videoId).toBe('dQw4w9WgXcQ');
-      expect(jsonSpy).toHaveBeenCalledTimes(1);
-      // info, tracks and chapters are filled from that one run
-      expect((cacheSet as jest.Mock).mock.calls.map((c) => String(c[0]).split(':')[0])).toEqual(
-        expect.arrayContaining(['avail', 'info', 'chapters'])
-      );
+      expect(jsonSpy).not.toHaveBeenCalled();
     });
 
     it('should answer a private video with its reason, not "no subtitles for en"', async () => {

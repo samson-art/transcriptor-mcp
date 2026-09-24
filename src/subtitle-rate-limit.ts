@@ -5,7 +5,8 @@
  * feeding the same quota. This holds a platform's caption path back after a 429, so a
  * limit costs one request per hold instead of hundreds, and the caller hears "do not
  * retry" instead of "wait a few minutes". The strike count is a gauge: two means the
- * platform refused the first request it got after the hold, which is what a ban looks like.
+ * platform refused again after the hold with no track in between, which is what a ban
+ * looks like.
  *
  * Only subtitle downloads are held back. Metadata kept working through both days, and
  * a hold on it would break `get_video_info` for no reason.
@@ -44,15 +45,18 @@ export function assertSubtitlesNotRateLimited(url: string): void {
 
 /** The platform answered 429: hold its caption path back, longer on every repeat. */
 export function noteSubtitlesRateLimited(url: string): void {
+  // Hold off means strike count off: without a wait, every 429 in flight would be a strike.
+  if (baseHoldMs() <= 0) return;
   const platform = extractPlatformFromUrl(url);
   const now = Date.now();
   const prev = holds.get(platform);
   // Calls already in flight when the limit starts all report the same 429, and they must
   // not walk the wait up between them: only an attempt made AFTER a wait ran out counts as
   // a repeat — however long after. Nothing but a track resets the count (the canary asks
-  // for one every hour), so a repeat means the platform refused the first request it got
-  // once the hold was over. Counting only repeats within ten minutes of the hold, as this
-  // did until 1.5.8, read every refusal of a sparse day as the first one.
+  // for one every CANARY_INTERVAL_MS while nothing else answers), so a repeat means the
+  // platform refused again with no track in between. Counting only repeats within ten
+  // minutes of the hold, as this did until 1.5.8, read every refusal of a sparse day as
+  // the first one.
   if (prev && now < prev.until) return;
   const strikes = prev ? prev.strikes + 1 : 1;
   holds.set(platform, { until: now + holdMs(strikes), strikes });

@@ -452,9 +452,9 @@ function sortedTrackLangs(tracks?: Record<string, unknown>): string[] {
 }
 
 /**
- * One yt-dlp run answers info, the track list and chapters, and hands the JSON to the
- * caller for the tracks' own URLs. All three cache entries are filled, so the next tool
- * asking about this video is a cache hit.
+ * One yt-dlp run answers info, the track list and chapters, and hands the JSON to
+ * auto-discovery for the video's language. All three cache entries are filled, so the
+ * next tool asking about this video is a cache hit.
  */
 async function buildVideoJson(url: string, logger?: FastifyBaseLogger): Promise<VideoJson | null> {
   const data = await fetchYtDlpJson(url, logger);
@@ -695,12 +695,15 @@ async function handleExplicitRequestFlow(
   if (!skipCache) recordCacheMiss('sub');
   assertSubtitlesNotRateLimited(url);
 
-  // The JSON gives the video id and fills the info, track-list and chapters caches that
-  // the widgets ask for right after a transcript. The canary keeps its single yt-dlp run
-  // and skips this; everyone else gets three warm cache entries.
-  const loaded = skipCache ? null : await loadVideoJson(url, logger);
   let subtitlesContent = await downloadSubtitles(url, type, sanitizedLang, format, logger);
   let source: string = extractPlatformFromUrl(url);
+  // A YouTube URL carries the id; anywhere else it costs one yt-dlp run, made after the
+  // track so that it never stands in front of it (that run also fills the info, track-list
+  // and chapters caches the widgets read next). The canary keeps its single run.
+  const videoIdFor = async (): Promise<string> =>
+    extractYouTubeVideoId(url) ??
+    (skipCache ? null : await loadVideoJson(url, logger))?.info.videoId ??
+    'unknown';
 
   if (!subtitlesContent) {
     const whisperConfig = getWhisperConfig();
@@ -714,7 +717,7 @@ async function handleExplicitRequestFlow(
           if (!text?.trim()) {
             return;
           }
-          const vid = loaded?.info.videoId ?? extractYouTubeVideoId(url) ?? 'unknown';
+          const vid = await videoIdFor();
           const whisperResult = {
             videoId: vid,
             type,
@@ -741,12 +744,11 @@ async function handleExplicitRequestFlow(
         lang: sanitizedLang,
         defaulted: (request.type === undefined) !== (request.lang === undefined),
       },
-      available: loaded?.avail,
       logger,
     });
   }
 
-  const videoId = loaded?.info.videoId ?? extractYouTubeVideoId(url) ?? 'unknown';
+  const videoId = await videoIdFor();
 
   const result: SubtitleResult = {
     videoId,

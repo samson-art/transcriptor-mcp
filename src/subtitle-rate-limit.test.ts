@@ -10,6 +10,7 @@ import { renderPrometheus } from './metrics.js';
 const WATCH = 'https://www.youtube.com/watch?v=x';
 const SHORT = 'https://youtu.be/x';
 const TIKTOK = 'https://www.tiktok.com/@a/video/1';
+const VIMEO = 'https://vimeo.com/1';
 const MINUTE = 60 * 1000;
 
 /** The gauge the "banned" alert reads; -1 when the series does not exist. */
@@ -50,12 +51,14 @@ describe('subtitle rate-limit hold', () => {
     );
   });
 
-  it('counts one strike for every call that reports the same limit', () => {
-    // Four requests in flight when the platform starts refusing: one wait, not four.
+  it('counts one strike for every call that reports the same limit', async () => {
+    // Four requests in flight when the platform starts refusing: one wait, not four — and
+    // one strike on the gauge, or a single wave of refusals would read as a ban.
     noteSubtitlesRateLimited(WATCH);
     noteSubtitlesRateLimited(WATCH);
     noteSubtitlesRateLimited(WATCH);
     noteSubtitlesRateLimited(WATCH);
+    expect(await strikes('youtube')).toBe(1);
 
     jest.advanceTimersByTime(10 * MINUTE);
     expect(() => assertSubtitlesNotRateLimited(WATCH)).not.toThrow();
@@ -131,10 +134,13 @@ describe('subtitle rate-limit hold', () => {
     expect(() => assertSubtitlesNotRateLimited(TIKTOK)).toThrow(YtDlpError);
   });
 
-  it('is off when the base wait is zero', () => {
+  it('is off when the base wait is zero, and so is the strike count', async () => {
     process.env.SUBTITLES_RATE_LIMIT_HOLD_MS = '0';
-    noteSubtitlesRateLimited(WATCH);
+    noteSubtitlesRateLimited(VIMEO);
+    noteSubtitlesRateLimited(VIMEO);
 
-    expect(() => assertSubtitlesNotRateLimited(WATCH)).not.toThrow();
+    expect(() => assertSubtitlesNotRateLimited(VIMEO)).not.toThrow();
+    // With no wait there is no "after the wait": two refusals in flight are not a ban.
+    expect(await strikes('vimeo')).toBe(-1);
   });
 });
