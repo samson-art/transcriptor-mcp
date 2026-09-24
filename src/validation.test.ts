@@ -1412,6 +1412,40 @@ describe('validation', () => {
       );
     });
 
+    it('should let a repeated call wait for the capture already running', async () => {
+      // A client that stopped waiting called again with the same arguments, four times per
+      // video, and every call started its own ffmpeg next to the others (prod, 2026-09-24).
+      const pending: Array<() => void> = [];
+      const captureSpy = jest.spyOn(youtube, 'captureVideoFrame').mockImplementation(
+        () =>
+          new Promise((resolve) =>
+            pending.push(() =>
+              resolve({
+                ok: true,
+                videoId: 'dQw4w9WgXcQ',
+                data: Buffer.from('img'),
+                mimeType: 'image/jpeg',
+              })
+            )
+          )
+      );
+
+      const first = validateAndCaptureVideoFrame({ url, seconds: 10 });
+      const repeat = validateAndCaptureVideoFrame({ url, seconds: 10 });
+      const otherWidth = validateAndCaptureVideoFrame({ url, seconds: 10, width: 640 });
+      expect(captureSpy).toHaveBeenCalledTimes(2);
+
+      pending.forEach((done) => done());
+      const [a, b] = await Promise.all([first, repeat, otherWidth]);
+      expect(b.data).toBe(a.data);
+
+      // Once it has answered, the next call captures afresh.
+      const again = validateAndCaptureVideoFrame({ url, seconds: 10 });
+      expect(captureSpy).toHaveBeenCalledTimes(3);
+      pending[2]();
+      await again;
+    });
+
     it('should map timestamp_beyond_duration to ValidationError', async () => {
       jest.spyOn(youtube, 'captureVideoFrame').mockResolvedValue({
         ok: false,

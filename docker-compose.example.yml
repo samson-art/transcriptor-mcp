@@ -31,7 +31,7 @@ services:
     ports:
       - "3000:3000"
     volumes:
-      - "./cookies.txt:/cookies.txt"
+      - "./cookies.txt:/cookies.txt:ro"
     restart: unless-stopped
 
   transcriptor-mcp:
@@ -59,5 +59,5 @@ services:
     ports:
       - "4200:4200"
     volumes:
-      - "./cookies.txt:/cookies.txt"
+      - "./cookies.txt:/cookies.txt:ro"
     restart: unless-stopped

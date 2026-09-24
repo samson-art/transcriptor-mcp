@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process';
 import { tmpdir } from 'os';
 import { join, basename } from 'path';
-import { access, constants, writeFile, unlink } from 'node:fs/promises';
+import { access, constants, readFile, writeFile, unlink } from 'node:fs/promises';
 import * as youtube from './youtube.js';
 import {
   noteSubtitlesRateLimited,
@@ -32,7 +32,7 @@ const {
   appendYtDlpAudioArgs,
   appendYtDlpSubtitleArgs,
   resolveSubtitleFormat,
-  ensureWritableCookiesFile,
+  copyCookiesFile,
   urlToSafeBase,
   collectExecFileErrorDetails,
   classifyYtDlpFailure,
@@ -1244,25 +1244,31 @@ today to pay our respects to MCP, which
       ]);
     });
 
-    it('should return original path when cookies file is writable', async () => {
+    it('should never hand yt-dlp the original cookies file, even a writable one', async () => {
+      // yt-dlp truncates and rewrites the file it is given when it exits. A run killed during
+      // that write emptied the shared file on prod, and every later run refused it.
       const writablePath = join(tmpdir(), 'cookies_writable.txt');
       await writeFile(writablePath, '# Netscape\n', 'utf-8');
 
-      const { path, cleanup } = await ensureWritableCookiesFile(writablePath);
+      const { path, cleanup } = await copyCookiesFile(writablePath);
 
-      expect(path).toBe(writablePath);
+      expect(path).not.toBe(writablePath);
+      await expect(readFile(path, 'utf-8')).resolves.toBe('# Netscape\n');
       await cleanup();
+      await expect(access(path, constants.F_OK)).rejects.toThrow();
       await expect(access(writablePath, constants.F_OK)).resolves.toBeUndefined();
       await unlink(writablePath).catch(() => {});
     });
 
     it('should copy to temp when cookies file is read-only and cleanup removes temp', async () => {
       const readOnlyPath = join(tmpdir(), 'cookies_readonly.txt');
+      // A failed run of this case leaves the file read-only behind it.
+      await unlink(readOnlyPath).catch(() => {});
       await writeFile(readOnlyPath, '# Netscape\n', 'utf-8');
       const { chmod } = await import('node:fs/promises');
       await chmod(readOnlyPath, 0o444);
 
-      const { path, cleanup } = await ensureWritableCookiesFile(readOnlyPath);
+      const { path, cleanup } = await copyCookiesFile(readOnlyPath);
 
       expect(path).not.toBe(readOnlyPath);
       expect(path).toContain(tmpdir());
@@ -1888,6 +1894,10 @@ today to pay our respects to MCP, which
       expect(classifyYtDlpFailure({ message: 'Command failed', signal: 'SIGTERM' })).toBe(
         'timeout'
       );
+      // ffmpeg is ended with SIGKILL: it does not act on SIGTERM inside a network read.
+      expect(classifyYtDlpFailure({ message: 'Command failed', signal: 'SIGKILL' })).toBe(
+        'timeout'
+      );
     });
 
     it('should prefer the stderr cause over the timeout signal', () => {
@@ -1943,6 +1953,24 @@ today to pay our respects to MCP, which
         reason: 'private',
         statusCode: 404,
       });
+    });
+
+    it('should leave room for the JSON of a dubbed video', async () => {
+      // One 17-minute video with 21 audio tracks listed every auto-caption language once per
+      // track: 11.7 MB of JSON, and the 10 MB cap killed yt-dlp on it (prod, 2026-09-24).
+      execFileMock.mockImplementation(
+        (
+          _file: string,
+          _args: string[],
+          _options: unknown,
+          callback: (error: Error | null, result?: { stdout: string; stderr: string }) => void
+        ) => callback(null, { stdout: '{"id":"abc"}', stderr: '' })
+      );
+
+      await fetchYtDlpJson('https://www.youtube.com/watch?v=abc');
+
+      const options = execFileMock.mock.calls[0][2] as { maxBuffer: number };
+      expect(options.maxBuffer).toBeGreaterThan(12 * 1024 * 1024);
     });
 
     it('should keep returning null from fetchYtDlpJson when the reason is unknown', async () => {
@@ -2364,6 +2392,47 @@ today to pay our respects to MCP, which
       expect(sectionArgs[sectionArgs.indexOf('--download-sections') + 1]).toBe('*10-12');
       // clip is cleaned up
       await expect(access(clipPath, constants.F_OK)).rejects.toThrow();
+      dateSpy.mockRestore();
+    });
+
+    it('should spend one budget across every stage and kill ffmpeg outright', async () => {
+      // Each process used to get the whole timeout, and ffmpeg blocked in a network read
+      // ignored the SIGTERM that ended it: failed frames took 470–1327 s on prod.
+      process.env.YT_DLP_FRAME_TIMEOUT = '1000';
+      let now = 1700000003000;
+      const dateSpy = jest.spyOn(Date, 'now').mockImplementation(() => now);
+      const calls: Array<{ file: string; args: string[]; options: Record<string, unknown> }> = [];
+
+      execFileMock.mockImplementation(
+        (
+          file: string,
+          args: string[],
+          options: Record<string, unknown>,
+          callback: ExecCallback
+        ) => {
+          calls.push({ file, args, options });
+          if (file === 'yt-dlp') {
+            now += 300;
+            callback(null, { stdout: 'vid123\n212\nhttps://cdn.example/stream.mp4\n', stderr: '' });
+            return;
+          }
+          now += 700; // killed at the deadline
+          callback(Object.assign(new Error('ffmpeg killed'), { code: null, signal: 'SIGKILL' }));
+        }
+      );
+
+      await expect(captureVideoFrame(url, 10)).rejects.toMatchObject({
+        name: 'YtDlpError',
+        reason: 'timeout',
+      });
+
+      // The section download is never started: the budget is gone.
+      expect(calls.map((c) => c.file)).toEqual(['yt-dlp', 'ffmpeg']);
+      expect(calls[0].options.timeout).toBe(1000);
+      const ffmpeg = calls[1];
+      expect(ffmpeg.options.timeout).toBe(700);
+      expect(ffmpeg.options.killSignal).toBe('SIGKILL');
+      expect(ffmpeg.args.slice(0, ffmpeg.args.indexOf('-i'))).toContain('-rw_timeout');
       dateSpy.mockRestore();
     });
 
