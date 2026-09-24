@@ -154,11 +154,10 @@ export class YtDlpError extends HttpError {
 export function httpErrorAnswer(err: unknown): { statusCode: number; message: string } {
   if (err instanceof HttpError) return { statusCode: err.statusCode, message: err.message };
   const status = (err as { statusCode?: unknown } | null)?.statusCode;
-  if (typeof status !== 'number' || status < 400 || status > 599) {
+  if (!(err instanceof Error) || typeof status !== 'number' || status < 400 || status > 599) {
     return { statusCode: 500, message: UNEXPECTED_ERROR_MESSAGE };
   }
-  const message = status < 500 && err instanceof Error ? err.message : UNEXPECTED_ERROR_MESSAGE;
-  return { statusCode: status, message };
+  return { statusCode: status, message: status < 500 ? err.message : UNEXPECTED_ERROR_MESSAGE };
 }
 
 /**

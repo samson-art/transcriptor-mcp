@@ -1,6 +1,7 @@
 import {
   errorReason,
   HttpError,
+  httpErrorAnswer,
   INVALID_LANGUAGE_MESSAGE,
   INVALID_VIDEO_URL_MESSAGE,
   NotFoundError,
@@ -35,6 +36,17 @@ describe('errorReason', () => {
     expect(errorReason(new HttpError(418, 'x', 'teapot'))).toBe('unknown');
     expect(errorReason(new Error('x'))).toBe('unknown');
     expect(errorReason('not an error')).toBe('unknown');
+  });
+});
+
+describe('httpErrorAnswer', () => {
+  it('does not pair a 4xx status with the text that blames the server', () => {
+    // A thrown plain object has no message worth trusting, and "not in your request"
+    // under a 400 would contradict itself.
+    expect(httpErrorAnswer({ statusCode: 400, message: 'x' })).toEqual({
+      statusCode: 500,
+      message: UNEXPECTED_ERROR_MESSAGE,
+    });
   });
 });
 

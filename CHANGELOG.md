@@ -13,7 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **The REST API answers 400 and 429 where it answered 500.** Every error that was not one of the server's own became a 500: a body that failed the schema (`body must have required property 'url'`), a body that was not JSON, and a request over `RATE_LIMIT_MAX` — each reported to Sentry as an error. They now keep Fastify's status and message, labelled `Bad request` or `Too many requests`. In `http_requests_total`, these requests move from `status_code="500"` to `400` or `429`, so an alert on the REST 5xx rate sees fewer events.
+- **The REST API answers 400 and 429 where it answered 500.** Every error that was not one of the server's own became a 500: a body that failed the schema (`body must have required property 'url'`), a body that was not JSON, and a request over `RATE_LIMIT_MAX` — each reported to Sentry as an error. They now keep Fastify's status and message, labelled `Bad request` or `Too many requests`, and are no longer sent to Sentry: under a burst, one event per rejected request would spend the quota the limit protects. In `http_requests_total`, these requests move from `status_code="500"` to `400` or `429`, so an alert on the REST 5xx rate sees fewer events.
 
 ## [1.5.8] - 2026-09-24
 

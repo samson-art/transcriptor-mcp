@@ -35,28 +35,32 @@ export function restErrorHandler(
     recordExpected404(request.method, route);
   }
 
-  Sentry.withScope((scope) => {
-    const requestContext: Record<string, unknown> = {
-      method: request.method,
-      url: request.url,
-      statusCode,
-    };
-    if (
-      statusCode >= 500 &&
-      request.body &&
-      typeof request.body === 'object' &&
-      'url' in request.body &&
-      typeof (request.body as { url?: unknown }).url === 'string'
-    ) {
-      requestContext.requestUrl = (request.body as { url: string }).url;
-    }
-    scope.setContext('request', requestContext);
-    scope.setTag('route', route);
-    if (statusCode >= 400 && statusCode < 500) {
-      scope.setLevel('warning');
-    }
-    Sentry.captureException(error);
-  });
+  // Fastify's own 4xx (a bad body, the rate limit) are the caller's doing: under a burst,
+  // one event per rejected request would spend the Sentry quota the limit protects.
+  if (statusCode >= 500 || error instanceof HttpError) {
+    Sentry.withScope((scope) => {
+      const requestContext: Record<string, unknown> = {
+        method: request.method,
+        url: request.url,
+        statusCode,
+      };
+      if (
+        statusCode >= 500 &&
+        request.body &&
+        typeof request.body === 'object' &&
+        'url' in request.body &&
+        typeof (request.body as { url?: unknown }).url === 'string'
+      ) {
+        requestContext.requestUrl = (request.body as { url: string }).url;
+      }
+      scope.setContext('request', requestContext);
+      scope.setTag('route', route);
+      if (statusCode >= 400 && statusCode < 500) {
+        scope.setLevel('warning');
+      }
+      Sentry.captureException(error);
+    });
+  }
 
   const payload: {
     error: string;

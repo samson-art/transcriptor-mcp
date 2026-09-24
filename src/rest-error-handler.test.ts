@@ -103,6 +103,8 @@ describe('restErrorHandler', () => {
     expect(response.statusCode).toBe(429);
     expect(response.json().error).toBe('Too many requests');
     expect(response.json().message).toMatch(/Rate limit exceeded/);
+    // A burst of rejected requests must not become a burst of Sentry events.
+    expect(Sentry.captureException).not.toHaveBeenCalled();
   });
 
   it('keeps status, label and text of our own errors', async () => {
