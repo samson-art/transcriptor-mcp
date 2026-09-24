@@ -1433,17 +1433,44 @@ describe('validation', () => {
       const first = validateAndCaptureVideoFrame({ url, seconds: 10 });
       const repeat = validateAndCaptureVideoFrame({ url, seconds: 10 });
       const otherWidth = validateAndCaptureVideoFrame({ url, seconds: 10, width: 640 });
-      expect(captureSpy).toHaveBeenCalledTimes(2);
+      const otherTime = validateAndCaptureVideoFrame({ url, seconds: 20 });
+      expect(captureSpy).toHaveBeenCalledTimes(3);
 
       pending.forEach((done) => done());
-      const [a, b] = await Promise.all([first, repeat, otherWidth]);
+      const [a, b] = await Promise.all([first, repeat, otherWidth, otherTime]);
       expect(b.data).toBe(a.data);
 
       // Once it has answered, the next call captures afresh.
       const again = validateAndCaptureVideoFrame({ url, seconds: 10 });
-      expect(captureSpy).toHaveBeenCalledTimes(3);
-      pending[2]();
+      expect(captureSpy).toHaveBeenCalledTimes(4);
+      pending[3]();
       await again;
+    });
+
+    it('should hand a failed shared capture to every caller and then forget it', async () => {
+      let fail: (err: Error) => void = () => {};
+      const captureSpy = jest
+        .spyOn(youtube, 'captureVideoFrame')
+        .mockImplementation(() => new Promise((_resolve, reject) => (fail = reject)));
+
+      const first = validateAndCaptureVideoFrame({ url, seconds: 10 });
+      const repeat = validateAndCaptureVideoFrame({ url, seconds: 10 });
+      fail(new YtDlpError('timeout'));
+
+      await expect(first).rejects.toMatchObject({ reason: 'timeout' });
+      await expect(repeat).rejects.toMatchObject({ reason: 'timeout' });
+      expect(captureSpy).toHaveBeenCalledTimes(1);
+
+      captureSpy.mockResolvedValue({
+        ok: true,
+        videoId: 'dQw4w9WgXcQ',
+        data: Buffer.from('img'),
+        mimeType: 'image/jpeg',
+      });
+      await expect(validateAndCaptureVideoFrame({ url, seconds: 10 })).resolves.toMatchObject({
+        videoId: 'dQw4w9WgXcQ',
+      });
+      expect(captureSpy).toHaveBeenCalledTimes(2);
     });
 
     it('should map timestamp_beyond_duration to ValidationError', async () => {

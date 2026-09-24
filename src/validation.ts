@@ -967,13 +967,14 @@ function clampInt(value: number, min: number, max: number): number {
   return Math.min(Math.max(Math.trunc(value), min), max);
 }
 
+/** One capture per identical argument set while it runs; a repeated call waits for it. */
+const frameInFlight = new Map<string, ReturnType<typeof captureVideoFrame>>();
+
 /**
  * Validates request and captures a single video frame at the given timestamp.
  * @throws ValidationError on invalid input or timestamp beyond video duration,
  *         NotFoundError when the frame could not be captured
  */
-const frameInFlight = new Map<string, ReturnType<typeof captureVideoFrame>>();
-
 export async function validateAndCaptureVideoFrame(
   request: CaptureFrameRequest,
   logger?: FastifyBaseLogger

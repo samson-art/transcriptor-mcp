@@ -1,7 +1,7 @@
 import { execFile, type ExecFileException, type ExecFileOptions } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { promisify } from 'node:util';
-import { copyFile, readFile, stat, unlink } from 'node:fs/promises';
+import { readFile, stat, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import type { FastifyBaseLogger } from 'fastify';
@@ -47,7 +47,9 @@ function syncProcessGauges(): void {
  * that fans out, and about keeping the wait for a queued call bounded.
  *
  * `timeout` and `maxBuffer` are passed through untouched — execFile only starts its
- * timer at spawn, so waiting in the queue never eats into a call's own budget.
+ * timer at spawn, so waiting in the queue never eats into a call's own budget. A
+ * `deadline` is the exception, for a call that shares one budget across its processes:
+ * the timeout is what is left when the process starts, and with nothing left it never does.
  *
  * ponytail: one cap shared by both binaries; split per binary only if frame capture
  * ever starves transcripts.
@@ -55,7 +57,7 @@ function syncProcessGauges(): void {
 async function execFileAsync(
   file: string,
   args: string[],
-  options: Omit<ExecFileOptions, 'encoding'>
+  { deadline, ...options }: Omit<ExecFileOptions, 'encoding'> & { deadline?: number }
 ): Promise<{ stdout: string; stderr: string }> {
   const max = parseIntEnv('YT_DLP_MAX_CONCURRENCY', 4);
   if (max > 0 && activeProcesses >= max) {
@@ -72,6 +74,11 @@ async function execFileAsync(
   syncProcessGauges();
 
   try {
+    if (deadline !== undefined) {
+      const left = deadline - Date.now();
+      if (left <= 0) throw new YtDlpError('timeout');
+      options = { ...options, timeout: left };
+    }
     return await execFileRaw(file, args, options);
   } finally {
     const next = processWaiters.shift();
@@ -880,7 +887,7 @@ export async function downloadPlaylistSubtitles(
     } catch (error: unknown) {
       if (error instanceof HttpError) throw error;
       noteIfRateLimited(url, error);
-      return handlePlaylistDownloadError(
+      return await handlePlaylistDownloadError(
         error,
         readPlaylistSubtitleResults,
         buildFullArgs,
@@ -1179,7 +1186,7 @@ async function fetchVideoStreamInfo(
   url: string,
   formatSelector: string,
   envArgs: string[],
-  timeout: number,
+  deadline: number | undefined,
   logger?: FastifyBaseLogger
 ): Promise<VideoStreamInfo | null> {
   const args = [
@@ -1199,7 +1206,7 @@ async function fetchVideoStreamInfo(
   try {
     const { stdout, stderr } = await execFileAsync('yt-dlp', args, {
       maxBuffer: 10 * 1024 * 1024,
-      timeout,
+      deadline,
     });
     if (stderr) logger?.debug({ stderr }, 'yt-dlp stderr');
 
@@ -1234,7 +1241,7 @@ async function runFfmpegFrameCapture(opts: {
   quality: number;
   outputPath: string;
   proxy?: string;
-  timeout: number;
+  deadline: number | undefined;
 }): Promise<void> {
   // A stalled read of the stream gives up after 15 s instead of holding the process.
   const args: string[] = ['-hide_banner', '-loglevel', 'error', '-rw_timeout', '15000000'];
@@ -1251,7 +1258,7 @@ async function runFfmpegFrameCapture(opts: {
   args.push('-y', opts.outputPath);
   await execFileAsync('ffmpeg', args, {
     maxBuffer: 10 * 1024 * 1024,
-    timeout: opts.timeout,
+    deadline: opts.deadline,
     // ffmpeg acts on SIGTERM between packets, so one blocked in a network read ignored
     // the timeout for 4–20 minutes (prod, 2026-09-24).
     killSignal: 'SIGKILL',
@@ -1279,7 +1286,7 @@ async function downloadVideoSection(
   timestampSeconds: number,
   formatSelector: string,
   envArgs: string[],
-  timeout: number,
+  deadline: number | undefined,
   logger?: FastifyBaseLogger
 ): Promise<string | null> {
   const tempDir = tmpdir();
@@ -1290,6 +1297,10 @@ async function downloadVideoSection(
     '--download-sections',
     `*${timestampSeconds}-${timestampSeconds + 2}`,
     '--force-keyframes-at-cuts',
+    // yt-dlp cuts the section with its own ffmpeg, which outlives a yt-dlp killed by the
+    // timeout; this ends that ffmpeg's stalled read too.
+    '--downloader-args',
+    'ffmpeg_i:-rw_timeout 15000000',
     '--output',
     `${outputBase}.%(ext)s`,
     '--no-playlist',
@@ -1299,7 +1310,7 @@ async function downloadVideoSection(
   try {
     await execFileAsync('yt-dlp', args, {
       maxBuffer: 10 * 1024 * 1024,
-      timeout,
+      deadline,
     });
   } catch (error: unknown) {
     const details = collectExecFileErrorDetails(error);
@@ -1341,14 +1352,10 @@ export async function captureVideoFrame(
     `${urlToSafeBase(url, 'frame')}.${format === 'png' ? 'png' : 'jpg'}`
   );
   const formatSelector = buildFrameFormatSelector(width);
-  // One budget for the whole call, not one per process: a frame that could not be taken
-  // used to spend it up to five times over before answering.
-  const deadline = Date.now() + getFrameCaptureTimeout();
-  const timeLeft = (): number => {
-    const left = deadline - Date.now();
-    if (left <= 0) throw new YtDlpError('timeout');
-    return left;
-  };
+  // One budget for the whole call, not one per process: the lookup, the direct reads, the
+  // section download and the clip read each used to get all of it. 0 means no limit.
+  const budget = getFrameCaptureTimeout();
+  const deadline = budget > 0 ? Date.now() + budget : undefined;
 
   const { jsRuntimes, remoteComponents, cookiesFilePathFromEnv, proxyFromEnv } = getYtDlpEnv();
   let cookiesPathToUse = cookiesFilePathFromEnv;
@@ -1371,7 +1378,7 @@ export async function captureVideoFrame(
     await logCookiesFileStatus(logger, cookiesFilePathFromEnv);
     logger?.info({ timestampSeconds, format, width }, 'Capturing video frame');
 
-    const streamInfo = await fetchVideoStreamInfo(url, formatSelector, envArgs, timeLeft(), logger);
+    const streamInfo = await fetchVideoStreamInfo(url, formatSelector, envArgs, deadline, logger);
     const videoId = streamInfo?.videoId ?? extractYouTubeVideoId(url) ?? 'unknown';
 
     if (
@@ -1399,7 +1406,7 @@ export async function captureVideoFrame(
           quality,
           outputPath,
           proxy: proxyFromEnv,
-          timeout: timeLeft(),
+          deadline,
         });
         const data = await readFrameFile(outputPath);
         if (data) {
@@ -1420,7 +1427,7 @@ export async function captureVideoFrame(
       timestampSeconds,
       formatSelector,
       envArgs,
-      timeLeft(),
+      deadline,
       logger
     );
     if (clipPath) {
@@ -1431,7 +1438,7 @@ export async function captureVideoFrame(
           format,
           quality,
           outputPath,
-          timeout: timeLeft(),
+          deadline,
         });
         const data = await readFrameFile(outputPath);
         if (data) {
@@ -1443,6 +1450,8 @@ export async function captureVideoFrame(
       }
     }
 
+    // The clip read has no next stage to notice that the budget ran out while it ran.
+    if (deadline !== undefined && Date.now() >= deadline) throw new YtDlpError('timeout');
     const details = collectExecFileErrorDetails(
       lastError ??
         new Error(
@@ -1614,7 +1623,8 @@ export async function copyCookiesFile(
     tmpdir(),
     `cookies_${Date.now()}_${Math.random().toString(36).slice(2)}.txt`
   );
-  await copyFile(originalPath, tempPath);
+  // 0600: a cookies file is a signed-in session, and tmpdir may be shared.
+  await writeFile(tempPath, await readFile(originalPath), { mode: 0o600 });
   return {
     path: tempPath,
     cleanup: async () => {

@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process';
 import { tmpdir } from 'os';
-import { join, basename } from 'path';
-import { access, constants, readFile, writeFile, unlink } from 'node:fs/promises';
+import { join, basename, dirname } from 'path';
+import { access, constants, readFile, stat, writeFile, unlink } from 'node:fs/promises';
 import * as youtube from './youtube.js';
 import {
   noteSubtitlesRateLimited,
@@ -1254,6 +1254,8 @@ today to pay our respects to MCP, which
 
       expect(path).not.toBe(writablePath);
       await expect(readFile(path, 'utf-8')).resolves.toBe('# Netscape\n');
+      // A signed-in session in a tmpdir that may be shared.
+      expect((await stat(path)).mode & 0o777).toBe(0o600);
       await cleanup();
       await expect(access(path, constants.F_OK)).rejects.toThrow();
       await expect(access(writablePath, constants.F_OK)).resolves.toBeUndefined();
@@ -1973,6 +1975,31 @@ today to pay our respects to MCP, which
       expect(options.maxBuffer).toBeGreaterThan(12 * 1024 * 1024);
     });
 
+    it('should give the JSON run a copy of the cookies, never the file itself', async () => {
+      // The run that emptied the prod cookies file was this one.
+      const original = join(tmpdir(), 'cookies_json_run.txt');
+      await writeFile(original, '# Netscape\n', 'utf-8');
+      process.env.COOKIES_FILE_PATH = original;
+      execFileMock.mockImplementation(
+        (
+          _file: string,
+          _args: string[],
+          _options: unknown,
+          callback: (error: Error | null, result?: { stdout: string; stderr: string }) => void
+        ) => callback(null, { stdout: '{"id":"abc"}', stderr: '' })
+      );
+
+      try {
+        await fetchYtDlpJson('https://www.youtube.com/watch?v=abc');
+        const args = execFileMock.mock.calls[0][1] as string[];
+        expect(args).toContain('--cookies');
+        expect(args[args.indexOf('--cookies') + 1]).not.toBe(original);
+      } finally {
+        delete process.env.COOKIES_FILE_PATH;
+        await unlink(original).catch(() => {});
+      }
+    });
+
     it('should keep returning null from fetchYtDlpJson when the reason is unknown', async () => {
       mockExecFileFailure('ERROR: something we have never seen');
       await expect(fetchYtDlpJson('https://www.youtube.com/watch?v=abc')).resolves.toBeNull();
@@ -2108,6 +2135,30 @@ today to pay our respects to MCP, which
       }
       delete process.env.YT_DLP_MAX_CONCURRENCY;
       delete process.env.YT_DLP_MAX_QUEUE;
+    });
+
+    it('should not start a frame stage that got its slot after the deadline', async () => {
+      // The frame's budget counts its wait for a slot; a stage dequeued too late would
+      // otherwise run on the time it had before it queued.
+      process.env.YT_DLP_MAX_CONCURRENCY = '1';
+      process.env.YT_DLP_FRAME_TIMEOUT = '1000';
+      let now = 1700000004000;
+      const dateSpy = jest.spyOn(Date, 'now').mockImplementation(() => now);
+      try {
+        const busy = fetchYtDlpJson(url);
+        await tick();
+        const frame = captureVideoFrame(url, 10).catch((err: unknown) => err);
+        await tick();
+        now += 2000;
+        releases.shift()?.();
+
+        await expect(frame).resolves.toMatchObject({ name: 'YtDlpError', reason: 'timeout' });
+        expect(execFileMock).toHaveBeenCalledTimes(1);
+        await busy;
+      } finally {
+        dateSpy.mockRestore();
+        delete process.env.YT_DLP_FRAME_TIMEOUT;
+      }
     });
 
     it('should run up to the cap, queue the next, and refuse beyond the queue', async () => {
@@ -2264,6 +2315,34 @@ today to pay our respects to MCP, which
         downloadPlaylistSubtitles('https://www.youtube.com/playlist?list=PLxxx', { maxItems: 2 })
       ).resolves.toEqual([]);
     });
+
+    it('returns what a bounded run wrote before yt-dlp cancelled the queue', async () => {
+      // The handler used to run after `finally` had already removed the temp directory, so
+      // every run that stopped at maxItems answered with nothing.
+      execFileMock.mockImplementation(
+        (
+          _file: string,
+          args: string[],
+          _options: unknown,
+          callback: (error: Error | null, result?: { stdout: string; stderr: string }) => void
+        ) => {
+          const dir = dirname(args[args.indexOf('--output') + 1]);
+          void writeFile(join(dir, 'vid1.en.srt'), '1\n00:00:00,000 --> 00:00:01,000\nhi\n').then(
+            () => {
+              const error = Object.assign(new Error('Command failed: yt-dlp'), { code: 101 });
+              callback(error, { stdout: '', stderr: '' });
+            }
+          );
+        }
+      );
+
+      const results = await downloadPlaylistSubtitles(
+        'https://www.youtube.com/playlist?list=PLxxx',
+        { maxItems: 1 }
+      );
+
+      expect(results.map((r) => r.videoId)).toEqual(['vid1']);
+    });
   });
 
   describe('captureVideoFrame', () => {
@@ -2389,6 +2468,10 @@ today to pay our respects to MCP, which
         expect(outcome.data.equals(frameBytes)).toBe(true);
       }
       expect(sectionArgs).toContain('--force-keyframes-at-cuts');
+      // yt-dlp's own ffmpeg outlives a yt-dlp killed by the timeout.
+      expect(sectionArgs[sectionArgs.indexOf('--downloader-args') + 1]).toBe(
+        'ffmpeg_i:-rw_timeout 15000000'
+      );
       expect(sectionArgs[sectionArgs.indexOf('--download-sections') + 1]).toBe('*10-12');
       // clip is cleaned up
       await expect(access(clipPath, constants.F_OK)).rejects.toThrow();
@@ -2397,7 +2480,7 @@ today to pay our respects to MCP, which
 
     it('should spend one budget across every stage and kill ffmpeg outright', async () => {
       // Each process used to get the whole timeout, and ffmpeg blocked in a network read
-      // ignored the SIGTERM that ended it: failed frames took 470–1327 s on prod.
+      // ignored the SIGTERM that ended it: failed frames took up to 1327 s on prod.
       process.env.YT_DLP_FRAME_TIMEOUT = '1000';
       let now = 1700000003000;
       const dateSpy = jest.spyOn(Date, 'now').mockImplementation(() => now);
@@ -2434,6 +2517,67 @@ today to pay our respects to MCP, which
       expect(ffmpeg.options.killSignal).toBe('SIGKILL');
       expect(ffmpeg.args.slice(0, ffmpeg.args.indexOf('-i'))).toContain('-rw_timeout');
       dateSpy.mockRestore();
+    });
+
+    it('should answer timeout when the clip read is what used up the budget', async () => {
+      process.env.YT_DLP_FRAME_TIMEOUT = '1000';
+      let now = 1700000005000;
+      const dateSpy = jest.spyOn(Date, 'now').mockImplementation(() => now);
+      const clipPath = join(tmpdir(), `${urlToSafeBase(url, 'frame_clip')}.mp4`);
+      let ffmpegCalls = 0;
+      execFileMock.mockImplementation(
+        (file: string, args: string[], _options: unknown, callback: ExecCallback) => {
+          if (file === 'yt-dlp' && args.includes('--download-sections')) {
+            void writeFile(clipPath, 'fake clip').then(() =>
+              callback(null, { stdout: '', stderr: '' })
+            );
+            return;
+          }
+          if (file === 'yt-dlp') {
+            callback(null, { stdout: 'vid123\n212\nhttps://cdn.example/stream.mp4\n', stderr: '' });
+            return;
+          }
+          ffmpegCalls += 1;
+          if (ffmpegCalls === 2) now += 1000; // the clip read is killed at the deadline
+          callback(Object.assign(new Error('ffmpeg failed'), { code: null, signal: 'SIGKILL' }));
+        }
+      );
+
+      try {
+        await expect(captureVideoFrame(url, 10)).rejects.toMatchObject({
+          name: 'YtDlpError',
+          reason: 'timeout',
+        });
+        expect(ffmpegCalls).toBe(2);
+      } finally {
+        dateSpy.mockRestore();
+      }
+    });
+
+    it('should set no timeout at all when the frame budget is 0', async () => {
+      process.env.YT_DLP_FRAME_TIMEOUT = '0';
+      const dateSpy = jest.spyOn(Date, 'now').mockReturnValue(1700000006000);
+      const outputPath = join(tmpdir(), `${urlToSafeBase(url, 'frame')}.jpg`);
+      const timeouts: unknown[] = [];
+      execFileMock.mockImplementation(
+        (file: string, _args: string[], options: { timeout?: number }, callback: ExecCallback) => {
+          timeouts.push(options.timeout);
+          if (file === 'yt-dlp') {
+            callback(null, { stdout: 'vid123\n212\nhttps://cdn.example/stream.mp4\n', stderr: '' });
+            return;
+          }
+          void writeFile(outputPath, Buffer.from('jpeg')).then(() =>
+            callback(null, { stdout: '', stderr: '' })
+          );
+        }
+      );
+
+      try {
+        await expect(captureVideoFrame(url, 10)).resolves.toMatchObject({ ok: true });
+        expect(timeouts).toEqual([undefined, undefined]);
+      } finally {
+        dateSpy.mockRestore();
+      }
     });
 
     it('should return capture_failed when all attempts fail', async () => {
