@@ -1,8 +1,7 @@
 import { execFile, type ExecFileException, type ExecFileOptions } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { promisify } from 'node:util';
-import { copyFile, readFile, stat, unlink } from 'node:fs/promises';
-import { constants } from 'node:fs';
+import { readFile, stat, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import type { FastifyBaseLogger } from 'fastify';
@@ -48,7 +47,9 @@ function syncProcessGauges(): void {
  * that fans out, and about keeping the wait for a queued call bounded.
  *
  * `timeout` and `maxBuffer` are passed through untouched — execFile only starts its
- * timer at spawn, so waiting in the queue never eats into a call's own budget.
+ * timer at spawn, so waiting in the queue never eats into a call's own budget. A
+ * `deadline` is the exception, for a call that shares one budget across its processes:
+ * the timeout is what is left when the process starts, and with nothing left it never does.
  *
  * ponytail: one cap shared by both binaries; split per binary only if frame capture
  * ever starves transcripts.
@@ -56,7 +57,7 @@ function syncProcessGauges(): void {
 async function execFileAsync(
   file: string,
   args: string[],
-  options: Omit<ExecFileOptions, 'encoding'>
+  { deadline, ...options }: Omit<ExecFileOptions, 'encoding'> & { deadline?: number }
 ): Promise<{ stdout: string; stderr: string }> {
   const max = parseIntEnv('YT_DLP_MAX_CONCURRENCY', 4);
   if (max > 0 && activeProcesses >= max) {
@@ -73,6 +74,11 @@ async function execFileAsync(
   syncProcessGauges();
 
   try {
+    if (deadline !== undefined) {
+      const left = deadline - Date.now();
+      if (left <= 0) throw new YtDlpError('timeout');
+      options = { ...options, timeout: left };
+    }
     return await execFileRaw(file, args, options);
   } finally {
     const next = processWaiters.shift();
@@ -152,7 +158,7 @@ export function classifyYtDlpFailure(d: {
   for (const [reason, pattern] of YT_DLP_FAILURE_PATTERNS) {
     if (pattern.test(haystack)) return reason;
   }
-  return d.signal === 'SIGTERM' ? 'timeout' : 'unknown';
+  return d.signal === 'SIGTERM' || d.signal === 'SIGKILL' ? 'timeout' : 'unknown';
 }
 
 /**
@@ -468,7 +474,7 @@ export async function downloadSubtitles(
   let cookiesPathToUse = cookiesFilePathFromEnv;
   let cookiesCleanup: (() => Promise<void>) | undefined;
   if (cookiesFilePathFromEnv) {
-    const resolved = await ensureWritableCookiesFile(cookiesFilePathFromEnv);
+    const resolved = await copyCookiesFile(cookiesFilePathFromEnv);
     cookiesPathToUse = resolved.path;
     cookiesCleanup = resolved.cleanup;
   }
@@ -808,7 +814,7 @@ export async function downloadPlaylistSubtitles(
   let cookiesPathToUse = cookiesFilePathFromEnv;
   let cookiesCleanup: (() => Promise<void>) | undefined;
   if (cookiesFilePathFromEnv) {
-    const resolved = await ensureWritableCookiesFile(cookiesFilePathFromEnv);
+    const resolved = await copyCookiesFile(cookiesFilePathFromEnv);
     cookiesPathToUse = resolved.path;
     cookiesCleanup = resolved.cleanup;
   }
@@ -881,7 +887,7 @@ export async function downloadPlaylistSubtitles(
     } catch (error: unknown) {
       if (error instanceof HttpError) throw error;
       noteIfRateLimited(url, error);
-      return handlePlaylistDownloadError(
+      return await handlePlaylistDownloadError(
         error,
         readPlaylistSubtitleResults,
         buildFullArgs,
@@ -1032,7 +1038,7 @@ export async function downloadAudio(
   let cookiesPathToUse = cookiesFilePathFromEnv;
   let cookiesCleanup: (() => Promise<void>) | undefined;
   if (cookiesFilePathFromEnv) {
-    const resolved = await ensureWritableCookiesFile(cookiesFilePathFromEnv);
+    const resolved = await copyCookiesFile(cookiesFilePathFromEnv);
     cookiesPathToUse = resolved.path;
     cookiesCleanup = resolved.cleanup;
   }
@@ -1180,6 +1186,7 @@ async function fetchVideoStreamInfo(
   url: string,
   formatSelector: string,
   envArgs: string[],
+  deadline: number | undefined,
   logger?: FastifyBaseLogger
 ): Promise<VideoStreamInfo | null> {
   const args = [
@@ -1199,7 +1206,7 @@ async function fetchVideoStreamInfo(
   try {
     const { stdout, stderr } = await execFileAsync('yt-dlp', args, {
       maxBuffer: 10 * 1024 * 1024,
-      timeout: getFrameCaptureTimeout(),
+      deadline,
     });
     if (stderr) logger?.debug({ stderr }, 'yt-dlp stderr');
 
@@ -1234,8 +1241,10 @@ async function runFfmpegFrameCapture(opts: {
   quality: number;
   outputPath: string;
   proxy?: string;
+  deadline: number | undefined;
 }): Promise<void> {
-  const args: string[] = ['-hide_banner', '-loglevel', 'error'];
+  // A stalled read of the stream gives up after 15 s instead of holding the process.
+  const args: string[] = ['-hide_banner', '-loglevel', 'error', '-rw_timeout', '15000000'];
   if (opts.proxy) {
     args.push('-http_proxy', opts.proxy);
   }
@@ -1249,7 +1258,10 @@ async function runFfmpegFrameCapture(opts: {
   args.push('-y', opts.outputPath);
   await execFileAsync('ffmpeg', args, {
     maxBuffer: 10 * 1024 * 1024,
-    timeout: getFrameCaptureTimeout(),
+    deadline: opts.deadline,
+    // ffmpeg acts on SIGTERM between packets, so one blocked in a network read ignored
+    // the timeout for 4–20 minutes (prod, 2026-09-24).
+    killSignal: 'SIGKILL',
   });
 }
 
@@ -1274,6 +1286,7 @@ async function downloadVideoSection(
   timestampSeconds: number,
   formatSelector: string,
   envArgs: string[],
+  deadline: number | undefined,
   logger?: FastifyBaseLogger
 ): Promise<string | null> {
   const tempDir = tmpdir();
@@ -1284,6 +1297,10 @@ async function downloadVideoSection(
     '--download-sections',
     `*${timestampSeconds}-${timestampSeconds + 2}`,
     '--force-keyframes-at-cuts',
+    // yt-dlp cuts the section with its own ffmpeg, which outlives a yt-dlp killed by the
+    // timeout; this ends that ffmpeg's stalled read too.
+    '--downloader-args',
+    'ffmpeg_i:-rw_timeout 15000000',
     '--output',
     `${outputBase}.%(ext)s`,
     '--no-playlist',
@@ -1293,7 +1310,7 @@ async function downloadVideoSection(
   try {
     await execFileAsync('yt-dlp', args, {
       maxBuffer: 10 * 1024 * 1024,
-      timeout: getFrameCaptureTimeout(),
+      deadline,
     });
   } catch (error: unknown) {
     const details = collectExecFileErrorDetails(error);
@@ -1335,12 +1352,16 @@ export async function captureVideoFrame(
     `${urlToSafeBase(url, 'frame')}.${format === 'png' ? 'png' : 'jpg'}`
   );
   const formatSelector = buildFrameFormatSelector(width);
+  // One budget for the whole call, not one per process: the lookup, the direct reads, the
+  // section download and the clip read each used to get all of it. 0 means no limit.
+  const budget = getFrameCaptureTimeout();
+  const deadline = budget > 0 ? Date.now() + budget : undefined;
 
   const { jsRuntimes, remoteComponents, cookiesFilePathFromEnv, proxyFromEnv } = getYtDlpEnv();
   let cookiesPathToUse = cookiesFilePathFromEnv;
   let cookiesCleanup: (() => Promise<void>) | undefined;
   if (cookiesFilePathFromEnv) {
-    const resolved = await ensureWritableCookiesFile(cookiesFilePathFromEnv);
+    const resolved = await copyCookiesFile(cookiesFilePathFromEnv);
     cookiesPathToUse = resolved.path;
     cookiesCleanup = resolved.cleanup;
   }
@@ -1357,7 +1378,7 @@ export async function captureVideoFrame(
     await logCookiesFileStatus(logger, cookiesFilePathFromEnv);
     logger?.info({ timestampSeconds, format, width }, 'Capturing video frame');
 
-    const streamInfo = await fetchVideoStreamInfo(url, formatSelector, envArgs, logger);
+    const streamInfo = await fetchVideoStreamInfo(url, formatSelector, envArgs, deadline, logger);
     const videoId = streamInfo?.videoId ?? extractYouTubeVideoId(url) ?? 'unknown';
 
     if (
@@ -1385,6 +1406,7 @@ export async function captureVideoFrame(
           quality,
           outputPath,
           proxy: proxyFromEnv,
+          deadline,
         });
         const data = await readFrameFile(outputPath);
         if (data) {
@@ -1400,7 +1422,14 @@ export async function captureVideoFrame(
       }
     }
 
-    clipPath = await downloadVideoSection(url, timestampSeconds, formatSelector, envArgs, logger);
+    clipPath = await downloadVideoSection(
+      url,
+      timestampSeconds,
+      formatSelector,
+      envArgs,
+      deadline,
+      logger
+    );
     if (clipPath) {
       try {
         await runFfmpegFrameCapture({
@@ -1409,6 +1438,7 @@ export async function captureVideoFrame(
           format,
           quality,
           outputPath,
+          deadline,
         });
         const data = await readFrameFile(outputPath);
         if (data) {
@@ -1420,6 +1450,8 @@ export async function captureVideoFrame(
       }
     }
 
+    // The clip read has no next stage to notice that the budget ran out while it ran.
+    if (deadline !== undefined && Date.now() >= deadline) throw new YtDlpError('timeout');
     const details = collectExecFileErrorDetails(
       lastError ??
         new Error(
@@ -1579,31 +1611,26 @@ async function logCookiesFileStatus(
 }
 
 /**
- * Returns a writable path for the cookies file. yt-dlp reads and writes cookies;
- * if the original file is read-only (e.g. Docker volume), it fails on save.
- * Copies to a temp writable location when the original is not writable.
- * Exported for testing.
+ * Gives one yt-dlp run its own copy of the cookies file. yt-dlp rewrites the file it is
+ * given when it exits, truncating it first, so a run killed during that write left the
+ * shared file empty and every later run refused it (prod, 2026-09-24). A copy also works
+ * when the original is mounted read-only. Exported for testing.
  */
-export async function ensureWritableCookiesFile(
+export async function copyCookiesFile(
   originalPath: string
 ): Promise<{ path: string; cleanup: () => Promise<void> }> {
-  const { access } = await import('node:fs/promises');
-  try {
-    await access(originalPath, constants.R_OK | constants.W_OK);
-    return { path: originalPath, cleanup: async () => {} };
-  } catch {
-    const tempPath = join(
-      tmpdir(),
-      `cookies_${Date.now()}_${Math.random().toString(36).slice(2)}.txt`
-    );
-    await copyFile(originalPath, tempPath);
-    return {
-      path: tempPath,
-      cleanup: async () => {
-        await unlink(tempPath).catch(() => {});
-      },
-    };
-  }
+  const tempPath = join(
+    tmpdir(),
+    `cookies_${Date.now()}_${Math.random().toString(36).slice(2)}.txt`
+  );
+  // 0600: a cookies file is a signed-in session, and tmpdir may be shared.
+  await writeFile(tempPath, await readFile(originalPath), { mode: 0o600 });
+  return {
+    path: tempPath,
+    cleanup: async () => {
+      await unlink(tempPath).catch(() => {});
+    },
+  };
 }
 
 /**
@@ -1848,7 +1875,7 @@ export async function searchVideos(
   let cookiesPathToUse = cookiesFilePathFromEnv;
   let cookiesCleanup: (() => Promise<void>) | undefined;
   if (cookiesFilePathFromEnv) {
-    const resolved = await ensureWritableCookiesFile(cookiesFilePathFromEnv);
+    const resolved = await copyCookiesFile(cookiesFilePathFromEnv);
     cookiesPathToUse = resolved.path;
     cookiesCleanup = resolved.cleanup;
   }
@@ -1918,7 +1945,7 @@ export async function fetchYtDlpJson(
   let cookiesPathToUse = cookiesFilePathFromEnv;
   let cookiesCleanup: (() => Promise<void>) | undefined;
   if (cookiesFilePathFromEnv) {
-    const resolved = await ensureWritableCookiesFile(cookiesFilePathFromEnv);
+    const resolved = await copyCookiesFile(cookiesFilePathFromEnv);
     cookiesPathToUse = resolved.path;
     cookiesCleanup = resolved.cleanup;
   }
@@ -1939,11 +1966,16 @@ export async function fetchYtDlpJson(
     await logCookiesFileStatus(logger, cookiesFilePathFromEnv);
     const timeout = parseIntEnv('YT_DLP_TIMEOUT', 60000);
     const { stdout, stderr } = await execFileAsync('yt-dlp', args, {
-      maxBuffer: 10 * 1024 * 1024,
+      // A dubbed video lists every auto-caption language once per audio track: 21 tracks
+      // made 11.7 MB of JSON for one 17-minute video, past the 10 MB this used to allow.
+      maxBuffer: 50 * 1024 * 1024,
       timeout,
     });
     if (stderr) {
       logger?.debug({ stderr }, 'yt-dlp stderr');
+    }
+    if (stdout.length > 10 * 1024 * 1024) {
+      logger?.info({ length: stdout.length }, 'Large yt-dlp JSON');
     }
 
     const trimmed = stdout.trim();

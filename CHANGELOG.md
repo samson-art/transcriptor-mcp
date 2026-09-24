@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.7] - 2026-09-24
+
+### Fixed
+
+- **A frame that could not be taken could hold its processes for 8 to 22 minutes.** Each stage of `get_video_frame` — the stream lookup, up to two direct reads, the section download, the frame from the clip — got the whole timeout for itself, and an ffmpeg stopped by that timeout did not stop: it acts on `SIGTERM` between packets, and one blocked in a network read gets there only when the read returns. On 2026-09-24 eight failed calls lasted 470–1327 s each; with four quicker failures, failed frames took 7,500 of the 10,690 seconds that all tools worked on this version. The client repeated each call every 30 s with the same arguments, so four ffmpeg processes read the same stream at once and the process cap was reached. A call now has one budget for all of its stages. ffmpeg is stopped with `SIGKILL` and gives up on a read that stalls for 15 s — the ffmpeg that yt-dlp starts for the section download too, since it outlives a yt-dlp stopped by the timeout. A call repeated with the same arguments while the first one runs waits for that run instead of starting another.
+- **One interrupted yt-dlp run could leave every later run without cookies.** yt-dlp rewrites the cookies file it is given when it exits, and empties it first. A writable file was handed over as it was, so a run killed during that write left the file empty, and every run after it refused the file as not a Netscape cookies file — on this server from 09:54 UTC on 2026-09-24, hidden for a while by the cache. Every run now gets its own copy, whether the original is writable or not, readable only by the server's user.
+- **A video dubbed into many languages could not be read.** yt-dlp lists every automatic caption language once per audio track: one 17-minute video with 21 audio tracks gave 11.7 MB of JSON, more than the 10 MB the server accepted from yt-dlp, so the run was killed — and that kill is the one that emptied the cookies file above. The limit is now 50 MB, and JSON over 10 MB is logged with its length.
+- **`get_playlist_transcripts` with `maxItems` answered with no transcripts.** When yt-dlp stops at `--max-downloads` it exits with 101, and the handler for that exit read the downloaded files only after the temporary directory holding them had been removed. It now reads them first.
+
+### Changed
+
+- `YT_DLP_FRAME_TIMEOUT` (default: `YT_DLP_TIMEOUT`) now limits a whole `get_video_frame` call, including the time its processes wait for a free slot, instead of each process the call starts. A stage that would start after the limit does not start, and the call answers with the `timeout` text. `0` still means no limit.
+- The example compose file mounts `cookies.txt` read-only: the server never writes the file it is given.
+
 ## [1.5.6] - 2026-09-23
 
 ### Fixed

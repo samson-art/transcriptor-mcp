@@ -967,6 +967,9 @@ function clampInt(value: number, min: number, max: number): number {
   return Math.min(Math.max(Math.trunc(value), min), max);
 }
 
+/** One capture per identical argument set while it runs; a repeated call waits for it. */
+const frameInFlight = new Map<string, ReturnType<typeof captureVideoFrame>>();
+
 /**
  * Validates request and captures a single video frame at the given timestamp.
  * @throws ValidationError on invalid input or timestamp beyond video duration,
@@ -984,12 +987,17 @@ export async function validateAndCaptureVideoFrame(
   const width = clampInt(request.width ?? FRAME_DEFAULT_WIDTH, FRAME_MIN_WIDTH, FRAME_MAX_WIDTH);
   const quality = clampInt(request.quality ?? FRAME_DEFAULT_JPEG_QUALITY, 2, 31);
 
-  const outcome = await captureVideoFrame(
-    url,
-    timestampSeconds,
-    { format, width, quality },
-    logger
-  );
+  // A client that gives up waiting calls again with the same arguments; the second call
+  // waits for the first capture instead of starting another one next to it.
+  const key = JSON.stringify([url, timestampSeconds, format, width, quality]);
+  let capture = frameInFlight.get(key);
+  if (!capture) {
+    capture = captureVideoFrame(url, timestampSeconds, { format, width, quality }, logger).finally(
+      () => frameInFlight.delete(key)
+    );
+    frameInFlight.set(key, capture);
+  }
+  const outcome = await capture;
 
   if (!outcome.ok) {
     if (outcome.reason === 'timestamp_beyond_duration') {
