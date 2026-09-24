@@ -404,6 +404,33 @@ describe('validation', () => {
       expect(await untriedTracks()).toBe(before + 8);
     });
 
+    // Most YouTube videos list only automatic tracks. The ladder alternates by rank, so
+    // with one list empty both requests go to the two best tracks of the other kind.
+    it.each([
+      ['automatic', 'auto', 'automatic_captions'],
+      ['official', 'official', 'subtitles'],
+    ] as const)(
+      'asks for the two best %s tracks when only that kind is listed',
+      async (_, type, key) => {
+        jest.spyOn(youtube, 'fetchYtDlpJson').mockResolvedValue({
+          id: 'dQw4w9WgXcQ',
+          [key]: Object.fromEntries(['ar', 'de', 'en', 'fr'].map((l) => [l, [{ ext: 'vtt' }]])),
+        } as never);
+        const download = jest.spyOn(youtube, 'downloadSubtitles').mockResolvedValue(null);
+        const before = await untriedTracks();
+
+        await expect(
+          validateAndDownloadSubtitles({ url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ' })
+        ).rejects.toThrow(NotFoundError);
+
+        expect(download.mock.calls.map(([, t, lang]) => `${t}:${lang}`)).toEqual([
+          `${type}:en`,
+          `${type}:ar`,
+        ]);
+        expect(await untriedTracks()).toBe(before + 2);
+      }
+    );
+
     it('should surface a classified yt-dlp failure instead of "no subtitles"', async () => {
       jest.spyOn(youtube, 'downloadSubtitles').mockRejectedValue(new YtDlpError('rate_limited'));
       const whisperSpy = jest.spyOn(whisperJobs, 'startOrReuseWhisperJob');

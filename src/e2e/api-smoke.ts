@@ -79,6 +79,18 @@ async function checkSwaggerDocs(apiBaseUrl: string): Promise<void> {
   console.log(`[smoke] ${SWAGGER_DOCS_PATH} OK (Swagger UI reachable)`);
 }
 
+// The file is read from the image at request time; 1.5.8 and earlier images lacked it (HTTP 500).
+async function checkChangelog(apiBaseUrl: string): Promise<void> {
+  const response = await fetch(`${apiBaseUrl}/changelogs`);
+  const text = await response.text();
+  if (!response.ok || !text.startsWith('# Changelog')) {
+    throw new Error(`/changelogs failed with HTTP ${response.status}: ${text.slice(0, 200)}`);
+  }
+
+  // eslint-disable-next-line no-console
+  console.log('[smoke] /changelogs OK');
+}
+
 async function runApiSmokeTest(apiBaseUrl: string): Promise<void> {
   const fetchImpl: any = (globalThis as any).fetch;
   if (!fetchImpl) {
@@ -86,6 +98,7 @@ async function runApiSmokeTest(apiBaseUrl: string): Promise<void> {
   }
 
   await checkSwaggerDocs(apiBaseUrl);
+  await checkChangelog(apiBaseUrl);
 
   const videoUrl = getEnvVar('SMOKE_VIDEO_URL', 'https://www.youtube.com/watch?v=dQw4w9WgXcQ');
   const requestTimeoutMs = parseIntFromString(
