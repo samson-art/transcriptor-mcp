@@ -31,6 +31,7 @@ import {
   NotFoundError,
   type NotFoundDetails,
   ServerBusyError,
+  UNEXPECTED_ERROR_MESSAGE,
   ValidationError,
   YtDlpError,
 } from './errors.js';
@@ -460,9 +461,6 @@ function toolCallLogFields({ args, extra }: ToolCall) {
   };
 }
 
-export const UNEXPECTED_TOOL_ERROR_MESSAGE =
-  'Internal server error (a fault in this server, not in your request). Retry once; if it fails again, do not retry — tell the user this cannot be completed right now.';
-
 async function withToolErrorHandling(
   toolName: string,
   log: FastifyBaseLogger,
@@ -493,7 +491,7 @@ async function withToolErrorHandling(
     Sentry.captureException(err);
     // An unplanned error's message can hold the yt-dlp command line, a cookies
     // path or a proxy URL, so it never goes to the caller.
-    return toolError(err instanceof YtDlpError ? err.message : UNEXPECTED_TOOL_ERROR_MESSAGE);
+    return toolError(err instanceof YtDlpError ? err.message : UNEXPECTED_ERROR_MESSAGE);
   } finally {
     const seconds = (performance.now() - start) / 1000;
     const outcome = reason === undefined ? 'ok' : 'error';

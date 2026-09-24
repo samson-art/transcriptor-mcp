@@ -1,7 +1,11 @@
 import type { FastifyBaseLogger, FastifyError, FastifyReply, FastifyRequest } from 'fastify';
+import { STATUS_CODES } from 'node:http';
 import * as Sentry from '@sentry/node';
-import { HttpError, NotFoundError, ServerBusyError } from './errors.js';
+import { HttpError, httpErrorAnswer, NotFoundError, ServerBusyError } from './errors.js';
 import { recordExpected404 } from './metrics.js';
+
+/** 'Too Many Requests' → 'Too many requests', like our own labels ('Bad request'). */
+const sentenceCase = (s: string) => s.charAt(0) + s.slice(1).toLowerCase();
 
 /** The REST API's error handler. Its own module so tests can mount it without starting the server. */
 export function restErrorHandler(
@@ -10,16 +14,20 @@ export function restErrorHandler(
   request: FastifyRequest,
   reply: FastifyReply
 ) {
-  const statusCode = error instanceof HttpError ? error.statusCode : 500;
-  const message = error instanceof Error ? error.message : 'Unknown error occurred';
-  const errorLabel = error instanceof HttpError ? error.errorLabel : 'Internal server error';
+  const { statusCode, message } = httpErrorAnswer(error);
+  const errorLabel =
+    error instanceof HttpError
+      ? error.errorLabel
+      : statusCode >= 500
+        ? 'Internal server error'
+        : sentenceCase(STATUS_CODES[statusCode] ?? 'Bad request');
   const route = request.routeOptions?.url ?? request.url?.split('?')[0] ?? 'unknown';
 
   // Load shedding is a known state under a burst, not a fault to page on.
   if (statusCode >= 500 && !(error instanceof ServerBusyError)) {
     this.log.error(error);
   } else {
-    this.log.warn({ err: error }, message);
+    this.log.warn({ err: error }, error.message);
   }
 
   // Every 404 here is planned: NotFoundError, or a per-video yt-dlp class (private, removed).

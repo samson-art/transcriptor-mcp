@@ -5,6 +5,7 @@ import {
   INVALID_VIDEO_URL_MESSAGE,
   NotFoundError,
   ServerBusyError,
+  UNEXPECTED_ERROR_MESSAGE,
   UNKNOWN_FAILURE_MESSAGE,
   ValidationError,
   YtDlpError,
@@ -41,6 +42,7 @@ describe('caller-facing texts', () => {
   const texts = [
     ...REASONS.map((reason) => new YtDlpError(reason).message),
     UNKNOWN_FAILURE_MESSAGE,
+    UNEXPECTED_ERROR_MESSAGE,
     INVALID_VIDEO_URL_MESSAGE,
     INVALID_LANGUAGE_MESSAGE,
   ];

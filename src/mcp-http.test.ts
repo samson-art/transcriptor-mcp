@@ -28,6 +28,7 @@ jest.mock('node:child_process', () => ({
 }));
 
 import { execFile } from 'node:child_process';
+import { UNEXPECTED_ERROR_MESSAGE } from './errors.js';
 import { buildMcpHttpApp } from './mcp-http.js';
 import { createLoggerWithSentryBreadcrumbs } from './logger-sentry-breadcrumbs.js';
 
@@ -231,5 +232,23 @@ describe('operational endpoints', () => {
     expect(response.status).toBe(404);
     const body = await readMcpBody(response);
     expect(body.error?.code).toBe(-32601);
+  });
+});
+
+describe('error handler', () => {
+  it('answers an unplanned 5xx with the generic text, not its message', async () => {
+    const local = buildMcpHttpApp({
+      loggerInstance: createLoggerWithSentryBreadcrumbs({ level: 'silent' }),
+    });
+    local.get('/boom', () => {
+      throw new Error("ENOENT: no such file or directory, open '/app/CHANGELOG.md'");
+    });
+
+    const response = await local.inject({ method: 'GET', url: '/boom' });
+    await local.close();
+
+    expect(response.statusCode).toBe(500);
+    expect(response.json().error.message).toBe(UNEXPECTED_ERROR_MESSAGE);
+    expect(response.body).not.toContain('/app/');
   });
 });

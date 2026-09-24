@@ -6,11 +6,12 @@ import {
   INVALID_VIDEO_URL_MESSAGE,
   NotFoundError,
   ServerBusyError,
+  UNEXPECTED_ERROR_MESSAGE,
   UNKNOWN_FAILURE_MESSAGE,
   ValidationError,
   YtDlpError,
 } from './errors.js';
-import { createMcpServer, UNEXPECTED_TOOL_ERROR_MESSAGE } from './mcp-core.js';
+import { createMcpServer } from './mcp-core.js';
 import { renderPrometheus } from './metrics.js';
 import * as youtube from './youtube.js';
 import * as validation from './validation.js';
@@ -283,7 +284,7 @@ describe('mcp-core tools', () => {
       const result = await handler({ url: testUrl }, {});
 
       expect(result).toMatchObject({ isError: true });
-      expect(result.content[0].text).toBe(UNEXPECTED_TOOL_ERROR_MESSAGE);
+      expect(result.content[0].text).toBe(UNEXPECTED_ERROR_MESSAGE);
       expect(captureExceptionMock).toHaveBeenCalled();
     });
 
@@ -454,7 +455,7 @@ describe('mcp-core tools', () => {
 
       expect(result).toMatchObject({ isError: true });
       // The raw message holds a cookies path: the caller gets a fixed sentence.
-      expect(result.content[0].text).toBe(UNEXPECTED_TOOL_ERROR_MESSAGE);
+      expect(result.content[0].text).toBe(UNEXPECTED_ERROR_MESSAGE);
       expect(result.content[0].text).not.toContain('/cookies');
       expect(logger.error).toHaveBeenCalledWith(
         expect.objectContaining({ err: expect.any(Error), tool: 'get_video_info' }),
