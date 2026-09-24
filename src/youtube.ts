@@ -175,9 +175,9 @@ function rethrowInfra(error: unknown): void {
 }
 
 /**
- * One place to notice a platform said 429, whichever of the two caption paths said it:
- * the track's own URL throws a typed error, yt-dlp fails a process. Returns whether it was
- * one, so the caller can label the request it just spent without classifying twice.
+ * One place to notice a platform said 429: yt-dlp failed a process with it in stderr, or a
+ * refusal was already classified. Returns whether it was one, so the caller can label the
+ * request it just spent without classifying twice.
  */
 function noteIfRateLimited(url: string, error: unknown): boolean {
   const reason =
@@ -426,7 +426,10 @@ async function runYtDlpAndExtractSubtitles(
 }
 
 /**
- * Downloads subtitles using yt-dlp
+ * Downloads subtitles using yt-dlp — only yt-dlp, with the server's cookies and its browser
+ * impersonation. Fetching a listed track's own URL from Node (1.4.0–1.5.7, 0.2 s against a
+ * 4–7 s run) is what YouTube refused with 429 seven times on 2026-09-24 while the same
+ * track kept coming through yt-dlp.
  * @param url - Video URL (any supported platform)
  * @param type - subtitle type: 'official' or 'auto'
  * @param lang - subtitle language (e.g., 'en', 'ru')
@@ -438,9 +441,7 @@ export async function downloadSubtitles(
   type: 'official' | 'auto' = 'auto',
   lang: string = 'en',
   format?: SubtitleFormat | null,
-  logger?: FastifyBaseLogger,
-  /** The JSON this track was listed in; with it the track is fetched without yt-dlp. */
-  preFetchedData?: YtDlpVideoInfo | null
+  logger?: FastifyBaseLogger
 ): Promise<string | null> {
   const subFormat = resolveSubtitleFormat(format);
   // Asking a platform that just answered 429 spends the quota that keeps it saying 429.
@@ -449,24 +450,6 @@ export async function downloadSubtitles(
   // Before the request, not after it: the series have to exist for the increment to read
   // as a step rather than as a series being born.
   primeSubtitleRequests(platform);
-  let direct: string | null;
-  try {
-    direct = await downloadSubtitleTrackDirect(
-      preFetchedData,
-      type,
-      lang,
-      subFormat,
-      logger,
-      platform
-    );
-  } catch (error) {
-    noteIfRateLimited(url, error);
-    throw error;
-  }
-  if (direct) {
-    clearSubtitlesRateLimit(url);
-    return direct;
-  }
   const tempDir = tmpdir();
   const outputPath = join(tempDir, urlToSafeBase(url, 'subtitles'));
   const { jsRuntimes, remoteComponents, cookiesFilePathFromEnv } = getYtDlpEnv();
@@ -515,115 +498,19 @@ export async function downloadSubtitles(
       lang,
       logger
     );
-    recordSubtitleRequest(platform, 'yt_dlp', 'ok');
+    recordSubtitleRequest(platform, 'ok');
     // Only a track proves the caption endpoint answered: a run that found nothing may
     // never have asked it, and clearing on that would walk the server back into the limit.
     if (content) clearSubtitlesRateLimit(url);
     return content;
   } catch (error) {
     const limited = noteIfRateLimited(url, error);
-    recordSubtitleRequest(platform, 'yt_dlp', limited ? 'rate_limited' : 'error');
+    recordSubtitleRequest(platform, limited ? 'rate_limited' : 'error');
     rethrowInfra(error);
     logger?.error({ error }, 'Error downloading subtitles');
     return null;
   } finally {
     await cookiesCleanup?.();
-  }
-}
-
-/** A listed track we can fetch ourselves: not an HLS manifest, and an absolute https URL. */
-function directTrackUrl(
-  track: { ext?: string; url?: string },
-  format: SubtitleFormat
-): string | null {
-  if (track.ext !== format || !track.url?.startsWith('https://')) return null;
-  try {
-    const { hostname, pathname } = new URL(track.url);
-    // YouTube lists the auto track as an HLS manifest too; ffmpeg-free code cannot read it.
-    if (hostname.startsWith('manifest.') || pathname.endsWith('.m3u8')) return null;
-  } catch {
-    return null;
-  }
-  return track.url;
-}
-
-/**
- * Downloads one listed track by its own URL: ~0.2 s against the 4–7 s a second yt-dlp
- * run costs. Returns null whenever anything is off, and the yt-dlp path takes over.
- */
-export async function downloadSubtitleTrackDirect(
-  data: YtDlpVideoInfo | null | undefined,
-  type: 'official' | 'auto',
-  lang: string,
-  format: SubtitleFormat,
-  logger?: FastifyBaseLogger,
-  /** Counted against this platform's caption budget; omit only where nothing is counted. */
-  platform = 'unknown'
-): Promise<string | null> {
-  const container = type === 'official' ? data?.subtitles : data?.automatic_captions;
-  // `lang` is the caller's: `toString` must not read Object.prototype.
-  const tracks = container && Object.hasOwn(container, lang) ? container[lang] : undefined;
-  const trackUrl = tracks
-    ?.map((t) => directTrackUrl(t, format))
-    .find((u): u is string => u != null);
-  if (!trackUrl) return null;
-  if (getYtDlpEnv().proxyFromEnv) {
-    // The operator routes the platform through a proxy; fetch would go around it.
-    logger?.debug({ type, lang }, 'YT_DLP_PROXY is set: leaving the track to yt-dlp');
-    return null;
-  }
-
-  const started = Date.now();
-  try {
-    const response = await fetch(trackUrl, {
-      // What yt-dlp sends (`std_headers`, with a fixed Chrome version from the range it
-      // picks from), so this stops looking like a bare Node runtime asking the endpoint a
-      // browser asked a second ago. Not a disguise: undici adds a `Sec-Fetch-Mode` of its
-      // own that yt-dlp never sends, and the TLS fingerprint stays Node's.
-      headers: {
-        'User-Agent':
-          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36',
-        Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        'Accept-Language': 'en-us,en;q=0.5',
-      },
-      signal: AbortSignal.timeout(parseIntEnv('SUBTITLE_FETCH_TIMEOUT_MS', 15000)),
-    });
-    recordSubtitleRequest(platform, 'direct', response.status === 429 ? 'rate_limited' : 'ok');
-    if (response.status === 429) {
-      // Measured on both limit days: the yt-dlp run that would follow asks the same
-      // endpoint and gets the same answer (82 refusals here, 198 there), so it is not
-      // worth the request. Its cookies do not exempt it — the canary carries them too.
-      logger?.warn({ type, lang }, 'Direct subtitle track fetch rate-limited');
-      throw new YtDlpError('rate_limited');
-    }
-    if (!response.ok) {
-      logger?.warn({ type, lang, status: response.status }, 'Direct subtitle track fetch failed');
-      return null;
-    }
-    const content = await response.text();
-    // The URL is signed and can answer with an HTML error page or an empty body. `srt` is
-    // what detectSubtitleFormat calls anything it does not recognise, so it needs a real cue.
-    if (
-      detectSubtitleFormat(content) !== format ||
-      (format === 'srt' && !CUE_TIMESTAMP_RE.test(content))
-    ) {
-      logger?.warn(
-        { type, lang, length: content.length },
-        'Direct subtitle track is not subtitles'
-      );
-      return null;
-    }
-    logger?.info({ type, lang, format, ms: Date.now() - started }, 'Downloaded subtitles directly');
-    return content;
-  } catch (error) {
-    if (error instanceof HttpError) throw error;
-    // The request left the server even though the answer never arrived: it counts.
-    recordSubtitleRequest(platform, 'direct', 'error');
-    logger?.warn(
-      { type, lang, error: error instanceof Error ? error.message : String(error) },
-      'Direct subtitle track fetch failed'
-    );
-    return null;
   }
 }
 

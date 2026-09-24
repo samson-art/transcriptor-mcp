@@ -364,8 +364,7 @@ describe('validation', () => {
         'official',
         'en',
         undefined,
-        undefined,
-        expect.anything()
+        undefined
       );
     });
 
@@ -571,7 +570,6 @@ describe('validation', () => {
       expect(cacheSet).not.toHaveBeenCalled();
       // One probe, one yt-dlp run: the metadata JSON is for callers, not for the canary.
       expect(youtube.fetchYtDlpJson).not.toHaveBeenCalled();
-      expect(downloadSpy.mock.calls[0][5]).toBeUndefined();
     });
 
     it('keys the cache by the format the content is in, not by whether one was named', async () => {
@@ -746,14 +744,21 @@ describe('validation', () => {
         'auto',
         'en',
         undefined,
-        undefined,
-        expect.objectContaining({ id: '123' })
+        undefined
       );
-      // No id in the URL, so the id still costs one yt-dlp run.
+      // No id in the URL, so the id still costs one yt-dlp run — after the track, never in
+      // front of it: with the direct fetch gone, a JSON run first would double the wait.
       expect(youtube.fetchYtDlpJson).toHaveBeenCalled();
+      const [trackRun] = (youtube.downloadSubtitles as jest.Mock).mock.invocationCallOrder;
+      const [jsonRun] = (youtube.fetchYtDlpJson as jest.Mock).mock.invocationCallOrder;
+      expect(trackRun).toBeLessThan(jsonRun);
+      // That run still fills the caches the widgets read next.
+      expect((cacheSet as jest.Mock).mock.calls.map((c) => String(c[0]).split(':')[0])).toEqual(
+        expect.arrayContaining(['avail', 'info', 'chapters'])
+      );
     });
 
-    it('should read one JSON for the track URL, the id and the metadata caches', async () => {
+    it('should spend no JSON run on a YouTube URL: the id is in it, the track is the only run', async () => {
       jest.spyOn(youtube, 'downloadSubtitles').mockResolvedValue('content');
       const jsonSpy = jest
         .spyOn(youtube, 'fetchYtDlpJson')
@@ -766,11 +771,7 @@ describe('validation', () => {
       } as any);
 
       expect(result.videoId).toBe('dQw4w9WgXcQ');
-      expect(jsonSpy).toHaveBeenCalledTimes(1);
-      // info, tracks and chapters are filled from that one run
-      expect((cacheSet as jest.Mock).mock.calls.map((c) => String(c[0]).split(':')[0])).toEqual(
-        expect.arrayContaining(['avail', 'info', 'chapters'])
-      );
+      expect(jsonSpy).not.toHaveBeenCalled();
     });
 
     it('should answer a private video with its reason, not "no subtitles for en"', async () => {
@@ -815,8 +816,7 @@ describe('validation', () => {
           'official',
           'en',
           undefined,
-          undefined,
-          expect.objectContaining({ id: 'dQw4w9WgXcQ' })
+          undefined
         );
         expect(downloadSpy).toHaveBeenNthCalledWith(
           2,
@@ -824,8 +824,7 @@ describe('validation', () => {
           'official',
           'ru',
           undefined,
-          undefined,
-          expect.objectContaining({ id: 'dQw4w9WgXcQ' })
+          undefined
         );
       });
 
@@ -898,8 +897,7 @@ describe('validation', () => {
           'auto',
           'en-orig',
           undefined,
-          undefined,
-          expect.objectContaining({ id: 'dQw4w9WgXcQ' })
+          undefined
         );
       });
 
@@ -929,8 +927,7 @@ describe('validation', () => {
           'auto',
           'en',
           undefined,
-          undefined,
-          expect.objectContaining({ id: 'dQw4w9WgXcQ' })
+          undefined
         );
         expect(downloadSpy).toHaveBeenNthCalledWith(
           2,
@@ -938,8 +935,7 @@ describe('validation', () => {
           'auto',
           'ru',
           undefined,
-          undefined,
-          expect.objectContaining({ id: 'dQw4w9WgXcQ' })
+          undefined
         );
       });
 
@@ -1037,8 +1033,7 @@ describe('validation', () => {
           'auto',
           'en',
           undefined,
-          undefined,
-          expect.objectContaining({ id: 'dQw4w9WgXcQ' })
+          undefined
         );
       });
     });

@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.8] - 2026-09-24
+
+### Changed
+
+- **Caption tracks are downloaded by yt-dlp only.** Since 1.4.0 a track listed with its own URL was fetched straight from Node — 0.2 s against the 4–7 s of a yt-dlp run. On 2026-09-24 YouTube refused those requests with `HTTP 429` seven times between 12:09 and 19:18 UTC — nine refused direct fetches over the week against none for yt-dlp — while the same track came through yt-dlp, with the server's cookies and its browser impersonation, eight minutes after a refusal. The direct fetch is gone, and `SUBTITLE_FETCH_TIMEOUT_MS` with it. A transcript that is not cached costs the 4–7 s of a yt-dlp run where it cost 0.2 s; the explicit `type`/`lang` path no longer runs yt-dlp for the JSON in front of the track (the id is in a YouTube URL, and for any other platform that run comes after the track), so its total stays at one run for YouTube. `subtitle_requests_total` keeps its `path` label, now always `yt_dlp`.
+- **A refusal after the hold counts as the next strike, however long the hold has been over.** The hold counted a repeat only when it came within ten minutes of the previous wait ending, so on a sparse day every 429 read as the first one: the wait never grew past ten minutes, and nothing said that this address was banned. Only a track resets the count now, and the canary asks for one every `CANARY_INTERVAL_MS` while nothing else answers (fifteen minutes by default, an hour on the hosted server).
+
+### Added
+
+- `subtitle_rate_limit_strikes{platform}`: refusals in a row from a platform's caption endpoint with no track in between, 0 once a track arrives. Two or more means the platform refused again after the hold ran out, with no track handed over in between — the address is banned. The alert to build on it is `max by (platform) (subtitle_rate_limit_strikes{platform="youtube"}) >= 2`, for the platform the canary keeps asking; it resolves when a track comes back, and also on a restart, because the count lives in the process — if the ban holds, it fires again after the next hold. `SUBTITLES_RATE_LIMIT_HOLD_MS=0` turns the count off with the hold.
+
 ## [1.5.7] - 2026-09-24
 
 ### Fixed

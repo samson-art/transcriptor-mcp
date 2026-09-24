@@ -5,11 +5,21 @@ import {
   noteSubtitlesRateLimited,
   resetSubtitleRateLimitsForTests,
 } from './subtitle-rate-limit.js';
+import { renderPrometheus } from './metrics.js';
 
 const WATCH = 'https://www.youtube.com/watch?v=x';
 const SHORT = 'https://youtu.be/x';
 const TIKTOK = 'https://www.tiktok.com/@a/video/1';
+const VIMEO = 'https://vimeo.com/1';
 const MINUTE = 60 * 1000;
+
+/** The gauge the "banned" alert reads; -1 when the series does not exist. */
+async function strikes(platform: string): Promise<number> {
+  const line = (await renderPrometheus())
+    .split('\n')
+    .find((l) => l.startsWith(`subtitle_rate_limit_strikes{platform="${platform}"`));
+  return line ? Number(line.split(' ').pop()) : -1;
+}
 
 describe('subtitle rate-limit hold', () => {
   beforeEach(() => {
@@ -41,12 +51,14 @@ describe('subtitle rate-limit hold', () => {
     );
   });
 
-  it('counts one strike for every call that reports the same limit', () => {
-    // Four requests in flight when the platform starts refusing: one wait, not four.
+  it('counts one strike for every call that reports the same limit', async () => {
+    // Four requests in flight when the platform starts refusing: one wait, not four — and
+    // one strike on the gauge, or a single wave of refusals would read as a ban.
     noteSubtitlesRateLimited(WATCH);
     noteSubtitlesRateLimited(WATCH);
     noteSubtitlesRateLimited(WATCH);
     noteSubtitlesRateLimited(WATCH);
+    expect(await strikes('youtube')).toBe(1);
 
     jest.advanceTimersByTime(10 * MINUTE);
     expect(() => assertSubtitlesNotRateLimited(WATCH)).not.toThrow();
@@ -72,16 +84,25 @@ describe('subtitle rate-limit hold', () => {
     expect(() => assertSubtitlesNotRateLimited(WATCH)).not.toThrow();
   });
 
-  it('starts from the base wait again when a new limit comes long after the last', () => {
+  it('counts a refusal after the wait as the next strike, however long it took to come', async () => {
     noteSubtitlesRateLimited(WATCH);
+    expect(await strikes('youtube')).toBe(1);
 
-    // A day later, with nothing in between: a new limit, not the old one continuing.
-    jest.advanceTimersByTime(24 * 60 * MINUTE);
+    // Traffic is sparse: the next request came twenty minutes after the hold, and the
+    // platform refused it. Counting that as a first strike again (as 1.5.2–1.5.7 did for
+    // any gap over the base wait) kept every 429 of 2026-09-24 looking like the first.
+    jest.advanceTimersByTime(30 * MINUTE);
     noteSubtitlesRateLimited(WATCH);
+    expect(await strikes('youtube')).toBe(2);
 
+    jest.advanceTimersByTime(19 * MINUTE);
     expect(() => assertSubtitlesNotRateLimited(WATCH)).toThrow(YtDlpError);
-    jest.advanceTimersByTime(10 * MINUTE);
+    jest.advanceTimersByTime(MINUTE);
     expect(() => assertSubtitlesNotRateLimited(WATCH)).not.toThrow();
+
+    // Only a track resets the count, and it says so on the gauge.
+    clearSubtitlesRateLimit(WATCH);
+    expect(await strikes('youtube')).toBe(0);
   });
 
   it('forgets the limit once a download succeeds, and waits from the base again', () => {
@@ -113,10 +134,13 @@ describe('subtitle rate-limit hold', () => {
     expect(() => assertSubtitlesNotRateLimited(TIKTOK)).toThrow(YtDlpError);
   });
 
-  it('is off when the base wait is zero', () => {
+  it('is off when the base wait is zero, and so is the strike count', async () => {
     process.env.SUBTITLES_RATE_LIMIT_HOLD_MS = '0';
-    noteSubtitlesRateLimited(WATCH);
+    noteSubtitlesRateLimited(VIMEO);
+    noteSubtitlesRateLimited(VIMEO);
 
-    expect(() => assertSubtitlesNotRateLimited(WATCH)).not.toThrow();
+    expect(() => assertSubtitlesNotRateLimited(VIMEO)).not.toThrow();
+    // With no wait there is no "after the wait": two refusals in flight are not a ban.
+    expect(await strikes('vimeo')).toBe(-1);
   });
 });
