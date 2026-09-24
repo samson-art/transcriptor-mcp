@@ -364,8 +364,7 @@ describe('validation', () => {
         'official',
         'en',
         undefined,
-        undefined,
-        expect.anything()
+        undefined
       );
     });
 
@@ -571,7 +570,6 @@ describe('validation', () => {
       expect(cacheSet).not.toHaveBeenCalled();
       // One probe, one yt-dlp run: the metadata JSON is for callers, not for the canary.
       expect(youtube.fetchYtDlpJson).not.toHaveBeenCalled();
-      expect(downloadSpy.mock.calls[0][5]).toBeUndefined();
     });
 
     it('keys the cache by the format the content is in, not by whether one was named', async () => {
@@ -746,8 +744,7 @@ describe('validation', () => {
         'auto',
         'en',
         undefined,
-        undefined,
-        expect.objectContaining({ id: '123' })
+        undefined
       );
       // No id in the URL, so the id still costs one yt-dlp run.
       expect(youtube.fetchYtDlpJson).toHaveBeenCalled();
@@ -815,8 +812,7 @@ describe('validation', () => {
           'official',
           'en',
           undefined,
-          undefined,
-          expect.objectContaining({ id: 'dQw4w9WgXcQ' })
+          undefined
         );
         expect(downloadSpy).toHaveBeenNthCalledWith(
           2,
@@ -824,8 +820,7 @@ describe('validation', () => {
           'official',
           'ru',
           undefined,
-          undefined,
-          expect.objectContaining({ id: 'dQw4w9WgXcQ' })
+          undefined
         );
       });
 
@@ -898,8 +893,7 @@ describe('validation', () => {
           'auto',
           'en-orig',
           undefined,
-          undefined,
-          expect.objectContaining({ id: 'dQw4w9WgXcQ' })
+          undefined
         );
       });
 
@@ -929,8 +923,7 @@ describe('validation', () => {
           'auto',
           'en',
           undefined,
-          undefined,
-          expect.objectContaining({ id: 'dQw4w9WgXcQ' })
+          undefined
         );
         expect(downloadSpy).toHaveBeenNthCalledWith(
           2,
@@ -938,8 +931,7 @@ describe('validation', () => {
           'auto',
           'ru',
           undefined,
-          undefined,
-          expect.objectContaining({ id: 'dQw4w9WgXcQ' })
+          undefined
         );
       });
 
@@ -1037,8 +1029,7 @@ describe('validation', () => {
           'auto',
           'en',
           undefined,
-          undefined,
-          expect.objectContaining({ id: 'dQw4w9WgXcQ' })
+          undefined
         );
       });
     });

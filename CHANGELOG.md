@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.8] - 2026-09-24
+
+### Changed
+
+- **Caption tracks are downloaded by yt-dlp only.** Since 1.4.0 a track listed with its own URL was fetched straight from Node — 0.2 s against the 4–7 s of a yt-dlp run. On 2026-09-24 YouTube began refusing those requests with `HTTP 429`: eight refusals in the day, each one the first request after the server's hold, while the same track came through yt-dlp — with the server's cookies and its browser impersonation — eight minutes after a refusal. The direct fetch is gone, and `SUBTITLE_FETCH_TIMEOUT_MS` with it. A transcript that is not cached costs one yt-dlp run more than it did. `subtitle_requests_total` keeps its `path` label, now always `yt_dlp`.
+- **A refusal after the hold counts as the next strike, however long the hold has been over.** The hold counted a repeat only when it came within ten minutes of the previous wait ending, so on a sparse day every 429 read as the first one: the wait never grew past ten minutes, and nothing said that this address was banned. Only a track resets the count now, and the canary asks for one every hour.
+
+### Added
+
+- `subtitle_rate_limit_strikes{platform}`: refusals in a row from a platform's caption endpoint with no track in between, 0 once a track arrives. Two or more means the platform refused the first request it got after the hold — the address is banned. The alert to build on it is `max by (platform) (subtitle_rate_limit_strikes) >= 2`; it resolves itself when a track comes back.
+
 ## [1.5.7] - 2026-09-24
 
 ### Fixed

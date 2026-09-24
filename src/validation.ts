@@ -375,7 +375,7 @@ async function downloadWithAutoDiscover(
   }
 
   for (const { type, lang } of attempts) {
-    const content = await downloadSubtitles(url, type, lang, format, logger, data);
+    const content = await downloadSubtitles(url, type, lang, format, logger);
     if (content && content.trim().length > 0) {
       return { videoId, type, lang, subtitlesContent: content, source: platform };
     }
@@ -695,19 +695,11 @@ async function handleExplicitRequestFlow(
   if (!skipCache) recordCacheMiss('sub');
   assertSubtitlesNotRateLimited(url);
 
-  // The JSON carries the track's own URL and the video id, and fills the info, track-list
-  // and chapters caches that the widgets ask for right after a transcript.
-  // The canary proves the yt-dlp caption path still works, so it skips this and keeps its
-  // single run; everyone else gets the track URL and three warm cache entries.
+  // The JSON gives the video id and fills the info, track-list and chapters caches that
+  // the widgets ask for right after a transcript. The canary keeps its single yt-dlp run
+  // and skips this; everyone else gets three warm cache entries.
   const loaded = skipCache ? null : await loadVideoJson(url, logger);
-  let subtitlesContent = await downloadSubtitles(
-    url,
-    type,
-    sanitizedLang,
-    format,
-    logger,
-    loaded?.data
-  );
+  let subtitlesContent = await downloadSubtitles(url, type, sanitizedLang, format, logger);
   let source: string = extractPlatformFromUrl(url);
 
   if (!subtitlesContent) {

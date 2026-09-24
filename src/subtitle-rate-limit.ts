@@ -1,10 +1,11 @@
 /**
  * YouTube answers 429 on the caption endpoint for a whole day once it decides this
  * server asked too often: two such days in September 2026, 24 hours each. Every call
- * then paid for two doomed requests — the track's own URL, then yt-dlp — and the canary
- * kept probing on its own schedule, feeding the same quota. This holds a platform's
- * caption path back after a 429, so a limit costs one request per hold instead of
- * hundreds, and the caller hears "do not retry" instead of "wait a few minutes".
+ * then paid for a doomed request, and the canary kept probing on its own schedule,
+ * feeding the same quota. This holds a platform's caption path back after a 429, so a
+ * limit costs one request per hold instead of hundreds, and the caller hears "do not
+ * retry" instead of "wait a few minutes". The strike count is a gauge: two means the
+ * platform refused the first request it got after the hold, which is what a ban looks like.
  *
  * Only subtitle downloads are held back. Metadata kept working through both days, and
  * a hold on it would break `get_video_info` for no reason.
@@ -14,6 +15,7 @@
  */
 import { parseIntEnv } from './env.js';
 import { YtDlpError } from './errors.js';
+import { setSubtitleRateLimitStrikes } from './metrics.js';
 import { extractPlatformFromUrl } from './platform.js';
 
 type Hold = { until: number; strikes: number };
@@ -47,10 +49,14 @@ export function noteSubtitlesRateLimited(url: string): void {
   const prev = holds.get(platform);
   // Calls already in flight when the limit starts all report the same 429, and they must
   // not walk the wait up between them: only an attempt made AFTER a wait ran out counts as
-  // a repeat. A gap longer than the base wait is a new limit, not the old one continuing.
+  // a repeat — however long after. Nothing but a track resets the count (the canary asks
+  // for one every hour), so a repeat means the platform refused the first request it got
+  // once the hold was over. Counting only repeats within ten minutes of the hold, as this
+  // did until 1.5.8, read every refusal of a sparse day as the first one.
   if (prev && now < prev.until) return;
-  const strikes = prev !== undefined && now - prev.until <= baseHoldMs() ? prev.strikes + 1 : 1;
+  const strikes = prev ? prev.strikes + 1 : 1;
   holds.set(platform, { until: now + holdMs(strikes), strikes });
+  setSubtitleRateLimitStrikes(platform, strikes);
 }
 
 /** The platform answered with a track: it is not limiting this server any more. */
@@ -58,6 +64,7 @@ export function clearSubtitlesRateLimit(url: string): void {
   const platform = extractPlatformFromUrl(url);
   holds.delete(platform);
   lastAnswered.set(platform, Date.now());
+  setSubtitleRateLimitStrikes(platform, 0);
 }
 
 /** When this platform last handed over a track, or 0. A real call proves what a probe would. */
