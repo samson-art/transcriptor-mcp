@@ -14,9 +14,9 @@ cookies.txt
 docker-compose.yml
 tokens.csv
 apisix/
-docs/
 mcp-analytics-gateway/
 store/
 assets/store/
-.claude/
+.claude/settings.local.json
+.claude/worktrees/
 chatgpt-app-submission.json
