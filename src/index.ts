@@ -5,7 +5,6 @@ import swagger from '@fastify/swagger';
 import swaggerUi from '@fastify/swagger-ui';
 import { TypeBoxTypeProvider } from '@fastify/type-provider-typebox';
 import { Type } from '@sinclair/typebox';
-import { HttpError, NotFoundError, ServerBusyError } from './errors.js';
 import { parseSubtitles, detectSubtitleFormat } from './youtube.js';
 import {
   GetAvailableSubtitlesRequest,
@@ -24,15 +23,11 @@ import { checkYtDlpAtStartup } from './yt-dlp-check.js';
 import { close as closeCache, ping as cachePing } from './cache.js';
 import { setupLifecycle } from './lifecycle.js';
 import * as Sentry from '@sentry/node';
-import {
-  recordRequest,
-  recordExpected404,
-  renderPrometheus,
-  getFailedSubtitlesUrls,
-} from './metrics.js';
+import { recordRequest, renderPrometheus, getFailedSubtitlesUrls } from './metrics.js';
 import { createLoggerWithSentryBreadcrumbs } from './logger-sentry-breadcrumbs.js';
 import { readChangelog } from './changelog.js';
 import { parseIntEnv } from './env.js';
+import { restErrorHandler } from './rest-error-handler.js';
 
 // Response schemas for OpenAPI/Swagger
 const ErrorResponseSchema = Type.Object({
@@ -102,61 +97,7 @@ const fastify = Fastify({
   loggerInstance: createLoggerWithSentryBreadcrumbs(),
 }).withTypeProvider<TypeBoxTypeProvider>();
 
-fastify.setErrorHandler((error, request, reply) => {
-  const statusCode = error instanceof HttpError ? error.statusCode : 500;
-  const message = error instanceof Error ? error.message : 'Unknown error occurred';
-  const errorLabel = error instanceof HttpError ? error.errorLabel : 'Internal server error';
-  const route = request.routeOptions?.url ?? request.url?.split('?')[0] ?? 'unknown';
-
-  // Load shedding is a known state under a burst, not a fault to page on.
-  if (statusCode >= 500 && !(error instanceof ServerBusyError)) {
-    fastify.log.error(error);
-  } else {
-    fastify.log.warn({ err: error }, message);
-  }
-
-  // Every 404 here is planned: NotFoundError, or a per-video yt-dlp class (private, removed).
-  if (statusCode === 404) {
-    recordExpected404(request.method, route);
-  }
-
-  Sentry.withScope((scope) => {
-    const requestContext: Record<string, unknown> = {
-      method: request.method,
-      url: request.url,
-      statusCode,
-    };
-    if (
-      statusCode >= 500 &&
-      request.body &&
-      typeof request.body === 'object' &&
-      'url' in request.body &&
-      typeof (request.body as { url?: unknown }).url === 'string'
-    ) {
-      requestContext.requestUrl = (request.body as { url: string }).url;
-    }
-    scope.setContext('request', requestContext);
-    scope.setTag('route', route);
-    if (statusCode >= 400 && statusCode < 500) {
-      scope.setLevel('warning');
-    }
-    Sentry.captureException(error);
-  });
-
-  const payload: {
-    error: string;
-    message: string;
-    available?: { official?: string[]; auto?: string[] };
-  } = { error: errorLabel, message };
-  if (statusCode === 404 && error instanceof NotFoundError && error.details) {
-    payload.available = {
-      ...(error.details.official && { official: error.details.official }),
-      ...(error.details.auto && { auto: error.details.auto }),
-    };
-    if (Object.keys(payload.available).length === 0) delete payload.available;
-  }
-  return reply.code(statusCode).send(payload);
-});
+fastify.setErrorHandler(restErrorHandler);
 
 // Register CORS (optional allowlist via CORS_ALLOWED_ORIGINS comma-separated)
 const corsAllowedOrigins = process.env.CORS_ALLOWED_ORIGINS?.trim()
