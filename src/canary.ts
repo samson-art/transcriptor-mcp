@@ -23,6 +23,18 @@ const DEFAULT_INTERVAL_MS = 15 * 60 * 1000;
 const FAILURES_BEFORE_ALERT = 2;
 
 let consecutiveFailures = 0;
+/** When the last probe finished. A track stamped at or before it may be the probe's own. */
+let probedAt = 0;
+
+/** The path works: end the streak, and say so if the streak had raised the alert. */
+function pathWorks(log: FastifyBaseLogger, url: string, via: 'probe' | 'traffic'): void {
+  setCanaryResult(true);
+  if (consecutiveFailures >= FAILURES_BEFORE_ALERT) {
+    log.info({ url, via }, 'canary: transcript path recovered');
+    Sentry.captureMessage('canary: transcript path recovered', 'info');
+  }
+  consecutiveFailures = 0;
+}
 
 /** Runs one canary probe and records its outcome. Never throws. */
 export async function runCanary(log: FastifyBaseLogger): Promise<void> {
@@ -31,13 +43,15 @@ export async function runCanary(log: FastifyBaseLogger): Promise<void> {
   // what this probe would, and it cost a request somebody actually wanted. Platforms meter
   // caption requests hard enough to take the tool down for a day, so the probe only runs
   // when nothing has answered lately — which is also the only time its answer is news.
+  // The probe's own track stamps the platform too, one interval minus its run before the
+  // next tick; counting it made an idle server probe every second interval (#48).
+  const answered = lastSubtitlesAnswered(url);
   if (
-    Date.now() - lastSubtitlesAnswered(url) <
-    parseIntEnv('CANARY_INTERVAL_MS', DEFAULT_INTERVAL_MS)
+    answered > probedAt &&
+    Date.now() - answered < parseIntEnv('CANARY_INTERVAL_MS', DEFAULT_INTERVAL_MS)
   ) {
     log.debug({ url }, 'canary: skipped, a real call just came back from this platform');
-    setCanaryResult(true);
-    consecutiveFailures = 0;
+    pathWorks(log, url, 'traffic');
     return;
   }
   try {
@@ -46,12 +60,7 @@ export async function runCanary(log: FastifyBaseLogger): Promise<void> {
     await validateAndDownloadSubtitles({ url, type: 'official', lang: 'en' }, log, {
       skipCache: true,
     });
-    setCanaryResult(true);
-    if (consecutiveFailures >= FAILURES_BEFORE_ALERT) {
-      log.info({ url }, 'canary: transcript path recovered');
-      Sentry.captureMessage('canary: transcript path recovered', 'info');
-    }
-    consecutiveFailures = 0;
+    pathWorks(log, url, 'probe');
   } catch (err) {
     if (err instanceof ServerBusyError) {
       // A saturated server is the limiter's story to tell, not a broken path.
@@ -70,6 +79,11 @@ export async function runCanary(log: FastifyBaseLogger): Promise<void> {
     } else {
       log.warn({ err, url, reason, consecutiveFailures }, 'canary: transcript fetch failed');
     }
+  } finally {
+    // ponytail: a real track that lands while the probe runs is taken for the probe's own,
+    // so the next tick may probe once more than it had to; a per-call origin tag in
+    // subtitle-rate-limit.ts would fix that if it ever shows in the request counts.
+    probedAt = Date.now();
   }
 }
 
@@ -90,7 +104,8 @@ export function startCanary(log: FastifyBaseLogger): void {
   }, intervalMs).unref();
 }
 
-/** Test helper: clears the failure streak between cases. */
+/** Test helper: clears the failure streak and the last probe between cases. */
 export function resetCanaryForTests(): void {
   consecutiveFailures = 0;
+  probedAt = 0;
 }

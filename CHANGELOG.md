@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **An idle server probed every second canary interval, and a recovery through real traffic was silent.** The canary stands down when a track from its platform came back within the last `CANARY_INTERVAL_MS`, and its own probe's track counted too. At the next tick that track was one interval minus the run old, so the tick stood down. An idle server probed 48 times a day where it should have probed 96 at the default fifteen minutes (12 instead of 24 at one hour). A path that broke could take three intervals instead of two to raise `canary: transcript path failing`. Now only a track from a real call, after the canary's last probe, makes a tick stand down. When such a call ends a failure streak, the canary sends `canary: transcript path recovered`, as a probe does. Before, it set `transcriptor_canary_ok` back to 1 and sent nothing.
+
 ## [1.5.8] - 2026-09-24
 
 ### Changed
