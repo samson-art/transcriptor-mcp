@@ -34,6 +34,12 @@ function readHeredocDelim(src, i) {
   return [delim, strip, i];
 }
 
+// i points just past an opening backtick. Returns the index past the closing one.
+function skipBacktick(src, i) {
+  while (i < src.length && src[i] !== '`') i += src[i] === '\\' ? 2 : 1;
+  return i + 1;
+}
+
 // Returns the index just past the ')' that closes a '$(' opened before i.
 function skipSubstitution(src, i) {
   let depth = 1;
@@ -45,6 +51,8 @@ function skipSubstitution(src, i) {
       i = j < 0 ? src.length : j + 1;
     } else if (c === '"') {
       i = skipDoubleQuoted(src, i + 1)[1];
+    } else if (c === '`') {
+      i = skipBacktick(src, i + 1);
     } else if (c === '\\') {
       i += 2;
     } else if (c === '<' && src[i + 1] === '<') {
@@ -72,6 +80,10 @@ function skipDoubleQuoted(src, i) {
       i += 2;
     } else if (src[i] === '$' && src[i + 1] === '(') {
       const end = skipSubstitution(src, i + 2);
+      text += src.slice(i, end);
+      i = end;
+    } else if (src[i] === '`') {
+      const end = skipBacktick(src, i + 1);
       text += src.slice(i, end);
       i = end;
     } else {
@@ -114,6 +126,10 @@ export function simpleCommands(src) {
       const e = skipSubstitution(src, i + 2);
       cur = (cur ?? '') + src.slice(i, e);
       i = e - 1;
+    } else if (c === '`') {
+      const e = skipBacktick(src, i + 1);
+      cur = (cur ?? '') + src.slice(i, e);
+      i = e - 1;
     } else if (c === '<' && src[i + 1] === '<' && src[i + 2] !== '<') {
       push();
       const [delim, strip, next] = readHeredocDelim(src, i);
@@ -143,7 +159,7 @@ const GIT_GLOBAL_WITH_VALUE = new Set(['-C', '-c', '--git-dir', '--work-tree', '
 
 /**
  * The git invocations in a command string:
- * { env: {NAME: value}, config: ['k=v', ...], sub: 'commit', args: [...] }.
+ * { env: {NAME: value}, config: ['k=v', ...], dir: '-C value or undefined', sub: 'commit', args: [...] }.
  */
 export function gitInvocations(src) {
   const found = [];
@@ -159,17 +175,19 @@ export function gitInvocations(src) {
     if (!/(^|\/)git$/.test(words[i] ?? '')) continue;
     i++;
     const config = [];
+    let dir;
     while (i < words.length && words[i].startsWith('-')) {
       const w = words[i];
       if (GIT_GLOBAL_WITH_VALUE.has(w)) {
         if (w === '-c') config.push(words[i + 1] ?? '');
+        if (w === '-C') dir = dir && !words[i + 1]?.startsWith('/') ? `${dir}/${words[i + 1]}` : words[i + 1];
         i += 2;
       } else {
         if (w.startsWith('--config-env=')) config.push(w.slice(13));
         i++;
       }
     }
-    if (i < words.length) found.push({ env, config, sub: words[i], args: words.slice(i + 1) });
+    if (i < words.length) found.push({ env, config, dir, sub: words[i], args: words.slice(i + 1) });
   }
   return found;
 }
@@ -177,10 +195,11 @@ export function gitInvocations(src) {
 /**
  * Walks options the way git's parser does for one subcommand.
  * shortWithValue: short letters that take a value (rest of cluster or next word).
+ * shortWithOptional: short letters whose optional value can only be attached (-uno, -Skey).
  * longWithValue: long options that take the next word as value when written without '='.
  * Returns { shorts: Set of short letters, longs: Set, positionals: [] }.
  */
-export function parseOptions(args, shortWithValue, longWithValue) {
+export function parseOptions(args, shortWithValue, longWithValue, shortWithOptional = []) {
   const shorts = new Set();
   const longs = new Set();
   const positionals = [];
@@ -197,6 +216,7 @@ export function parseOptions(args, shortWithValue, longWithValue) {
     } else if (a.startsWith('-') && a.length > 1) {
       for (let k = 1; k < a.length; k++) {
         shorts.add(a[k]);
+        if (shortWithOptional.includes(a[k])) break;
         if (shortWithValue.includes(a[k])) {
           if (k === a.length - 1) i++;
           break;

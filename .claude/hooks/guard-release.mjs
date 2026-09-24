@@ -7,7 +7,8 @@ import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { gitInvocations, parseOptions, simpleCommands } from './git-commands.mjs';
 
-const run = (bin, args) => execFileSync(bin, args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+let cwd; // the -C directory of the tag command, if any
+const run = (bin, args) => execFileSync(bin, args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
 const git = (...args) => run('git', args);
 const tryGit = (...args) => {
   try {
@@ -24,14 +25,15 @@ function refuse(message) {
 
 const TAG_LIST_MODE = ['--list', '--delete', '--verify', '--contains', '--no-contains', '--merged', '--no-merged', '--points-at', '--sort', '--format', '--column', '--no-column'];
 const isRelease = (tag) => /^v\d/.test(tag);
-const isDynamic = (word) => /[$`]/.test(word);
+// A shell-built name that could expand to a release version: `v$X`, `$TAG`, a backtick command.
+const isDynamicRelease = (word) => /[$`]/.test(word) && /^(v|\$|`)/.test(word);
 
 function releaseFromGitTag(args) {
   const { shorts, longs, positionals } = parseOptions(args, ['m', 'F', 'u', 'n'], ['--message', '--file', '--local-user', '--cleanup', '--trailer', '--sort', '--format', '--contains', '--no-contains', '--merged', '--no-merged', '--points-at', '--column']);
   if (['l', 'd', 'v', 'n'].some((s) => shorts.has(s)) || TAG_LIST_MODE.some((l) => longs.has(l))) return null;
   const [tag, commit] = positionals;
   if (!tag) return null;
-  if (isDynamic(tag)) refuse(`the tag name "${tag}" is built by the shell. Write the version literally so it can be checked.`);
+  if (isDynamicRelease(tag)) refuse(`the tag name "${tag}" is built by the shell. Write the version literally so it can be checked.`);
   return isRelease(tag) ? { tag, target: commit ?? 'HEAD' } : null;
 }
 
@@ -40,7 +42,7 @@ function releaseFromGh(words) {
   const { positionals } = parseOptions(args, ['t', 'n', 'F', 'R'], ['--target', '--title', '--notes', '--notes-file', '--notes-start-tag', '--discussion-category', '--repo']);
   const tag = positionals[0];
   if (!tag) return null;
-  if (isDynamic(tag)) refuse(`the tag name "${tag}" is built by the shell. Write the version literally so it can be checked.`);
+  if (isDynamicRelease(tag)) refuse(`the tag name "${tag}" is built by the shell. Write the version literally so it can be checked.`);
   if (!isRelease(tag)) return null;
   if (tryGit('rev-parse', '-q', '--verify', `refs/tags/${tag}`)) return { tag, target: `refs/tags/${tag}` };
   const eq = args.find((a) => a.startsWith('--target='));
@@ -52,10 +54,12 @@ function releaseFromGh(words) {
 }
 
 function findRelease(cmd) {
-  for (const { sub, args } of gitInvocations(cmd)) {
+  for (const { dir, sub, args } of gitInvocations(cmd)) {
     if (sub === 'tag') {
+      cwd = dir;
       const r = releaseFromGitTag(args);
       if (r) return r;
+      cwd = undefined;
     }
   }
   for (const words of simpleCommands(cmd)) {
@@ -85,7 +89,7 @@ if (!sha) refuse(`cannot resolve "${release.target}" for ${release.tag} to a com
 let pr;
 try {
   const prs = JSON.parse(
-    run('gh', ['api', `repos/{owner}/{repo}/commits/${sha}/pulls`, '--jq', '[.[] | select(.merged_at) | {number, ref: .head.ref, head: .head.sha, merge: .merge_commit_sha}]']),
+    run('gh', ['api', `repos/{owner}/{repo}/commits/${sha}/pulls`, '--jq', '[.[] | select(.merged_at) | {number, ref: .head.ref, head: .head.sha, merge: .merge_commit_sha, sameRepo: (.head.repo.full_name == .base.repo.full_name)}]']),
   );
   pr = prs.find((p) => p.merge === sha);
 } catch (e) {
@@ -96,13 +100,17 @@ if (!pr) {
 }
 
 const tips = new Map([[pr.head, 'PR head at merge']]);
-const remoteTip = tryGit('ls-remote', 'origin', `refs/heads/${pr.ref}`).split(/\s/)[0];
-if (remoteTip) {
-  tryGit('fetch', '-q', 'origin', pr.ref);
-  tips.set(remoteTip, `origin/${pr.ref}`);
+// Branch tips only mean something when the PR branch lives in this repo; a fork's
+// branch name can collide with an unrelated branch here.
+if (pr.sameRepo) {
+  const remoteTip = tryGit('ls-remote', 'origin', `refs/heads/${pr.ref}`).split(/\s/)[0];
+  if (remoteTip) {
+    tryGit('fetch', '-q', 'origin', pr.ref);
+    tips.set(remoteTip, `origin/${pr.ref}`);
+  }
+  const localTip = tryGit('rev-parse', '-q', '--verify', `refs/heads/${pr.ref}`);
+  if (localTip) tips.set(localTip, `local ${pr.ref}`);
 }
-const localTip = tryGit('rev-parse', '-q', '--verify', `refs/heads/${pr.ref}`);
-if (localTip) tips.set(localTip, `local ${pr.ref}`);
 
 const missing = [];
 for (const [tip, where] of tips) {
