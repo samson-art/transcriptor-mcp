@@ -142,45 +142,30 @@ describe('canary', () => {
   describe('startCanary', () => {
     beforeEach(() => {
       jest.useFakeTimers();
-      validateAndDownloadSubtitlesMock.mockResolvedValue({ subtitlesContent: 'hello' });
+      // Like the real path: the track arrives after a run, and stamps the platform as answered.
+      validateAndDownloadSubtitlesMock.mockImplementation(async ({ url }) => {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        clearSubtitlesRateLimit(url);
+        return { subtitlesContent: 'hello' };
+      });
     });
 
     afterEach(() => {
       jest.useRealTimers();
     });
 
-    it('probes at boot and then on the interval', () => {
-      process.env.CANARY_INTERVAL_MS = '1000';
-
-      startCanary(createLogger() as any);
-
-      expect(validateAndDownloadSubtitlesMock).toHaveBeenCalledTimes(1);
-      jest.advanceTimersByTime(2000);
-      expect(validateAndDownloadSubtitlesMock).toHaveBeenCalledTimes(3);
-    });
-
     it('probes once per interval when nothing else answers', async () => {
-      // The real path stamps the platform as answered when the track arrives, seconds after
-      // the tick. The probe's own track must not make the next tick stand down.
-      validateAndDownloadSubtitlesMock.mockImplementation(async ({ url }) => {
-        await new Promise((resolve) => setTimeout(resolve, 100));
-        clearSubtitlesRateLimit(url);
-        return { subtitlesContent: 'hello' };
-      });
+      // The probe's own track must not make the next tick stand down.
       process.env.CANARY_INTERVAL_MS = '1000';
 
       startCanary(createLogger() as any);
+      expect(validateAndDownloadSubtitlesMock).toHaveBeenCalledTimes(1);
       await jest.advanceTimersByTimeAsync(3000);
 
       expect(validateAndDownloadSubtitlesMock).toHaveBeenCalledTimes(4);
     });
 
     it('stands down for a real track after its own probe, and probes once that track is an interval old', async () => {
-      validateAndDownloadSubtitlesMock.mockImplementation(async ({ url }) => {
-        await new Promise((resolve) => setTimeout(resolve, 100));
-        clearSubtitlesRateLimit(url);
-        return { subtitlesContent: 'hello' };
-      });
       process.env.CANARY_INTERVAL_MS = '1000';
 
       startCanary(createLogger() as any);
