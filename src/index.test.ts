@@ -1,5 +1,3 @@
-import type { FastifyInstance } from 'fastify';
-
 // Importing index.ts starts the server: keep start() waiting forever so it never listens.
 jest.mock('./yt-dlp-check.js', () => ({ checkYtDlpAtStartup: () => new Promise(() => {}) }));
 jest.mock('./lifecycle.js', () => ({ setupLifecycle: jest.fn() }));
@@ -14,17 +12,19 @@ jest.mock('@sentry/node', () => ({
 }));
 
 const MAX = 2;
-let app: FastifyInstance;
+let app: (typeof import('./index.js'))['fastify'];
+const savedMax = process.env.RATE_LIMIT_MAX;
 
 beforeAll(async () => {
   process.env.RATE_LIMIT_MAX = String(MAX);
-  ({ fastify: app } = (await import('./index.js')) as unknown as { fastify: FastifyInstance });
+  ({ fastify: app } = await import('./index.js'));
   await app.ready();
 });
 
 afterAll(async () => {
   await app.close();
-  delete process.env.RATE_LIMIT_MAX;
+  if (savedMax === undefined) delete process.env.RATE_LIMIT_MAX;
+  else process.env.RATE_LIMIT_MAX = savedMax;
 });
 
 it('has no /health/sentry-test: any caller could send Sentry an event per request', async () => {
@@ -49,8 +49,9 @@ it.each([
 
 it.each(['/health', '/metrics'])('%s is never rate-limited (probes, scrapes)', async (url) => {
   const remoteAddress = '10.0.0.4';
-  await app.inject({ url: '/failures', remoteAddress });
-  await app.inject({ url: '/failures', remoteAddress });
+  for (let i = 0; i < MAX; i++) await app.inject({ url: '/failures', remoteAddress });
+  const spent = await app.inject({ url: '/failures', remoteAddress });
+  expect(spent.statusCode).toBe(429);
   for (let i = 0; i <= MAX; i++) {
     const res = await app.inject({ url, remoteAddress });
     expect(res.statusCode).toBe(200);
