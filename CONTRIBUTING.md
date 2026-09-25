@@ -32,4 +32,4 @@ Write docs, CHANGELOG entries, issues, pull requests, commit messages and commen
 
 ## Never commit
 
-Never commit cookies, `.env` files, tokens, keys, or anything that `.gitignore` covers. The pre-commit hook refuses staged files that `.gitignore` matches, including files that you added with `git add -f`.
+Never commit cookies, `.env` files, tokens, keys, or anything that `.gitignore` covers. The pre-commit hook refuses staged files that `.gitignore` matches, including files that you added with `git add -f`. The hook runs only in a checkout where `npm ci` ran, so run `npm ci` in every clone and every git worktree. CI checks the repo again on every push and pull request.

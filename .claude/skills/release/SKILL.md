@@ -23,7 +23,7 @@ Only a PR that changes shipped behavior is a release. Docs, legal and chore PRs 
 3. CHANGELOG: Write it with the `simple-english` skill.
    - Move the entries into `## [X.Y.Z] - YYYY-MM-DD`. The date is the tag date. If the tag slips a day, correct the date.
    - Keep `## [Unreleased]` empty at the top.
-   - Use Keep a Changelog subsections (Added, Changed, Fixed, Security). Start each entry with a bold lead sentence. Write it for operators and callers, and give the measured numbers.
+   - Use Keep a Changelog subsections (Added, Changed, Fixed, Security). Start each entry with a short sentence that says what changed, without bold. Write it for operators and callers, and give the measured numbers.
    - Name new, changed or removed env vars. Each of them must also be in `.env.example`. If operators set them, they must also be in the README env table.
 4. PR title and body: The title is `X.Y.Z: <one sentence>`. In the body, add an After merge section. It lists the post-deploy checks that show that the change works.
 5. Ready to merge: A PR is ready to merge with these three conditions:

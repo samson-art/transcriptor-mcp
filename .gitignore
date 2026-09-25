@@ -1,4 +1,4 @@
-node_modules/
+node_modules
 dist/
 dist-site/
 *.log
@@ -17,6 +17,16 @@ apisix/
 mcp-analytics-gateway/
 store/
 assets/store/
-.claude/settings.local.json
-.claude/worktrees/
+# Local Claude files stay local. Only the shared agent setup is tracked.
+.claude/*
+!.claude/settings.json
+!.claude/hooks/
+!.claude/skills/
+.claude/skills/*-workspace/
+# Keys never go into the repo.
+id_rsa
+id_ed25519
+*.pem
+*.key
+*.p12
 chatgpt-app-submission.json

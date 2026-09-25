@@ -89,7 +89,7 @@ Never put production hostnames, IPs or dashboards into a public PR.
 
 ## 7. Review
 
-Run `/code-review` on the branch. Give it the acceptance criteria from the issue: "Review against these acceptance criteria: …". Fix the findings in a separate commit.
+Put the acceptance criteria from the issue in the chat. Then run `/code-review <PR number>`. A bare `/code-review` reviews only unpushed changes, and after step 6 there are none. Text after the PR number counts as a review target, so do not put the criteria there. Fix the findings in a separate commit.
 
 While review fixes are still to come, keep the PR in draft. This stops a merge without the fixes.
 

@@ -1,8 +1,8 @@
 # 002. After a caption 429, hold that platform's caption path in the process, and only a delivered track resets the strikes
 
-- **Status:** Accepted
-- **Date:** 2026-09-22 (1.5.2), strike count reworked 2026-09-24 (1.5.8)
-- **Sources:** PR #37 (0cb85a8, 6116a4f), PR #43 (de1dcf5, a560bbd), PR #39, CHANGELOG 1.5.2, 1.5.8
+- Status: Accepted
+- Date: 2026-09-22 (1.5.2), strike count reworked 2026-09-24 (1.5.8)
+- Sources: PR #37 (0cb85a8, 6116a4f), PR #43 (de1dcf5, a560bbd), PR #39, CHANGELOG 1.5.2, 1.5.8
 
 ## Context
 
@@ -14,8 +14,8 @@ From 1.5.2 to 1.5.7, a refusal counted as a repeat strike only under one conditi
 
 `src/subtitle-rate-limit.ts`:
 
-- After a 429 on a caption download, that platform's caption path is held before anything leaves the server. The check runs after the cache lookup and before the metadata run, so cached transcripts are still served.
-- Every caption download path is held: `get_transcript`, `get_raw_subtitles`, `get_playlist_transcripts`, the transcript resource, REST `/subtitles` and `/subtitles/raw`, and the canary. A hold also skips the Whisper fallback. Metadata, the track list, chapters, frames and search are never held.
+- After a 429 on a caption download, the server holds that platform's caption path before anything leaves the server. The check runs after the cache lookup and before the metadata run, so the server still serves cached transcripts.
+- The hold covers every caption download path: `get_transcript`, `get_raw_subtitles`, `get_playlist_transcripts`, the transcript resource, REST `/subtitles` and `/subtitles/raw`, and the canary. A hold also skips the Whisper fallback. The hold never covers metadata, the track list, chapters, frames and search.
 - Calls in flight that report the same limit count once. Any refusal after the end of a wait is the next strike, however late it comes. The wait doubles 10 → 20 → 40 minutes, capped at 60 (at the default base).
 - Only a download that returns a track clears the hold. A run that found nothing proves nothing.
 - The state is process-local on purpose. A restart re-checks the platform.
@@ -24,11 +24,11 @@ From 1.5.2 to 1.5.7, a refusal counted as a repeat strike only under one conditi
 
 ## Alternatives
 
-- **No hold.** Let tools and yt-dlp retries run into the limit, as before 1.5.2.
-- **Count a repeat only within a time window** (1.5.2–1.5.7). With sparse traffic, this cannot see a ban.
-- **Keep hold state in Redis.** Rejected: a restart is a good moment to re-check the platform.
-- **Hold metadata too.** Rejected: metadata worked through both day-long limits.
-- **Clear the hold on any successful run.** Rejected: a run with no track possibly never asked the caption endpoint.
+- No hold. Let tools and yt-dlp retries run into the limit, as before 1.5.2.
+- Count a repeat only within a time window (1.5.2–1.5.7). With sparse traffic, this cannot see a ban.
+- Keep hold state in Redis. Rejected: a restart is a good moment to re-check the platform.
+- Hold metadata too. Rejected: metadata worked through both day-long limits.
+- Clear the hold on any successful run. Rejected: a run with no track possibly never asked the caption endpoint.
 
 ## Consequences
 
@@ -37,7 +37,7 @@ From 1.5.2 to 1.5.7, a refusal counted as a repeat strike only under one conditi
 - Alerts use strikes ≥ 2 instead of firing on each 429. A restart resets the count, so such an alert also resolves on restart.
 - The limit can lift sooner, but uncached transcripts on a held platform still fail for up to an hour.
 
-## Don't
+## Do not
 
 - Do not add a time decay to the strike count. The missing decay looks like a bug, but a decay brings back the pre-1.5.8 blindness.
 - Do not clear the hold on any successful exit, or count parallel 429s as separate strikes. Do not move the state to Redis, or extend the hold to metadata. Do not soften the text to "try again in a few minutes".

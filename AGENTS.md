@@ -6,7 +6,7 @@ transcriptor-mcp is an MCP server (8 tools, 4 widgets) and a REST API. Both wrap
 
 ## Commands
 
-- `npm ci` installs dependencies and the husky pre-commit hook.
+- `npm ci` installs dependencies and the husky pre-commit hook. Run it in every clone and every git worktree. Without it, git runs no pre-commit hook in that checkout.
 - `make check-no-smoke` is the gate: format-check, lint, typecheck, Jest, build. CI, pre-commit and the publish workflow all run it. It must be green before you say you are done.
 - `npx jest src/youtube.test.ts -t '<name>'` runs one suite or one test.
 - `npm run build` runs `tsc` to `dist/`, then four vite builds to `dist/ui/<app>.html`. The server reads those HTML files at runtime.
@@ -63,7 +63,7 @@ For anything else that fits in one sentence, edit, run the gate and open the PR.
 - Read env vars at call time (`process.env` or `parseIntEnv`), not at import. A new, changed or removed env var goes into `.env.example` and the CHANGELOG. If operators need it, it also goes into the README env table.
 - Throw the typed `HttpError` subclasses from `src/errors.ts`. To deduplicate concurrent identical work, use a `Map<key, Promise>` and clear it in `finally`.
 - Comments explain why, with dated measurements. Mark a deliberate shortcut with a `ponytail:` comment that names its ceiling.
-- Writing rule: write all prose in English with the `simple-english` skill (`.claude/skills/simple-english/SKILL.md`, default Plain mode). This covers docs (README, AGENTS.md, CONTRIBUTING.md, `docs/`, skills), CHANGELOG entries, issue and PR descriptions and commit messages. It also covers code comments, and review and issue comments. If your agent cannot load skills, read that file before you write.
+- Writing rule: write all prose in English with the `simple-english` skill (`.claude/skills/simple-english/SKILL.md`, default Plain mode). This covers docs (README, AGENTS.md, CONTRIBUTING.md, `docs/`, skills), CHANGELOG entries, issue and PR descriptions and commit messages. It also covers code comments, and review and issue comments. If your agent cannot load skills, read that file before you write. A personal skill with the same name wins over this project skill in Claude Code, so keep a personal `simple-english` identical to this copy, or delete it.
 - Commit subjects are plain imperative sentences about the behavior change, without conventional-commit prefixes.
 - Landing page (`web/`): use fewer blocks. Put detail in the README.
 
@@ -92,7 +92,7 @@ Read the ADR before you change the code it names. If you make or reverse a decis
   - Committing anything that `.gitignore` covers (cookies, `.env`, tokens).
   - Putting production hostnames, IPs, machine names or dashboards into a public file, issue or PR.
 
-In Claude Code, hooks in `.claude/settings.json` enforce the secrets rules. They also refuse a `v*` tag whose merge commit does not contain the whole PR. With other agents, check both by hand.
+In Claude Code, hooks in `.claude/settings.json` enforce the secrets rules. They also refuse a `v*` tag whose merge commit does not contain the whole PR. With other agents, check both by hand. CI refuses gitignored files in the repo, and `publish-docker.yml` refuses an incomplete tag before it pushes an image.
 
 ## Pull requests and releases
 

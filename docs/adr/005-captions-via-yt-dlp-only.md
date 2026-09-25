@@ -1,8 +1,8 @@
-# 005. Caption tracks are downloaded by yt-dlp only, never fetched from Node
+# 005. Only yt-dlp downloads caption tracks, and Node never fetches them
 
-- **Status:** Accepted
-- **Date:** 2026-09-24 (1.5.8)
-- **Sources:** PR #43 (de1dcf5, a560bbd), PR #31, #37, #38, commit 64079b5, CHANGELOG 1.4.0, 1.5.2, 1.5.3, 1.5.8
+- Status: Accepted
+- Date: 2026-09-24 (1.5.8)
+- Sources: PR #43 (de1dcf5, a560bbd), PR #31, #37, #38, commit 64079b5, CHANGELOG 1.4.0, 1.5.2, 1.5.3, 1.5.8
 
 ## Context
 
@@ -21,16 +21,16 @@ From 1.5.2 a direct 429 held the whole platform, yt-dlp included. On 2026-09-24 
 
 ## Alternatives
 
-- **Direct fetch with a yt-dlp fallback** (1.4.0–1.5.7). Rejected: the platform refused the Node client while yt-dlp got the same track.
-- **Header parity only** (1.5.2). Rejected: the TLS fingerprint and the missing cookies still set the client apart.
-- **Keep the metadata run in front of the track** to warm caches. Rejected in the PR #43 review (a560bbd): that run only paid for itself while it produced the track URL.
+- Direct fetch with a yt-dlp fallback (1.4.0–1.5.7). Rejected: the platform refused the Node client while yt-dlp got the same track.
+- Header parity only (1.5.2). Rejected: the TLS fingerprint and the missing cookies still set the client apart.
+- Keep the metadata run in front of the track to warm caches. Rejected in the PR #43 review (a560bbd): that run only paid for itself while it produced the track URL.
 
 ## Consequences
 
 - The track step costs a yt-dlp run instead of 0.2–0.44 s. On the explicit path the total barely changes, because a JSON run used to stand in front of the fast fetch. Auto-discovery with a cold track list pays the full 4–7 s more.
 - The caption endpoint sees one client identity.
 
-## Don't
+## Do not
 
 - Do not fetch `subtitles[lang][].url` or `automatic_captions[lang][].url` from Node, however free the latency win looks. The same entry says `impersonate: true`, so yt-dlp does not read it with a plain client either.
 - Do not put the JSON run back in front of the track, or delete the constant `path` label as dead code.
