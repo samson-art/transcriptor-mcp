@@ -41,8 +41,8 @@ export async function runCanary(log: FastifyBaseLogger): Promise<void> {
     return;
   }
   try {
-    // Explicit type and lang keep this to one caption download (the YouTube URL already
-    // carries the id); omitting them would fan out over the auto-discovery ladder.
+    // Explicit type and lang keep this to one caption download with no metadata run in
+    // front of it (the YouTube URL already carries the id); auto-discovery would add one.
     await validateAndDownloadSubtitles({ url, type: 'official', lang: 'en' }, log, {
       skipCache: true,
     });

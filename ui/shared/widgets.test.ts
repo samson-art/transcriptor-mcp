@@ -77,11 +77,13 @@ describe('pickDefaultTrack', () => {
     });
   });
 
-  it('never picks a chat replay as the transcript', () => {
-    expect(pickDefaultTrack({ official: ['rechat'], auto: [] })).toBeNull();
-    expect(pickDefaultTrack({ official: ['live_chat', 'en'], auto: [] })).toEqual({
-      type: 'official',
-      lang: 'en',
+  it('does not take one of several -orig tracks for the original on a dubbed video', () => {
+    expect(
+      pickDefaultTrack({ official: ['ar', 'en'], auto: ['ar-orig', 'de-orig', 'en-orig'] })
+    ).toEqual({ type: 'official', lang: 'en' });
+    expect(pickDefaultTrack({ official: [], auto: ['ar-orig', 'es-orig'] })).toEqual({
+      type: 'auto',
+      lang: 'ar-orig',
     });
   });
 });

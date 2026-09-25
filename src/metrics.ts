@@ -82,10 +82,11 @@ export const subtitleRequestsTotal = new Counter({
 });
 
 /**
- * Tracks that auto-discovery listed but never asked for, counted when it gave up with
- * nothing. The ladder is capped to keep the platform's caption budget for calls that need
- * it, and this is the upper bound on what that cap costs: every one of these is a track
- * that might have answered. Read it against `subtitles_extraction_failures_total`.
+ * Tracks that auto-discovery listed but never asked for, counted whenever it answers with
+ * the track list instead of a transcript (ADR 006: one track request at most). Every one of
+ * these is a track the caller now has to name. Read it against the `not_found` outcome of
+ * `get_transcript` in the per-call log line: `subtitles_extraction_failures_total` counts a
+ * `no_subtitles` failure only when speech-to-text actually ran.
  */
 export const subtitleTracksUntriedTotal = new Counter({
   name: 'subtitle_tracks_untried_total',

@@ -143,7 +143,7 @@ Response: an image block, plus `url`, `timestampSeconds`, `timestamp`, `mimeType
 Input:
 
 - `url` — a playlist URL, or a watch URL with `list=`
-- `type`, `lang`, `format` — the same as `get_raw_subtitles`. Without `lang`, each video gets its automatic captions in its original language. That works for YouTube playlists only; for another platform, or with `type: official`, pass `lang`
+- `type`, `lang`, `format` — the same as `get_raw_subtitles`, except that `lang` is required: the original language is picked only for one video at a time
 - `playlistItems` — a yt-dlp `-I` value such as `1:5`, `1,3,7`, or `-1`
 - `maxItems` — the maximum number of videos
 

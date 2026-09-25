@@ -31,6 +31,7 @@ jest.mock('@modelcontextprotocol/ext-apps/server', () => ({
 jest.mock('@modelcontextprotocol/sdk/server/mcp.js', () => {
   class FakeMcpServer {
     tools = new Map<string, (args: any, extra: any) => any>();
+    resources = new Map<string, (...args: any[]) => any>();
 
     registerTool(name: string, _definition: any, handler: (args: any, extra: any) => any) {
       this.tools.set(name, handler);
@@ -41,12 +42,12 @@ jest.mock('@modelcontextprotocol/sdk/server/mcp.js', () => {
     }
 
     registerResource(
-      _name: string,
+      name: string,
       _uriOrTemplate: string | { uriTemplate: { toString: () => string } },
       _config: any,
-      _handler: any
+      handler: (...args: any[]) => any
     ) {
-      // no-op for tests that only exercise tools (supports both URI string and ResourceTemplate)
+      this.resources.set(name, handler);
     }
   }
 
@@ -470,7 +471,10 @@ describe('mcp-core tools', () => {
       normalizeVideoInputMock.mockReturnValue('https://www.youtube.com/playlist?list=PLxxx');
       downloadPlaylistSubtitlesMock.mockRejectedValue(new YtDlpError('rate_limited'));
 
-      const result = await handler({ url: 'https://www.youtube.com/playlist?list=PLxxx' }, {});
+      const result = await handler(
+        { url: 'https://www.youtube.com/playlist?list=PLxxx', lang: 'en' },
+        {}
+      );
 
       expect(result).toMatchObject({ isError: true });
       expect(result.content[0].text).toBe(
@@ -1161,27 +1165,11 @@ describe('mcp-core tools', () => {
       );
     });
 
-    it("asks a playlist without lang for each video's own automatic track", async () => {
-      const server = createMcpServer() as any;
-      normalizeVideoInputMock.mockReturnValue(playlistUrl);
-      downloadPlaylistSubtitlesMock.mockResolvedValue([]);
-
-      for (const args of [{ url: 'PL1' }, { url: 'PL1', type: 'auto' }]) {
-        downloadPlaylistSubtitlesMock.mockClear();
-        const result = await getTool(server, 'get_playlist_transcripts')(args, {});
-
-        expect(downloadPlaylistSubtitlesMock).toHaveBeenCalledWith(
-          playlistUrl,
-          expect.objectContaining({ type: 'auto', lang: undefined }),
-          expect.anything()
-        );
-        expect(result.content[0].text).toContain("each video's original language");
-      }
-    });
-
-    it('refuses a playlist without lang that it cannot answer in the original language', async () => {
+    it('asks for lang on a playlist without one, before any run', async () => {
       const server = createMcpServer() as any;
       const cases: Array<[string, Record<string, unknown>]> = [
+        [playlistUrl, { url: 'PL1' }],
+        [playlistUrl, { url: 'PL1', type: 'auto' }],
         [playlistUrl, { url: 'PL1', type: 'official' }],
         ['https://vimeo.com/showcase/1', { url: 'https://vimeo.com/showcase/1' }],
       ];
@@ -1194,6 +1182,22 @@ describe('mcp-core tools', () => {
         expect(result.content[0].text).toContain('Pass lang');
       }
       expect(downloadPlaylistSubtitlesMock).not.toHaveBeenCalled();
+    });
+
+    it('names the tracks when the transcript resource gets the list answer', async () => {
+      const server = createMcpServer() as any;
+      validateAndDownloadSubtitlesMock.mockRejectedValue(
+        new NotFoundError('The platform does not say which language…', 'Subtitles not found', {
+          official: ['en', 'es'],
+          auto: [],
+        })
+      );
+
+      const read = server.resources.get('transcript')(new URL('transcriptor://transcript/abc'), {
+        videoId: 'abc',
+      });
+
+      await expect(read).rejects.toThrow(/Available tracks — official: en, es.*get_transcript/);
     });
 
     it('passes a playlist lang through as before', async () => {

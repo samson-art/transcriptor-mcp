@@ -17,7 +17,7 @@ transcriptor-mcp is an MCP server (8 tools, 4 widgets) and a REST API that wrap 
 
 - `src/mcp-core.ts`: the whole MCP surface (tools, prompts, resources, widget resources and CSP, `withToolErrorHandling`, the per-call log line).
 - `src/mcp.ts` is the stdio entry. `src/mcp-http.ts` is stateless Streamable HTTP ([ADR 001](docs/adr/001-stateless-streamable-http.md)). `src/index.ts` is the REST API (5 of the 8 tools).
-- `src/validation.ts`: the service layer shared by MCP and REST (URL and language checks, cache, auto-discovery ladder, Whisper fallback, in-flight dedupe).
+- `src/validation.ts`: the service layer shared by MCP and REST (URL and language checks, cache, auto-discovery in the original language, Whisper fallback, in-flight dedupe).
 - `src/youtube.ts`: the `yt-dlp`/`ffmpeg` runs, failure classification, cookies copies. The startup `yt-dlp --version` check lives in `src/yt-dlp-check.ts`.
 - `src/errors.ts` (typed errors and caller texts), `src/subtitle-rate-limit.ts` (429 hold), `src/canary.ts`, `src/metrics.ts`, `src/cache.ts` (optional Redis), `src/whisper*.ts`.
 - `ui/`: React widgets. `web/`: static site. `legal/`: public terms. `load/`: k6 scripts.
@@ -30,7 +30,7 @@ Use the `change` skill (interview → intent issue → plan → test first → c
 
 - **MCP tool contract:** tool names, input/output schemas, descriptions, annotations, `_meta`, error texts and shapes (`src/mcp-core.ts`, `src/errors.ts`, `LANG_PATTERN` and `ALLOWED_VIDEO_DOMAINS` in `src/validation.ts`). Mirrors that must follow: `src/e2e/mcp-smoke.ts`, `web/clients.mjs`, the README tool reference, `ui/`.
 - **Env vars:** added, changed or removed.
-- **Caption rate limit, retry, cache or strike logic:** `src/subtitle-rate-limit.ts`, `execFileAsync` and `downloadSubtitles` in `src/youtube.ts`, the ladder in `src/validation.ts`, `src/cache.ts`, `src/canary.ts`.
+- **Caption rate limit, retry, cache or strike logic:** `src/subtitle-rate-limit.ts`, `execFileAsync` and `downloadSubtitles` in `src/youtube.ts`, auto-discovery in `src/validation.ts`, `src/cache.ts`, `src/canary.ts`.
 - **Release plumbing:** `Dockerfile`, `server.json`, `.github/workflows/`, Makefile publish targets.
 - **Metrics names/labels, or the fields of the "MCP tool call" log line.**
 - **Widgets:** `ui/`, `vite.config.ts`, the widget CSP and `ui://` URIs.
@@ -72,9 +72,10 @@ Read the ADR before you change the code it names. If you make or reverse a decis
 
 - [001](docs/adr/001-stateless-streamable-http.md): stateless Streamable HTTP in-process; auth and edge limits outside.
 - [002](docs/adr/002-caption-rate-limit-hold.md): process-local hold after a caption 429; only a delivered track resets strikes.
-- [003](docs/adr/003-caption-request-budget.md): at most two ranked tracks per auto-discovery; the canary stands down while real traffic works.
+- [003](docs/adr/003-caption-request-budget.md): the canary stands down while real traffic works (its two-track ladder is superseded by 006).
 - [004](docs/adr/004-private-cookies-copy.md): a private 0600 cookies copy for every yt-dlp call.
 - [005](docs/adr/005-captions-via-yt-dlp-only.md): caption tracks through yt-dlp only.
+- [006](docs/adr/006-original-language-without-lang.md): an omitted `lang` means the video's original language: one track request, or the track list.
 
 ## Autonomy
 

@@ -46,16 +46,14 @@ export function sortAutoLanguages(langs: string[]): string[] {
   });
 }
 
-/** Chat replays that platforms list with the subtitles: YouTube's `live_chat`, Twitch's `rechat`. */
-const isCaptionTrack = (lang: string): boolean => lang !== 'live_chat' && lang !== 'rechat';
-
 /** `en`, `en-US`, `en_US`, `en-x-autogen`, `en-orig`: all `en`. */
 const baseLang = (lang: string): string => lang.split(/[-_]/)[0].toLowerCase();
 
 /**
- * The server's rule (pickOriginalTrack in src/validation.ts): YouTube's `-orig` track names
- * the language the video is spoken in, and an official track in that language comes first.
- * Where the server would hand the caller the list instead, a person still gets a track to
+ * The server's rule (pickOriginalTrack in src/validation.ts), as far as the track list shows
+ * it: a lone `-orig` track names the language the video is spoken in, and an official track in
+ * that language comes first. The language the platform reports, which settles several `-orig`
+ * tracks on a dubbed video, never reaches the widget. Elsewhere a person still gets a track to
  * look at, English first, and has the picker for the rest.
  */
 export function pickDefaultTrack(
@@ -63,9 +61,9 @@ export function pickDefaultTrack(
   preferred?: SubtitleTrack | null
 ): SubtitleTrack | null {
   if (preferred && trackMatches(available, preferred)) return preferred;
-  const official = available.official.filter(isCaptionTrack);
-  const auto = available.auto.filter(isCaptionTrack);
-  const orig = auto.find((lang) => lang.endsWith('-orig'));
+  const { official, auto } = available;
+  const origs = auto.filter((lang) => lang.endsWith('-orig'));
+  const orig = new Set(origs.map(baseLang)).size === 1 ? origs[0] : undefined;
   if (orig) {
     const same = official.find((lang) => baseLang(lang) === baseLang(orig));
     return same ? { type: 'official', lang: same } : { type: 'auto', lang: orig };

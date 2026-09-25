@@ -519,17 +519,9 @@ export type PlaylistSubtitlesResult = {
   content: string;
 };
 
-/**
- * A playlist without a lang asks for each video's automatic track in its own audio language
- * (ADR 006). yt-dlp reads --sub-langs as regexes matched against whole track names, and only
- * YouTube marks that track, as `<lang>-orig`.
- */
-const ORIG_AUTO_TRACKS = '.*-orig';
-
 /** Options for downloadPlaylistSubtitles */
 export type DownloadPlaylistSubtitlesOptions = {
   type?: 'official' | 'auto';
-  /** Omitted: each video's automatic track in its original language. */
   lang?: string;
   /** Subtitle format: srt, vtt, ass, lrc (default from YT_DLP_SUB_FORMAT or srt) */
   format?: SubtitleFormat | null;
@@ -694,7 +686,7 @@ export async function downloadPlaylistSubtitles(
   options: DownloadPlaylistSubtitlesOptions = {},
   logger?: FastifyBaseLogger
 ): Promise<PlaylistSubtitlesResult[]> {
-  const { type = 'auto', lang = ORIG_AUTO_TRACKS, format, playlistItems, maxItems } = options;
+  const { type = 'auto', lang = 'en', format, playlistItems, maxItems } = options;
   const subFormat = resolveSubtitleFormat(format);
   // One playlist run asks for as many tracks as it has items: the heaviest caller of the
   // caption endpoint must be the first to stop while the platform is refusing.

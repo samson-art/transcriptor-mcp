@@ -312,7 +312,7 @@ const playlistTranscriptsInputSchema = z.object({
     .string()
     .optional()
     .describe(
-      "Language code (e.g. en, ru). Omit to get each video's automatic captions in its original language (YouTube playlists only); required with type official"
+      'Language code (e.g. en, ru). Required: the original language is picked only for one video at a time (get_transcript)'
     ),
   format: z
     .enum(['srt', 'vtt', 'ass', 'lrc'])
@@ -890,14 +890,11 @@ export function createMcpServer(opts?: CreateMcpServerOptions) {
         // reports what the server asked for, and a silent fallback is what it asked for.
         const type = args.type ?? 'auto';
         const lang = args.lang ? (sanitizeLang(args.lang) ?? 'en') : undefined;
-        // Without a lang each video gets its original language, which only YouTube's
-        // automatic tracks name (-orig); anything else would be one run that finds nothing.
-        if (
-          lang === undefined &&
-          (type === 'official' || extractPlatformFromUrl(url) !== 'youtube')
-        ) {
+        // One run cannot pick each video's original language: a pattern such as `.*-orig`
+        // matches every audio track of a dubbed video, one caption request each (ADR 006).
+        if (lang === undefined) {
           throw new ValidationError(
-            'Pass lang for this playlist (for example "en"): the server picks each video\'s original language only for automatic captions on YouTube.',
+            'Pass lang for this playlist (for example "en"): the server picks the original language only for one video at a time.',
             'Language required'
           );
         }
@@ -924,13 +921,9 @@ export function createMcpServer(opts?: CreateMcpServerOptions) {
           text: parseSubtitles(r.content, log),
         }));
 
-        const asked =
-          lang === undefined
-            ? "automatic captions in each video's original language"
-            : `type "${type}" and lang "${lang}"`;
         const text =
           results.length === 0
-            ? `No transcripts could be downloaded for this selection with ${asked}. Do not repeat the same call; ask the user for one video URL from this playlist and call get_available_subtitles on it, or retry with a different type and lang.`
+            ? `No transcripts could be downloaded for this selection with type "${type}" and lang "${lang}". Do not repeat the same call; ask the user for one video URL from this playlist and call get_available_subtitles on it, or retry with a different type and lang.`
             : results.map((r) => `[${r.videoId}]\n${r.text}`).join('\n\n---\n\n');
 
         return {
@@ -1334,7 +1327,17 @@ export function createMcpServer(opts?: CreateMcpServerOptions) {
       const result = await validateAndDownloadSubtitles(
         { url, type: undefined, lang: undefined },
         log
-      );
+      ).catch((err: unknown) => {
+        // This URI cannot carry type or lang: name the tracks, and the tool that takes them.
+        if (err instanceof NotFoundError && err.details) {
+          throw new NotFoundError(
+            `${err.message}${trackHint(err.details)} This resource takes no type or lang; get_transcript does.`,
+            err.errorLabel,
+            err.details
+          );
+        }
+        throw err;
+      });
       const plainText = parseSubtitles(result.subtitlesContent);
       const payload = {
         videoId: result.videoId,
