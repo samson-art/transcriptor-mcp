@@ -268,14 +268,14 @@ The Swagger interface is at `http://localhost:3000/docs`. For a full stack with 
 ```bash
 npm ci
 npm run build
-npm run dev:mcp        # stdio, hot reload
-npm run dev:mcp:http   # Streamable HTTP, hot reload
+npm run start:mcp        # stdio
+npm run start:mcp:http   # Streamable HTTP on port 4200
 npm test
 ```
 
 You need Node.js 22 or later (20 still works, but it reached end of life in April 2026), and `yt-dlp` in your PATH. Frame capture needs `ffmpeg`, and `WHISPER_MAX_DURATION_SECONDS` needs `ffprobe` (both ship in the same package, and in the Docker image). Other scripts: `lint`, `type-check`, `format`, `test:coverage`, `test:e2e:api`, and `test:e2e:mcp`.
 
-**Releases.** The version comes from `package.json` at runtime, through [src/version.ts](src/version.ts). Change this version, move the `[Unreleased]` entries of the changelog into the new version, then push a `v*` tag. CI builds both images and publishes the [MCP Registry](https://registry.modelcontextprotocol.io) entry from [server.json](server.json).
+**Releases.** The maintainer cuts them. The steps are in [.claude/skills/release/SKILL.md](.claude/skills/release/SKILL.md). The version comes from `package.json` at runtime, through [src/version.ts](src/version.ts). Pushing a `v*` tag makes CI build both images and publish the [MCP Registry](https://registry.modelcontextprotocol.io) entry from [server.json](server.json).
 
 **Layout.** `src/mcp.ts` (stdio entry), `src/mcp-http.ts` (Streamable HTTP), `src/mcp-core.ts` (tools, prompts, widgets), `src/youtube.ts` (yt-dlp), `src/whisper.ts`, `src/cache.ts`, `src/index.ts` (REST API), `load/` (k6), and `src/e2e/` (Docker smoke tests).
 
@@ -285,7 +285,7 @@ You need Node.js 22 or later (20 still works, but it reached end of life in Apri
 
 ## 🤝 Contributing
 
-Pull requests are welcome. Fork the repository, make a branch, and make sure that `npm test` and `npm run lint` pass. Then open a pull request.
+Pull requests are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) first: it describes the cycle from issue to review, for people and for coding agents.
 
 ## ⚖️ Legal
 
