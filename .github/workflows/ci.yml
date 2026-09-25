@@ -23,3 +23,9 @@ jobs:
 
       - name: Run checks (format, lint, typecheck, test, build)
         run: make check-no-smoke
+
+      # Local hooks can be missing or skipped. This check runs for every push and PR.
+      - name: No gitignored or key files in the repo
+        run: |
+          bad=$(git ls-files -ci --exclude-standard)
+          if [ -n "$bad" ]; then echo "::error::These files must stay local:"; echo "$bad"; exit 1; fi
