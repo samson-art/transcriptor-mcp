@@ -1,4 +1,4 @@
-# 004. Every yt-dlp call gets its own 0600 copy of the cookies file; the original is never handed to yt-dlp
+# 004. Every yt-dlp call gets its own 0600 copy of the cookies file, and the original is never handed to yt-dlp
 
 - **Status:** Accepted
 - **Date:** 2026-09-24 (1.5.7)
@@ -6,7 +6,7 @@
 
 ## Context
 
-When yt-dlp exits, it rewrites the cookies file it was given: it truncates the file, then writes. Before 1.5.7 a writable cookies file was passed as is, and a copy was made only when the access check failed.
+When yt-dlp exits, it rewrites the cookies file it was given: it truncates the file, then writes. Before 1.5.7, the code passed a writable cookies file as is. It made a copy only after a failed access check.
 
 One run was killed during that write, by the 10 MB output cap on the JSON of a video with 21 dubbed audio tracks. It left the shared file empty. Every later run refused the file as not a Netscape cookies file. The cache hid the outage for a while, and Sentry did not see it, because the failure classified as `unknown`.
 
@@ -19,18 +19,18 @@ One run was killed during that write, by the 10 MB output cap on the JSON of a v
 
 ## Alternatives
 
-- **Copy only when the file is not writable** (before 1.5.7). This caused the empty-file outage.
-- **Config only:** mount the file read-only and keep the old code, which then copies every time. This leaves every writable mount exposed (inferred; PR #42 does not say so).
-- **One shared temp copy per process.** A single killed run would empty it for every later run.
+- **Copy only a file that is not writable** (before 1.5.7). This caused the empty-file outage.
+- **Configuration only:** mount the file read-only and keep the old code, which then copies every time. This leaves every writable mount exposed (inferred: PR #42 does not say so).
+- **One shared temp copy per process.** A single killed run empties it for every later run.
 - **Keep the 10 MB cap.** JSON size grows with the number of dubbed audio tracks, not with video length.
 
 ## Consequences
 
 - Each call pays one small file copy.
-- Cookie updates that yt-dlp writes back are thrown away. A stale session needs a manual re-export of the original.
+- The server throws away cookie updates that yt-dlp writes back. A stale session needs a manual re-export of the original.
 - The copy holds a signed-in session, so the 0600 mode matters on a shared tmpdir.
 
 ## Don't
 
-- Don't "skip the copy when the file is writable" or drop `mode: 0o600`. `src/youtube.test.ts` ("should never hand yt-dlp the original cookies file") fails if you do.
-- Every new yt-dlp call site that passes `--cookies` must use `copyCookiesFile`. Only the `fetchYtDlpJson` call site has its own test; the others are unguarded.
+- Do not "skip the copy for a writable file" or drop `mode: 0o600`. If you do, `src/youtube.test.ts` ("should never hand yt-dlp the original cookies file") fails.
+- Every new yt-dlp call site that passes `--cookies` must use `copyCookiesFile`. Only the `fetchYtDlpJson` call site has its own test. The other call sites have no guard.

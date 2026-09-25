@@ -1,4 +1,4 @@
-# 001. MCP is served over native, stateless Streamable HTTP; auth and edge limits stay outside the process
+# 001. MCP is served over native, stateless Streamable HTTP, and auth and edge limits stay outside the process
 
 - **Status:** Accepted
 - **Date:** 2026-08-13 (1.2.1)
@@ -6,18 +6,18 @@
 
 ## Context
 
-From 1.0.0 to 1.2.0 the server spoke stdio only, and remote clients reached it through the Python `mcp-proxy` sidecar. The earlier in-process HTTP layer (Bearer auth, rate limits, sessions, legacy SSE, Smithery URL rewriting, `.well-known` documents) had been deleted.
+From 1.0.0 to 1.2.0 the server spoke stdio only, and remote clients reached it through the Python `mcp-proxy` sidecar. The earlier in-process HTTP layer (Bearer auth, rate limits, sessions, legacy SSE, Smithery URL rewriting, `.well-known` documents) was already deleted in 824c38b.
 
-The sidecar became a dead end. Python `mcp` 2.x renamed `streamablehttp_client`, and `mcp-proxy` 0.11.0 still imported the old name (PR #3 says 0.12.0 is not compatible either). The sidecar also owned the HTTP surface that the current MCP spec gives to the server (header validation, JSON-RPC error bodies), served the legacy HTTP+SSE transport, and hid the `mcp_*` metrics because nothing exposed `/metrics`.
+The sidecar became a dead end. Python `mcp` 2.x renamed `streamablehttp_client`, and `mcp-proxy` 0.11.0 still imported the old name (PR #3 says 0.12.0 is not compatible either). The sidecar also owned the HTTP surface that the current MCP spec gives to the server (header validation, JSON-RPC error bodies). It served the legacy HTTP+SSE transport. It also hid the `mcp_*` metrics, because nothing exposed `/metrics`.
 
 ## Decision
 
 `src/mcp-http.ts` is a small Fastify app:
 
-- `POST /mcp` in the SDK's stateless mode. No `Mcp-Session-Id` is issued. Each request gets a new `McpServer` and transport, because the SDK throws when a stateless transport is reused.
+- `POST /mcp` in the SDK's stateless mode. No `Mcp-Session-Id` is issued. Each request gets a new `McpServer` and transport. The SDK throws an error on reuse of a stateless transport.
 - `GET` and `DELETE /mcp` answer 405. Otherwise the stateless transport opens an SSE stream that never delivers a message.
 - Every error is a JSON-RPC envelope. `/health` and `/metrics` share the port.
-- No authentication and no rate limits in the process. A gateway or reverse proxy in front terminates auth; edge limits stay at the edge.
+- No authentication and no rate limits in the process. A gateway or reverse proxy in front terminates auth. Edge limits stay at the edge.
 - The image's default command is HTTP (`start:mcp:http`). stdio stays available through `npm run start:mcp`, which `server.json` passes as package arguments.
 
 The old auth, Smithery and `.well-known` layer was deliberately not restored.
@@ -37,7 +37,7 @@ The old auth, Smithery and `.well-known` layer was deliberately not restored.
 
 ## Don't
 
-- Don't bring back `mcp-proxy`, `MCP_AUTH_TOKEN`, in-process rate limits on `/mcp`, `/sse` or `/status`. Documents that describe those as current are describing the superseded design.
-- Don't hoist the transport or server to module scope "for efficiency". The SDK throws on the second request (`src/mcp-http.test.ts`).
-- Don't remove the `GET`/`DELETE` 405 route as redundant, or switch the image `CMD` back to stdio.
+- Do not bring back `mcp-proxy`, `MCP_AUTH_TOKEN`, in-process rate limits on `/mcp`, `/sse` or `/status`. Documents that describe those as current describe the superseded design.
+- Do not hoist the transport or server to module scope "for efficiency". The SDK throws on the second request (`src/mcp-http.test.ts`).
+- Do not remove the `GET`/`DELETE` 405 route as redundant, or switch the image `CMD` back to stdio.
 - `src/e2e/mcp-smoke.ts` asserts no session header, a working `tools/list`, and 405 on `GET`.

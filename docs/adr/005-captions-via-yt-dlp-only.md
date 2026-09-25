@@ -6,11 +6,11 @@
 
 ## Context
 
-1.4.0 (PR #31) fetched a listed track by its own URL from Node. That took 0.2–0.44 s, against 4–7 s for a yt-dlp run, and kept yt-dlp as the fallback. Two day-long YouTube 429 episodes followed (ADR 002).
+1.4.0 (PR #31) fetched a listed track by its own URL from Node. The direct fetch took 0.2–0.44 s, against 4–7 s for a yt-dlp run. 1.4.0 kept yt-dlp as the fallback. Two day-long YouTube 429 episodes followed (ADR 002).
 
 1.5.2 copied yt-dlp's User-Agent, Accept and Accept-Language onto the direct fetch. That did not make the two clients match. undici adds its own `Sec-Fetch-Mode`, the TLS fingerprint stays Node's, and the fetch sent no cookies.
 
-From 1.5.2 a direct 429 held the whole platform, yt-dlp included. On 2026-09-24 the direct fetch was refused several times in a few hours. Eight minutes after one refusal, a yt-dlp run with the server's cookies downloaded the same track (PR #43). Why the platform treats the two clients differently is not proven.
+From 1.5.2 a direct 429 held the whole platform, yt-dlp included. On 2026-09-24 the direct fetch was refused several times in a few hours. Eight minutes after one refusal, a yt-dlp run with the server's cookies downloaded the same track (PR #43). The reason why the platform treats the two clients differently is not proven.
 
 ## Decision
 
@@ -32,6 +32,6 @@ From 1.5.2 a direct 429 held the whole platform, yt-dlp included. On 2026-09-24 
 
 ## Don't
 
-- Don't fetch `subtitles[lang][].url` or `automatic_captions[lang][].url` from Node, however free the latency win looks. The same entry says `impersonate: true`, so yt-dlp does not read it with a plain client either.
-- Don't put the JSON run back in front of the track, or delete the constant `path` label as dead code.
+- Do not fetch `subtitles[lang][].url` or `automatic_captions[lang][].url` from Node, however free the latency win looks. The same entry says `impersonate: true`, so yt-dlp does not read it with a plain client either.
+- Do not put the JSON run back in front of the track, or delete the constant `path` label as dead code.
 - Guarded by `src/youtube.test.ts` ("never fetches a listed track itself").
