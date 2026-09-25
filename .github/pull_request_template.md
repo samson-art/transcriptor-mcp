@@ -1,10 +1,10 @@
-<!-- Title: "X.Y.Z: one sentence" for a release, a plain sentence otherwise. -->
+<!-- Title: "X.Y.Z: one sentence" for a release. For other PRs, a plain sentence. -->
 
 Closes #
 
 ## What and why
 
-<!-- What happened, with evidence. The fix in two or three sentences. -->
+<!-- Tell what happened, with evidence. Then describe the fix in two or three sentences. -->
 
 ## Plan
 
@@ -22,13 +22,13 @@ Closes #
 
 ## Verified
 
-<!-- Commands you ran and what they showed: `make check-no-smoke` (suites/tests), the mutation drill ("N of N mutations fail a named test"), manual checks. -->
+<!-- The commands that you ran and what they showed: `make check-no-smoke` (suites/tests), the mutation drill ("N of N mutations fail a named test"), manual checks. -->
 
 -
 
 ## Not verified
 
-<!-- What you could not run, and why. "Nothing" is a valid answer. -->
+<!-- What you did not run, and why. "Nothing" is a valid answer. -->
 
 -
 
@@ -38,4 +38,4 @@ Closes #
 
 ## After merge
 
-<!-- Maintainer: post-deploy checks that show the change works. Delete for docs/chore PRs. -->
+<!-- Maintainer: list the post-deploy checks that show that the change works. For a docs or chore PR, delete this section. -->
