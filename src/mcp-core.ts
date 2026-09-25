@@ -144,12 +144,14 @@ const subtitleInputSchema = baseInputSchema.extend({
   type: z
     .enum(['official', 'auto'])
     .optional()
-    .describe('Subtitle track type: official or auto-generated'),
+    .describe(
+      'Subtitle track type: official or auto-generated. Without lang, the server picks a track of this type'
+    ),
   lang: z
     .string()
     .optional()
     .describe(
-      'Language code (e.g. en, es). When omitted with Whisper fallback, language is auto-detected'
+      "Language code or track name as get_available_subtitles lists it (e.g. en, es, en_US). Omit to get the video's original language; when the server cannot tell which track that is, it answers with the list of tracks"
     ),
   response_limit: z
     .number()
@@ -306,7 +308,12 @@ const playlistTranscriptsInputSchema = z.object({
     .enum(['official', 'auto'])
     .optional()
     .describe('Subtitle track type: official or auto-generated (default: auto)'),
-  lang: z.string().optional().describe('Language code (e.g. en, ru). Default: en'),
+  lang: z
+    .string()
+    .optional()
+    .describe(
+      "Language code (e.g. en, ru). Omit to get each video's automatic captions in its original language (YouTube playlists only); required with type official"
+    ),
   format: z
     .enum(['srt', 'vtt', 'ass', 'lrc'])
     .optional()
@@ -532,7 +539,7 @@ export function createMcpServer(opts?: CreateMcpServerOptions) {
     {
       title: 'Get video transcript',
       description:
-        'Fetch cleaned subtitles as plain text for a video (YouTube, Twitter/X, Instagram, TikTok, Twitch, Vimeo, Facebook, Bilibili, VK, Dailymotion, Reddit). Uses auto-discovery for type/language when omitted. Optional: type, lang, response_limit (when omitted returns full transcript), next_cursor for pagination.',
+        "Fetch cleaned subtitles as plain text for a video (YouTube, Twitter/X, Instagram, TikTok, Twitch, Vimeo, Facebook, Bilibili, VK, Dailymotion, Reddit). Without lang, returns the video's original language, or the list of tracks when the server cannot tell which one that is. Optional: type, lang, response_limit (when omitted returns full transcript), next_cursor for pagination.",
       inputSchema: subtitleInputSchema.shape,
       outputSchema: transcriptOutputSchema.shape,
       annotations: {
@@ -595,7 +602,7 @@ export function createMcpServer(opts?: CreateMcpServerOptions) {
     {
       title: 'Get raw video subtitles',
       description:
-        'Fetch raw SRT/VTT subtitles for a video (supported platforms). Optional: type, lang, response_limit (when omitted returns full content), next_cursor for pagination.',
+        "Fetch raw SRT/VTT subtitles for a video (supported platforms). Without lang, the video's original language, as in get_transcript. Optional: type, lang, response_limit (when omitted returns full content), next_cursor for pagination.",
       inputSchema: subtitleInputSchema,
       outputSchema: rawSubtitlesOutputSchema,
       annotations: {
@@ -882,7 +889,18 @@ export function createMcpServer(opts?: CreateMcpServerOptions) {
         // Kept as the values actually used, not as the arguments: the empty answer below
         // reports what the server asked for, and a silent fallback is what it asked for.
         const type = args.type ?? 'auto';
-        const lang = args.lang ? (sanitizeLang(args.lang) ?? 'en') : 'en';
+        const lang = args.lang ? (sanitizeLang(args.lang) ?? 'en') : undefined;
+        // Without a lang each video gets its original language, which only YouTube's
+        // automatic tracks name (-orig); anything else would be one run that finds nothing.
+        if (
+          lang === undefined &&
+          (type === 'official' || extractPlatformFromUrl(url) !== 'youtube')
+        ) {
+          throw new ValidationError(
+            'Pass lang for this playlist (for example "en"): the server picks each video\'s original language only for automatic captions on YouTube.',
+            'Language required'
+          );
+        }
 
         const format =
           args.format && ['srt', 'vtt', 'ass', 'lrc'].includes(args.format)
@@ -906,9 +924,13 @@ export function createMcpServer(opts?: CreateMcpServerOptions) {
           text: parseSubtitles(r.content, log),
         }));
 
+        const asked =
+          lang === undefined
+            ? "automatic captions in each video's original language"
+            : `type "${type}" and lang "${lang}"`;
         const text =
           results.length === 0
-            ? `No transcripts could be downloaded for this selection with type "${type}" and lang "${lang}" (defaults: auto, en). Do not repeat the same call; ask the user for one video URL from this playlist and call get_available_subtitles on it, or retry with a different type and lang.`
+            ? `No transcripts could be downloaded for this selection with ${asked}. Do not repeat the same call; ask the user for one video URL from this playlist and call get_available_subtitles on it, or retry with a different type and lang.`
             : results.map((r) => `[${r.videoId}]\n${r.text}`).join('\n\n---\n\n');
 
         return {
@@ -1339,22 +1361,18 @@ export function createMcpServer(opts?: CreateMcpServerOptions) {
 function resolveSubtitleArgs(args: z.infer<typeof subtitleInputSchema>) {
   const url = requireVideoUrl(args.url);
 
-  // Both absent is the auto-discovery request, and both stay undefined so the flow below
-  // can tell it from a caller who named one of the two.
-  let type: 'official' | 'auto' | undefined;
+  // No lang is the auto-discovery request, in the video's original language, with or without
+  // a type to keep to (ADR 006). A lang without a type asks for the automatic track by name.
+  let type = args.type;
   let lang: string | undefined;
 
-  if (args.type !== undefined || args.lang !== undefined) {
-    type = args.type ?? 'auto';
-    if (args.lang === undefined || args.lang === null) {
-      lang = 'en';
-    } else {
-      const sanitized = sanitizeLang(args.lang);
-      if (!sanitized) {
-        throw new ValidationError(INVALID_LANGUAGE_MESSAGE, 'Invalid language code');
-      }
-      lang = sanitized;
+  if (args.lang !== undefined && args.lang !== null) {
+    const sanitized = sanitizeLang(args.lang);
+    if (!sanitized) {
+      throw new ValidationError(INVALID_LANGUAGE_MESSAGE, 'Invalid language code');
     }
+    lang = sanitized;
+    type = type ?? 'auto';
   }
 
   return {

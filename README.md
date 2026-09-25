@@ -91,7 +91,7 @@ Each tool that takes a video accepts `url`. This is a link from a [supported pla
 
 #### `get_transcript`
 
-Clean plain text, without timestamps, HTML, or speaker names. The tool finds the type and the language for you.
+Clean plain text, without timestamps, HTML, or speaker names. Without `lang`, the tool returns the track in the video's original language. Most platforms other than YouTube do not say which language a video is in; when the tool cannot tell which track that is, it answers with the list of tracks, and you call it again with `type` and `lang`. The inputs are the same as for `get_raw_subtitles`.
 
 Response: `videoId`, `url` (the video page, as the server resolved it), `type`, `lang`, `text`, `is_truncated`, `total_length`, `start_offset`, `end_offset`. When more text is available, the response also has `next_cursor`.
 
@@ -101,8 +101,8 @@ Raw SRT or VTT content, in parts.
 
 Input:
 
-- `type` — `official` or `auto`
-- `lang` — a language code
+- `type` — `official` or `auto`. Without `lang`, the tool picks a track of this type
+- `lang` — a language code or track name, as `get_available_subtitles` lists it. Without it, the video's original language, as for `get_transcript`
 - `response_limit` — default `50000`, minimum `1000`, maximum `200000`
 - `next_cursor` — the cursor of the previous response
 
@@ -143,7 +143,7 @@ Response: an image block, plus `url`, `timestampSeconds`, `timestamp`, `mimeType
 Input:
 
 - `url` — a playlist URL, or a watch URL with `list=`
-- `type`, `lang`, `format` — the same as `get_raw_subtitles`
+- `type`, `lang`, `format` — the same as `get_raw_subtitles`. Without `lang`, each video gets its automatic captions in its original language. That works for YouTube playlists only; for another platform, or with `type: official`, pass `lang`
 - `playlistItems` — a yt-dlp `-I` value such as `1:5`, `1,3,7`, or `-1`
 - `maxItems` — the maximum number of videos
 

@@ -54,6 +54,36 @@ describe('pickDefaultTrack', () => {
     expect(pickDefaultTrack(none, { type: 'auto', lang: '' })).toBeNull();
     expect(pickDefaultTrack(none, null)).toBeNull();
   });
+
+  it("shows the video's original language, not the first official track (#54)", () => {
+    expect(pickDefaultTrack({ official: ['ar'], auto: ['ar', 'en', 'en-orig'] })).toEqual({
+      type: 'auto',
+      lang: 'en-orig',
+    });
+    expect(pickDefaultTrack({ official: ['ar', 'en'], auto: ['en', 'en-orig'] })).toEqual({
+      type: 'official',
+      lang: 'en',
+    });
+  });
+
+  it('falls back to English, then the first track, where the server would ask the caller', () => {
+    expect(pickDefaultTrack({ official: ['ar', 'en_US'], auto: [] })).toEqual({
+      type: 'official',
+      lang: 'en_US',
+    });
+    expect(pickDefaultTrack({ official: ['de', 'fr'], auto: [] })).toEqual({
+      type: 'official',
+      lang: 'de',
+    });
+  });
+
+  it('never picks a chat replay as the transcript', () => {
+    expect(pickDefaultTrack({ official: ['rechat'], auto: [] })).toBeNull();
+    expect(pickDefaultTrack({ official: ['live_chat', 'en'], auto: [] })).toEqual({
+      type: 'official',
+      lang: 'en',
+    });
+  });
 });
 
 describe('videoInfoToMeta', () => {

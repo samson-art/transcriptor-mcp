@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Without `lang`, subtitles come back in the video's original language, or as a list to choose from.** Auto-discovery asked for the best official track first, whatever its language, so an English YouTube video that lists an Arabic official track answered in Arabic (#54). It also ranked by the language from the metadata run, which a cached track list does not carry, so one video could answer in two languages depending on the cache. Now the original language comes from YouTube's `-orig` track, or from the language the platform reports, which is kept with the cached list. The server asks for one track: the official one in that language, else the automatic one. The answer is "no subtitles" with the list of tracks and one next step, pass `type` and `lang`, in three cases: no track is in that language; the language is unknown and more than one track is listed (most platforms other than YouTube report no language); or that one track comes back empty. Chat replays (`live_chat`, `rechat`) are never taken for subtitles, and speech-to-text runs only for a video that lists no tracks at all. A call without `lang` spends at most one caption request instead of two. `subtitle_tracks_untried_total` now also counts the tracks a list answer did not request, and `subtitles_extraction_failures_total{reason="no_subtitles"}` counts a failure only when speech-to-text actually ran. With Redis caching, answers cached before this release are served until they expire (`CACHE_TTL_SUBTITLES_SECONDS`). Decision: [ADR 006](docs/adr/006-original-language-without-lang.md).
+- **`type` without `lang` no longer means `lang: "en"`.** It runs the same auto-discovery, kept to that type: `type: "auto"` on a Russian video returns the Russian `-orig` track instead of a machine translation into English. On YouTube this adds the metadata run that auto-discovery always had.
+- **`get_playlist_transcripts` without `lang` returns each video's automatic captions in its original language** instead of English, in the same single run. With `type: "official"`, or for a playlist outside YouTube, it asks for `lang` before it runs anything, because the original language of each video is not known in advance.
+- **The `get_video_info` and `search_videos` widgets open the track in the video's original language** instead of the alphabetically first official one.
+
 ## [1.5.8] - 2026-09-24
 
 ### Changed

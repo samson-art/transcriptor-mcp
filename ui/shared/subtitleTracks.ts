@@ -46,14 +46,34 @@ export function sortAutoLanguages(langs: string[]): string[] {
   });
 }
 
+/** Chat replays that platforms list with the subtitles: YouTube's `live_chat`, Twitch's `rechat`. */
+const isCaptionTrack = (lang: string): boolean => lang !== 'live_chat' && lang !== 'rechat';
+
+/** `en`, `en-US`, `en_US`, `en-x-autogen`, `en-orig`: all `en`. */
+const baseLang = (lang: string): string => lang.split(/[-_]/)[0].toLowerCase();
+
+/**
+ * The server's rule (pickOriginalTrack in src/validation.ts): YouTube's `-orig` track names
+ * the language the video is spoken in, and an official track in that language comes first.
+ * Where the server would hand the caller the list instead, a person still gets a track to
+ * look at, English first, and has the picker for the rest.
+ */
 export function pickDefaultTrack(
   available: AvailableSubtitleTracks,
   preferred?: SubtitleTrack | null
 ): SubtitleTrack | null {
   if (preferred && trackMatches(available, preferred)) return preferred;
-  const firstOfficial = available.official[0];
+  const official = available.official.filter(isCaptionTrack);
+  const auto = available.auto.filter(isCaptionTrack);
+  const orig = auto.find((lang) => lang.endsWith('-orig'));
+  if (orig) {
+    const same = official.find((lang) => baseLang(lang) === baseLang(orig));
+    return same ? { type: 'official', lang: same } : { type: 'auto', lang: orig };
+  }
+  const english = (lang: string): boolean => baseLang(lang) === 'en';
+  const firstOfficial = official.find(english) ?? official[0];
   if (firstOfficial) return { type: 'official', lang: firstOfficial };
-  const firstAuto = sortAutoLanguages(available.auto)[0];
+  const firstAuto = auto.find(english) ?? auto[0];
   if (firstAuto) return { type: 'auto', lang: firstAuto };
   // No tracks, yet a transcript with a language: speech-to-text, asked for by name.
   // Asking again by the same name reads its cache entry instead of transcribing again.

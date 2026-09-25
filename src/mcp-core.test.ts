@@ -1138,4 +1138,80 @@ describe('mcp-core tools', () => {
       expect(captureExceptionMock).toHaveBeenCalled();
     });
   });
+
+  describe('an omitted lang means the original language', () => {
+    const playlistUrl = 'https://www.youtube.com/playlist?list=PL1';
+
+    it('lets the server pick the track when only type is given', async () => {
+      const server = createMcpServer() as any;
+      normalizeVideoInputMock.mockReturnValue('https://www.youtube.com/watch?v=video123');
+      validateAndDownloadSubtitlesMock.mockResolvedValue({
+        videoId: 'video123',
+        type: 'official',
+        lang: 'en',
+        subtitlesContent: 'subtitle content',
+      });
+      parseSubtitlesMock.mockReturnValue('hello');
+
+      await getTool(server, 'get_transcript')({ url: 'video123', type: 'official' }, {});
+
+      expect(validateAndDownloadSubtitlesMock).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'official', lang: undefined }),
+        expect.anything()
+      );
+    });
+
+    it("asks a playlist without lang for each video's own automatic track", async () => {
+      const server = createMcpServer() as any;
+      normalizeVideoInputMock.mockReturnValue(playlistUrl);
+      downloadPlaylistSubtitlesMock.mockResolvedValue([]);
+
+      for (const args of [{ url: 'PL1' }, { url: 'PL1', type: 'auto' }]) {
+        downloadPlaylistSubtitlesMock.mockClear();
+        const result = await getTool(server, 'get_playlist_transcripts')(args, {});
+
+        expect(downloadPlaylistSubtitlesMock).toHaveBeenCalledWith(
+          playlistUrl,
+          expect.objectContaining({ type: 'auto', lang: undefined }),
+          expect.anything()
+        );
+        expect(result.content[0].text).toContain("each video's original language");
+      }
+    });
+
+    it('refuses a playlist without lang that it cannot answer in the original language', async () => {
+      const server = createMcpServer() as any;
+      const cases: Array<[string, Record<string, unknown>]> = [
+        [playlistUrl, { url: 'PL1', type: 'official' }],
+        ['https://vimeo.com/showcase/1', { url: 'https://vimeo.com/showcase/1' }],
+      ];
+
+      for (const [pageUrl, args] of cases) {
+        normalizeVideoInputMock.mockReturnValue(pageUrl);
+        const result = await getTool(server, 'get_playlist_transcripts')(args, {});
+
+        expect(result).toMatchObject({ isError: true });
+        expect(result.content[0].text).toContain('Pass lang');
+      }
+      expect(downloadPlaylistSubtitlesMock).not.toHaveBeenCalled();
+    });
+
+    it('passes a playlist lang through as before', async () => {
+      const server = createMcpServer() as any;
+      normalizeVideoInputMock.mockReturnValue(playlistUrl);
+      sanitizeLangMock.mockReturnValue('de');
+      downloadPlaylistSubtitlesMock.mockResolvedValue([]);
+
+      await getTool(server, 'get_playlist_transcripts')(
+        { url: 'PL1', type: 'official', lang: 'de' },
+        {}
+      );
+
+      expect(downloadPlaylistSubtitlesMock).toHaveBeenCalledWith(
+        playlistUrl,
+        expect.objectContaining({ type: 'official', lang: 'de' }),
+        expect.anything()
+      );
+    });
+  });
 });

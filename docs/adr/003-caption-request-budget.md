@@ -1,6 +1,6 @@
 # 003. Auto-discovery asks for at most two ranked tracks, and the canary stands down while real traffic proves the path
 
-- **Status:** Accepted
+- **Status:** Accepted. The ladder part is superseded by [006](006-original-language-without-lang.md): one track request, or the track list. The canary part stands.
 - **Date:** 2026-09-22 (1.5.4)
 - **Sources:** PR #39 (2b837f0), PR #37 operator notes, PR #40 (0303698), CHANGELOG 1.5.4
 
@@ -13,7 +13,7 @@ Caption requests are a budget measured per outbound address (ADR 002), and befor
 In `src/validation.ts`:
 
 - `preferredTrackOrder` ranks tracks before any request: an `-orig` track first, then the language the platform reports, then English, then the rest. The same ranking drives the "no subtitles" next-step suggestion in `src/mcp-core.ts`.
-- The ladder asks for at most `AUTO_DISCOVERY_ATTEMPTS = 2` tracks. This is a module constant, not an env var. It alternates between the ranked official and automatic lists. When a video lists only one kind, it asks for the two best of that kind.
+- *(Superseded by ADR 006.)* The ladder asks for at most `AUTO_DISCOVERY_ATTEMPTS = 2` tracks. This is a module constant, not an env var. It alternates between the ranked official and automatic lists. When a video lists only one kind, it asks for the two best of that kind.
 - `subtitle_tracks_untried_total{platform}` counts the tracks the cap left unasked, only when the ladder came back empty.
 
 In `src/canary.ts`, a tick is skipped when any track from the canary URL's platform came back within the last `CANARY_INTERVAL_MS`.

@@ -2052,6 +2052,26 @@ today to pay our respects to MCP, which
       expect(capturedArgs).toContain('--write-subs');
     });
 
+    it("asks yt-dlp for each video's original-language automatic track when no lang is given", async () => {
+      let capturedArgs: string[] = [];
+      execFileMock.mockImplementation(
+        (
+          _file: string,
+          args: string[],
+          _opts: unknown,
+          cb: (err: null, stdout: string, stderr: string) => void
+        ) => {
+          capturedArgs = args;
+          setImmediate(() => cb(null, '', ''));
+        }
+      );
+
+      await downloadPlaylistSubtitles('https://www.youtube.com/playlist?list=PLxxx', {});
+
+      expect(capturedArgs).toContain('--write-auto-subs');
+      expect(capturedArgs[capturedArgs.indexOf('--sub-lang') + 1]).toBe('.*-orig');
+    });
+
     it('should omit --ignore-errors when YT_DLP_PLAYLIST_IGNORE_ERRORS=0', async () => {
       process.env.YT_DLP_PLAYLIST_IGNORE_ERRORS = '0';
       let capturedArgs: string[] = [];

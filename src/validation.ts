@@ -19,7 +19,6 @@ import {
   mapVideoInfo,
   resolveSubtitleFormat,
   type SubtitleFormat,
-  type YtDlpVideoInfo,
   type VideoFrameFormat,
 } from './youtube.js';
 import { extractPlatformFromUrl } from './platform.js';
@@ -83,7 +82,7 @@ export const LANG_PATTERN = '^(?!all$)[A-Za-z0-9][A-Za-z0-9_-]{0,31}$';
 const LANG_RE = new RegExp(LANG_PATTERN);
 
 // TypeBox schema for subtitle request.
-// When both type and lang are omitted, auto-discovery is used (official → auto with -orig for YouTube → auto → Whisper).
+// Without lang, auto-discovery answers in the video's original language or with the track list (ADR 006).
 export const GetSubtitlesRequestSchema = Type.Object({
   url: Type.String({
     minLength: 1,
@@ -93,14 +92,14 @@ export const GetSubtitlesRequestSchema = Type.Object({
   type: Type.Optional(
     Type.Union([Type.Literal('official'), Type.Literal('auto')], {
       description:
-        'Type of subtitles: official or auto-generated. Omit with lang for auto-discovery.',
+        'Type of subtitles: official or auto-generated. Without lang, the server picks a track of this type.',
     })
   ),
   lang: Type.Optional(
     Type.String({
       pattern: LANG_PATTERN,
       description:
-        'Language code or track name as the available-subtitles list gives it (e.g., en, ru, en-US, en_US). Omit with type for auto-discovery.',
+        "Language code or track name as the available-subtitles list gives it (e.g., en, ru, en-US, en_US). Omit it to get the track in the video's original language; when the server cannot tell which track that is, it answers 404 with the list of tracks.",
     })
   ),
   format: Type.Optional(
@@ -114,11 +113,6 @@ export const GetSubtitlesRequestSchema = Type.Object({
 });
 
 export type GetSubtitlesRequest = Static<typeof GetSubtitlesRequestSchema>;
-
-/** True when both type and lang are omitted — triggers auto-discovery flow. */
-export function shouldAutoDiscoverSubtitles(request: GetSubtitlesRequest): boolean {
-  return request.type === undefined && request.lang === undefined;
-}
 
 // Schema for request to get available subtitles
 export const GetAvailableSubtitlesRequestSchema = Type.Object({
@@ -315,85 +309,124 @@ export function validateYouTubeRequest(url: string): { videoId: string } {
   return { videoId };
 }
 
+/** `en`, `en-US`, `en_US` (Facebook), `en-x-autogen` (Vimeo), `en-orig` (YouTube): all `en`. */
+function baseLang(lang: string): string {
+  return lang.split(/[-_]/)[0].toLowerCase();
+}
+
 /**
  * Best track first. The lists arrive sorted alphabetically, which is why a video listing
  * `ar, de, en` used to spend two caption requests before reaching the one anybody wanted.
  */
 export function preferredTrackOrder(langs: string[], promote?: string | null): string[] {
-  const base = (lang: string): string => lang.split('-')[0].toLowerCase();
-  const first = promote ? base(promote) : undefined;
+  const first = promote ? baseLang(promote) : undefined;
   const rank = (lang: string): number => {
     if (lang.endsWith('-orig')) return 0; // YouTube's track in the audio's own language
-    if (first && base(lang) === first) return 1;
-    if (base(lang) === 'en') return 2;
+    if (first && baseLang(lang) === first) return 1;
+    if (baseLang(lang) === 'en') return 2;
     return 3;
   };
   return [...langs].sort((a, b) => rank(a) - rank(b) || a.localeCompare(b));
 }
 
-/**
- * How many tracks auto-discovery may ask the platform for. It used to be three official
- * plus three auto, so one call could spend six requests against a caption budget that a
- * day-long 429 is measured in. One of each covers a video whose official track is broken
- * and one whose auto track is missing; past that it is guessing with someone else's quota,
- * and `subtitle_tracks_untried_total` counts what the guessing would have covered.
- */
-const AUTO_DISCOVERY_ATTEMPTS = 2;
+/** Chat replays that platforms list with the subtitles: YouTube's `live_chat`, Twitch's `rechat`. */
+const CHAT_REPLAYS = new Set(['live_chat', 'rechat']);
+
+/** What yt-dlp reports for a video without one language. */
+const NO_LANGUAGE = new Set(['und', 'mul', 'zxx', 'mis']);
 
 /**
- * Auto-discovery: try official → auto (-orig first for YouTube) → all auto → Whisper.
- * @returns subtitle result or null if all attempts failed
+ * The language the video is spoken in, as far as its listing tells. YouTube's `-orig` track
+ * comes first because it is part of the list, so a cached list answers like a fresh one; the
+ * language the platform reports comes second. Most other platforms give neither.
  */
+function originalLanguage(auto: string[], reported?: string): string | undefined {
+  const lang = auto.find((code) => code.endsWith('-orig')) ?? reported;
+  return lang && !NO_LANGUAGE.has(baseLang(lang)) ? baseLang(lang) : undefined;
+}
+
+type Track = { type: 'official' | 'auto'; lang: string };
+
+/**
+ * The one track auto-discovery asks for: the official track in the original language, else
+ * the automatic one (`-orig` first); with the language unknown, only a track without a rival.
+ * Null means the caller chooses from the list — a guess is how an English video came back
+ * with its Arabic track (#54).
+ */
+function pickOriginalTrack(official: string[], auto: string[], orig?: string): Track | null {
+  if (!orig) {
+    if (official.length + auto.length !== 1) return null;
+    return official.length === 1
+      ? { type: 'official', lang: official[0] }
+      : { type: 'auto', lang: auto[0] };
+  }
+  const inOrig = (langs: string[]) =>
+    preferredTrackOrder(langs, orig).find((lang) => baseLang(lang) === orig);
+  const officialLang = inOrig(official);
+  if (officialLang) return { type: 'official', lang: officialLang };
+  const autoLang = inOrig(auto);
+  return autoLang ? { type: 'auto', lang: autoLang } : null;
+}
+
 /** When set, a late Whisper result after {@link getWhisperConfig}.timeout is still written to Redis. */
 type WhisperRedisCacheInfo = { key: string; ttl: number };
 
+/**
+ * Auto-discovery: an omitted `lang` means the video's original language (ADR 006). One
+ * metadata run and at most one track request. When the server cannot tell which track is in
+ * that language, or that track comes back empty, the answer is the track list and the caller
+ * picks: a second guess costs a caption request and can be a translation. Whisper runs only
+ * for a video that lists no tracks at all.
+ */
 async function downloadWithAutoDiscover(
   url: string,
+  onlyType: 'official' | 'auto' | undefined,
   format?: SubtitleFormat,
   logger?: FastifyBaseLogger,
   whisperRedisCache?: WhisperRedisCacheInfo
-): Promise<{
-  videoId: string;
-  type: 'official' | 'auto';
-  lang: string;
-  subtitlesContent: string;
-  source: string;
-} | null> {
+): Promise<SubtitleResult> {
   const available = await loadAvailableSubtitles(url, logger);
-  const { videoId, official, auto, data } = available;
+  const { videoId } = available;
   const platform = extractPlatformFromUrl(url);
+  const listed = {
+    videoId,
+    official: available.official.filter((lang) => !CHAT_REPLAYS.has(lang)),
+    auto: available.auto.filter((lang) => !CHAT_REPLAYS.has(lang)),
+  };
 
-  const officialRanked = preferredTrackOrder(official, data?.language);
-  const autoRanked = preferredTrackOrder(auto, data?.language);
-  const attempts: Array<{ type: 'official' | 'auto'; lang: string }> = [];
-  for (let i = 0; attempts.length < AUTO_DISCOVERY_ATTEMPTS; i += 1) {
-    if (!officialRanked[i] && !autoRanked[i]) break;
-    if (officialRanked[i]) attempts.push({ type: 'official', lang: officialRanked[i] });
-    if (attempts.length < AUTO_DISCOVERY_ATTEMPTS && autoRanked[i]) {
-      attempts.push({ type: 'auto', lang: autoRanked[i] });
+  if (listed.official.length > 0 || listed.auto.length > 0) {
+    const orig = originalLanguage(listed.auto, available.language);
+    const official = onlyType === 'auto' ? [] : listed.official;
+    const auto = onlyType === 'official' ? [] : listed.auto;
+    const track = pickOriginalTrack(official, auto, orig);
+    const content = track && (await downloadSubtitles(url, track.type, track.lang, format, logger));
+    if (track && content && content.trim().length > 0) {
+      return { videoId, ...track, subtitlesContent: content, source: platform };
     }
+
+    // The candidates left unasked are what the caller now chooses from.
+    const candidates = official.length + auto.length;
+    recordUntriedTracks(platform, candidates - (track ? 1 : 0));
+    logger?.info({ candidates, tried: track ? 1 : 0 }, 'Auto-discovery answered with the list');
+    const kind = onlyType ? `${onlyType} ` : '';
+    return throwNoSubtitlesError({
+      url,
+      why: track
+        ? `The ${track.type} track "${track.lang}" came back empty.`
+        : candidates === 0
+          ? `This video lists no ${kind}tracks.`
+          : orig
+            ? `None of the listed ${kind}tracks is in the video's original language ("${orig}").`
+            : `The platform does not say which language the video is spoken in, and it lists more than one ${kind}track.`,
+      tried: track?.lang,
+      available: listed,
+      whisperTried: false,
+      logger,
+    });
   }
 
-  for (const { type, lang } of attempts) {
-    const content = await downloadSubtitles(url, type, lang, format, logger);
-    if (content && content.trim().length > 0) {
-      return { videoId, type, lang, subtitlesContent: content, source: platform };
-    }
-  }
-
-  // Everything listed that we chose not to ask for: the price of the cap, counted in tracks
-  // that might have answered. Only when the ladder came back empty, because that is the one
-  // case where the untried ones could have changed the answer.
-  const untried = officialRanked.length + autoRanked.length - attempts.length;
-  if (untried > 0) {
-    recordUntriedTracks(platform, untried);
-    logger?.info(
-      { listed: officialRanked.length + autoRanked.length, tried: attempts.length, untried },
-      'Auto-discovery gave up with tracks left untried'
-    );
-  }
-
-  // 3. Whisper fallback (background job: survives per-request WHISPER_TIMEOUT for cache)
+  // Nothing listed: speech-to-text is the only way to a transcript, and it hears the original
+  // language by itself. A background job, so a result after WHISPER_TIMEOUT still reaches the cache.
   const whisperConfig = getWhisperConfig();
   if (whisperConfig.mode !== 'off') {
     logger?.info('Trying Whisper fallback for auto-discovery');
@@ -433,12 +466,22 @@ async function downloadWithAutoDiscover(
     }
   }
 
-  return null;
+  return throwNoSubtitlesError({
+    url,
+    available: listed,
+    whisperTried: whisperConfig.mode !== 'off',
+    logger,
+  });
 }
 
-type AvailableSubtitles = { videoId: string; official: string[]; auto: string[] };
+type AvailableSubtitles = {
+  videoId: string;
+  official: string[];
+  auto: string[];
+  /** The language the platform reports, kept for auto-discovery; not part of any tool output. */
+  language?: string;
+};
 type VideoJson = {
-  data: YtDlpVideoInfo;
   avail: AvailableSubtitles;
   info: { videoId: string; info: Awaited<ReturnType<typeof fetchVideoInfo>> };
   chapters: { videoId: string; chapters: Awaited<ReturnType<typeof fetchVideoChapters>> };
@@ -452,20 +495,21 @@ function sortedTrackLangs(tracks?: Record<string, unknown>): string[] {
 }
 
 /**
- * One yt-dlp run answers info, the track list and chapters, and hands the JSON to
- * auto-discovery for the video's language. All three cache entries are filled, so the
- * next tool asking about this video is a cache hit.
+ * One yt-dlp run answers info, the track list and chapters. All three cache entries are
+ * filled, so the next tool asking about this video is a cache hit.
  */
 async function buildVideoJson(url: string, logger?: FastifyBaseLogger): Promise<VideoJson | null> {
   const data = await fetchYtDlpJson(url, logger);
   if (!data) return null;
   const videoId = data.id ?? extractYouTubeVideoId(url) ?? 'unknown';
   const result: VideoJson = {
-    data,
     avail: {
       videoId,
       official: sortedTrackLangs(data.subtitles),
       auto: sortedTrackLangs(data.automatic_captions),
+      // Stored with the list: off YouTube there is no -orig track, and a cached list without
+      // it would make auto-discovery answer differently from a fresh one.
+      ...(data.language ? { language: data.language } : {}),
     },
     info: { videoId, info: mapVideoInfo(data) },
     chapters: { videoId, chapters: await fetchVideoChapters(url, logger, data) },
@@ -492,11 +536,11 @@ export function resetVideoJsonInFlight(): void {
   videoJsonInFlight.clear();
 }
 
-/** Reads the track list, and returns the JSON it came from when this call fetched it. */
+/** Reads the track list, from the cache or from one yt-dlp run. */
 async function loadAvailableSubtitles(
   url: string,
   logger?: FastifyBaseLogger
-): Promise<AvailableSubtitles & { data?: YtDlpVideoInfo }> {
+): Promise<AvailableSubtitles> {
   const cacheKey = buildCacheKey('avail', url);
   const cached = await get(cacheKey);
   if (cached !== undefined) {
@@ -514,7 +558,7 @@ async function loadAvailableSubtitles(
   if (!loaded) {
     throw new NotFoundError(UNKNOWN_FAILURE_MESSAGE, 'Video not found');
   }
-  return { ...loaded.avail, data: loaded.data };
+  return loaded.avail;
 }
 
 /**
@@ -541,11 +585,18 @@ async function throwNoSubtitlesError(opts: {
   url: string;
   /** What the caller asked for by name; absent means auto-discovery chose. */
   asked?: { type: 'official' | 'auto'; lang: string; defaulted: boolean };
+  /** Auto-discovery: why it came back without a track from a video that lists some. */
+  why?: string;
+  /** Auto-discovery: the track it asked for, so the list can name it first. */
+  tried?: string;
   /** The list the caller already read; without it this costs another yt-dlp run. */
   available?: AvailableSubtitles;
+  /** Speech-to-text ran in this call. Enabled is not enough: auto-discovery skips it when tracks are listed. */
+  whisperTried: boolean;
   logger?: FastifyBaseLogger;
 }): Promise<never> {
-  const whisperTried = getWhisperConfig().mode !== 'off';
+  const { whisperTried } = opts;
+  const tried = opts.asked?.lang ?? opts.tried;
   const available =
     opts.available ??
     (await validateAndFetchAvailableSubtitles({ url: opts.url }, opts.logger).catch(
@@ -558,21 +609,23 @@ async function throwNoSubtitlesError(opts: {
     ));
   if (whisperTried) recordSubtitlesFailure(opts.url, 'no_subtitles');
 
-  const base = !opts.asked
-    ? `No subtitles could be downloaded for this video (auto-discovery asked for at most ${AUTO_DISCOVERY_ATTEMPTS} of the tracks this platform lists, best match first).`
-    : `No ${opts.asked.type} subtitles could be downloaded for language "${opts.asked.lang}".` +
-      (opts.asked.defaulted
-        ? ' When only one of type and lang is given, the other defaults to type "auto" and lang "en".'
-        : '');
+  const base = opts.asked
+    ? `No ${opts.asked.type} subtitles could be downloaded for language "${opts.asked.lang}".` +
+      (opts.asked.defaulted ? ' When lang is given without type, type defaults to "auto".' : '')
+    : (opts.why ?? 'No subtitles could be downloaded for this video.');
 
   // A length ceiling means the job will never run for this video again, so the useful next
   // step is a different track rather than another wait — that is what the ladder below reads.
   const whisperCeiling = parseIntEnv('WHISPER_MAX_DURATION_SECONDS', 0);
-  const verdict = !whisperTried
-    ? 'This server does not transcribe audio.'
-    : whisperCeiling > 0
-      ? `Speech-to-text produced nothing either; this server transcribes only videos up to ${whisperCeiling} seconds long.`
-      : 'Speech-to-text was also tried and produced nothing; if it timed out it may still finish in the background.';
+  // Enabled but not run says nothing: speech-to-text neither failed nor is it the way forward.
+  const verdict =
+    getWhisperConfig().mode === 'off'
+      ? 'This server does not transcribe audio.'
+      : !whisperTried
+        ? ''
+        : whisperCeiling > 0
+          ? `Speech-to-text produced nothing either; this server transcribes only videos up to ${whisperCeiling} seconds long.`
+          : 'Speech-to-text was also tried and produced nothing; if it timed out it may still finish in the background.';
 
   // "Could not be read" and "is empty" are different answers: one says try again another
   // way, the other says nothing will work. Collapsing them is the mistake to avoid here.
@@ -601,7 +654,7 @@ async function throwNoSubtitlesError(opts: {
       ? {
           official: available.official,
           auto: available.auto,
-          ...(opts.asked ? { tried: opts.asked.lang } : {}),
+          ...(tried ? { tried } : {}),
         }
       : undefined
   );
@@ -623,8 +676,15 @@ async function handleAutoDiscoverFlow(
   const format = request.format as SubtitleFormat | undefined;
   const cacheConfig = getCacheConfig();
   // Keyed by the format the content is in: a call without `format` and one naming the
-  // server default get the same text, so they share one entry.
-  const cacheKey = buildCacheKey('sub', url, 'auto-discovery', resolveSubtitleFormat(format));
+  // server default get the same text, so they share one entry. A type to keep to is its own
+  // entry; without one the part is empty and drops out, so that key keeps its old shape.
+  const cacheKey = buildCacheKey(
+    'sub',
+    url,
+    'auto-discovery',
+    request.type ?? '',
+    resolveSubtitleFormat(format)
+  );
   const cached = await get(cacheKey);
   if (cached !== undefined) {
     try {
@@ -640,15 +700,10 @@ async function handleAutoDiscoverFlow(
   // must not reach the platform at all.
   assertSubtitlesNotRateLimited(url);
 
-  const result = await downloadWithAutoDiscover(url, format, logger, {
+  const found = await downloadWithAutoDiscover(url, request.type, format, logger, {
     key: cacheKey,
     ttl: cacheConfig.ttlSubtitlesSeconds,
   });
-  if (!result) {
-    await throwNoSubtitlesError({ url, logger });
-  }
-
-  const found = result as SubtitleResult;
   await set(cacheKey, JSON.stringify(found), cacheConfig.ttlSubtitlesSeconds);
   // The transcript widget then asks for the track it shows by name, which is the
   // explicit flow's key: store the same text there too, under the name that flow
@@ -666,12 +721,12 @@ async function handleAutoDiscoverFlow(
 
 async function handleExplicitRequestFlow(
   request: GetSubtitlesRequest,
+  lang: string,
   url: string,
   logger?: FastifyBaseLogger,
   skipCache = false
 ): Promise<SubtitleResult> {
   const type = request.type ?? 'auto';
-  const lang = request.lang ?? 'en';
   const format = request.format as SubtitleFormat | undefined;
 
   const sanitizedLang = sanitizeLang(lang);
@@ -737,13 +792,10 @@ async function handleExplicitRequestFlow(
   if (!subtitlesContent) {
     await throwNoSubtitlesError({
       url,
-      // Only one of the two given means the server substituted the other, and the caller
-      // cannot see which value it substituted unless the text says so.
-      asked: {
-        type,
-        lang: sanitizedLang,
-        defaulted: (request.type === undefined) !== (request.lang === undefined),
-      },
+      // A lang without a type means the server substituted the type, and the caller cannot
+      // see that unless the text says so.
+      asked: { type, lang: sanitizedLang, defaulted: request.type === undefined },
+      whisperTried: getWhisperConfig().mode !== 'off',
       logger,
     });
   }
@@ -763,7 +815,7 @@ async function handleExplicitRequestFlow(
 
 /**
  * Validates request and downloads subtitles (supported platforms or Whisper fallback).
- * When type and lang are both omitted, uses auto-discovery: official → auto (-orig for YouTube) → Whisper.
+ * Without lang, auto-discovery: the track in the video's original language, or the track list.
  * @param logger - Fastify logger instance for structured logging
  * @returns object with subtitle data
  * @throws ValidationError on invalid input, NotFoundError when subtitles are not available
@@ -777,10 +829,10 @@ export async function validateAndDownloadSubtitles(
   const { url } = validated;
 
   try {
-    if (shouldAutoDiscoverSubtitles(request)) {
+    if (request.lang === undefined) {
       return await handleAutoDiscoverFlow(request, url, logger);
     }
-    return await handleExplicitRequestFlow(request, url, logger, opts?.skipCache);
+    return await handleExplicitRequestFlow(request, request.lang, url, logger, opts?.skipCache);
   } catch (err) {
     if (err instanceof YtDlpError) recordSubtitlesFailure(url, err.reason);
     throw err;
