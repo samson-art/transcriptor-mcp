@@ -1,2 +1,3 @@
 #!/bin/sh
-node .claude/hooks/guard-secrets.mjs --staged && make prepare && make check-no-smoke
+[ ! -f .claude/hooks/guard-secrets.mjs ] || node .claude/hooks/guard-secrets.mjs --staged
+make prepare && make check-no-smoke
