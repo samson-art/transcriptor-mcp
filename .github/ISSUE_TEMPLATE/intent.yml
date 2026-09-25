@@ -1,0 +1,48 @@
+name: Change proposal (intent)
+description: Propose a bug fix, a feature or a refactor. Tell why before you tell how.
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This issue is the first step of the cycle in [CONTRIBUTING.md](../blob/main/CONTRIBUTING.md). Describe the problem and the outcome. Write the implementation in the plan in the PR, not here.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What is wrong or missing? Include evidence (the tool call, the URL, the error text).
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Desired outcome
+      description: What is different after the change?
+    validations:
+      required: true
+  - type: textarea
+    id: affected
+    attributes:
+      label: Affected users and systems
+      description: Which MCP tools, REST endpoints, platforms or clients does the change affect?
+  - type: textarea
+    id: constraints
+    attributes:
+      label: Constraints
+      description: What must not change (tool contract, env defaults, decisions in docs/adr/)?
+  - type: textarea
+    id: out-of-scope
+    attributes:
+      label: Out of scope
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: Observable and testable results, one per line. The tests and the review checklist come from them.
+      placeholder: "- [ ] get_transcript with lang=en_US returns the en_US track"
+    validations:
+      required: true
+  - type: textarea
+    id: open-questions
+    attributes:
+      label: Open questions
+      description: Write each decision that is still open. When this field is empty, the plan starts.
