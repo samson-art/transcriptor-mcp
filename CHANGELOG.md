@@ -10,10 +10,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Security
 
 - **An unplanned REST error no longer sends its own message to the caller.** The REST API answered every error with its message, so an error nobody planned for could show an internal detail: while the API image lacked `CHANGELOG.md`, `GET /changelogs` answered `ENOENT: no such file or directory, open '/app/CHANGELOG.md'`. A 5xx that is not one of the server's own errors now answers the text MCP tools already used — `Internal server error (a fault in this server, not in your request)…` — and the real error goes to the log and to Sentry as before. The MCP HTTP transport's own error handler (outside tool calls) does the same.
+- **`GET /health/sentry-test` is gone.** It threw on purpose, so every call sent one error event to Sentry, and it was not rate-limited: anyone who could reach a public REST API with `SENTRY_DSN` set could spend the whole Sentry quota. Nothing used it. To check that Sentry receives events, cause any 5xx.
 
 ### Fixed
 
 - **The REST API answers 400 and 429 where it answered 500.** Every error that was not one of the server's own became a 500: a body that failed the schema (`body must have required property 'url'`), a body that was not JSON, and a request over `RATE_LIMIT_MAX` — each reported to Sentry as an error. They now keep Fastify's status and message, labelled `Bad request` or `Too many requests`, and are no longer sent to Sentry: under a burst, one event per rejected request would spend the quota the limit protects. In `http_requests_total`, these requests move from `status_code="500"` to `400` or `429`, so an alert on the REST 5xx rate sees fewer events.
+- **`RATE_LIMIT_MAX` now covers `GET /health/ready`, `/failures` and `/changelogs`.** They were declared before the rate-limit plugin had loaded, so they were never limited; on 2026-09-25 with `RATE_LIMIT_MAX=3`, `/failures` still answered 200 on the fifth request. The limit counts per client address across every limited route, so a readiness probe that shares an address with API traffic shares its budget. `GET /health` and `GET /metrics` stay unlimited on purpose, for liveness probes and Prometheus.
 
 ## [1.5.8] - 2026-09-24
 

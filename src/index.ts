@@ -93,7 +93,8 @@ const VideoChaptersResponseSchema = Type.Object({
   chapters: Type.Array(ChapterSchema),
 });
 
-const fastify = Fastify({
+// Exported so a test can inject requests; importing this module still starts the server.
+export const fastify = Fastify({
   loggerInstance: createLoggerWithSentryBreadcrumbs(),
 }).withTypeProvider<TypeBoxTypeProvider>();
 
@@ -115,35 +116,44 @@ fastify.register(rateLimit, {
   timeWindow: process.env.RATE_LIMIT_TIME_WINDOW || '1 minute', // time window
 });
 
-fastify.get('/health', { logLevel: 'warn' }, async (_request, reply) => {
-  return reply.code(200).send({ status: 'ok' });
-});
+// The rate-limit plugin loads after this synchronous code; routes declared before that miss its
+// onRoute hook and were never limited (2026-09-25). after() declares them once it has loaded.
+// Not a top-level await: ts-jest compiles to CJS, and index.test.ts imports this module.
+fastify.after(() => {
+  // Probes and scrapers must never be refused.
+  fastify.get(
+    '/health',
+    { logLevel: 'warn', config: { rateLimit: false } },
+    async (_request, reply) => {
+      return reply.code(200).send({ status: 'ok' });
+    }
+  );
 
-fastify.get('/health/ready', async (_request, reply) => {
-  const redisOk = await cachePing();
-  if (!redisOk) {
-    return reply.code(503).send({ status: 'not ready', redis: 'unreachable' });
-  }
-  return reply.code(200).send({ status: 'ready' });
-});
+  fastify.get('/health/ready', async (_request, reply) => {
+    const redisOk = await cachePing();
+    if (!redisOk) {
+      return reply.code(503).send({ status: 'not ready', redis: 'unreachable' });
+    }
+    return reply.code(200).send({ status: 'ready' });
+  });
 
-// Throw on purpose so Sentry receives a 5xx event (for verifying Sentry integration)
-fastify.get('/health/sentry-test', () => {
-  throw new Error('Sentry test: this event is expected when verifying error reporting');
-});
+  fastify.get(
+    '/metrics',
+    { logLevel: 'warn', config: { rateLimit: false } },
+    async (_request, reply) => {
+      const metrics = await renderPrometheus();
+      return reply.header('Content-Type', 'text/plain; charset=utf-8').send(metrics);
+    }
+  );
 
-fastify.get('/metrics', { logLevel: 'warn' }, async (_request, reply) => {
-  const metrics = await renderPrometheus();
-  return reply.header('Content-Type', 'text/plain; charset=utf-8').send(metrics);
-});
+  fastify.get('/failures', async (_request, reply) => {
+    return reply.code(200).send(getFailedSubtitlesUrls());
+  });
 
-fastify.get('/failures', async (_request, reply) => {
-  return reply.code(200).send(getFailedSubtitlesUrls());
-});
-
-fastify.get('/changelogs', async (_request, reply) => {
-  const content = await readChangelog();
-  return reply.header('Content-Type', 'text/markdown; charset=utf-8').code(200).send(content);
+  fastify.get('/changelogs', async (_request, reply) => {
+    const content = await readChangelog();
+    return reply.header('Content-Type', 'text/markdown; charset=utf-8').code(200).send(content);
+  });
 });
 
 const requestStartTimes = new WeakMap<object, number>();
