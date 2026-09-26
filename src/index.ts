@@ -27,7 +27,7 @@ import { recordRequest, renderPrometheus, getFailedSubtitlesUrls } from './metri
 import { createLoggerWithSentryBreadcrumbs } from './logger-sentry-breadcrumbs.js';
 import { readChangelog } from './changelog.js';
 import { parseIntEnv } from './env.js';
-import { restErrorHandler } from './rest-error-handler.js';
+import { restErrorHandler, routeOf } from './rest-error-handler.js';
 
 // Response schemas for OpenAPI/Swagger
 const ErrorResponseSchema = Type.Object({
@@ -166,10 +166,7 @@ fastify.addHook('onResponse', (request, reply, done) => {
   const start = requestStartTimes.get(request.raw);
   if (start !== undefined) {
     const duration = (Date.now() - start) / 1000;
-    const method = request.method;
-    const route = request.routeOptions?.url ?? request.url?.split('?')[0] ?? 'unknown';
-    const statusCode = reply.statusCode;
-    recordRequest(method, route, statusCode, duration);
+    recordRequest(request.method, routeOf(request), reply.statusCode, duration);
   }
   done();
 });
@@ -219,14 +216,7 @@ fastify.register(async (instance) => {
       const result = await validateAndDownloadSubtitles(body, instance.log);
       const { videoId, type, lang, subtitlesContent, source } = result;
 
-      let plainText: string;
-      try {
-        plainText = parseSubtitles(subtitlesContent, instance.log);
-      } catch (error) {
-        throw new Error(error instanceof Error ? error.message : 'Failed to parse subtitles', {
-          cause: error,
-        });
-      }
+      const plainText = parseSubtitles(subtitlesContent, instance.log);
 
       return reply.send({
         videoId,

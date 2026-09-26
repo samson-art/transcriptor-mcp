@@ -149,15 +149,24 @@ export class YtDlpError extends HttpError {
 /**
  * Status and caller text for an error that reaches an HTTP error handler. Our HttpError
  * texts are written for the caller, and Fastify's own 4xx (schema, JSON body, rate limit)
- * describe the request. Anything else answers the generic text.
+ * describe the request. Anything else, including a 4xx that says `expose: false`, answers
+ * 500 and the generic text.
  */
 export function httpErrorAnswer(err: unknown): { statusCode: number; message: string } {
   if (err instanceof HttpError) return { statusCode: err.statusCode, message: err.message };
-  const status = (err as { statusCode?: unknown } | null)?.statusCode;
-  if (!(err instanceof Error) || typeof status !== 'number' || status < 400 || status > 599) {
-    return { statusCode: 500, message: UNEXPECTED_ERROR_MESSAGE };
+  if (err instanceof Error) {
+    const { statusCode, expose } = err as { statusCode?: unknown; expose?: unknown };
+    if (
+      typeof statusCode === 'number' &&
+      Number.isInteger(statusCode) &&
+      statusCode >= 400 &&
+      statusCode < 500 &&
+      expose !== false
+    ) {
+      return { statusCode, message: err.message };
+    }
   }
-  return { statusCode: status, message: status < 500 ? err.message : UNEXPECTED_ERROR_MESSAGE };
+  return { statusCode: 500, message: UNEXPECTED_ERROR_MESSAGE };
 }
 
 /**
