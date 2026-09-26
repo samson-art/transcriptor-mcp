@@ -587,7 +587,7 @@ describe('validation', () => {
 
       // An empty probe neither reads nor writes the entry for a track with no text. Every probe
       // must reach the platform.
-      downloadSpy.mockResolvedValue(null);
+      downloadSpy.mockResolvedValue('');
       await validateAndDownloadSubtitles(
         { url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ', type: 'auto', lang: 'en' } as any,
         undefined,
@@ -1702,7 +1702,7 @@ describe('an omitted lang means the original language', () => {
     async ({ request, mark }) => {
       memoryCache();
       listing(['en'], ['de', 'en', 'en-orig']);
-      const download = jest.spyOn(youtube, 'downloadSubtitles').mockResolvedValue(null);
+      const download = jest.spyOn(youtube, 'downloadSubtitles').mockResolvedValue('');
 
       const first = await failureOf({ url, ...request });
       const second = await failureOf({ url, ...request });
@@ -1719,6 +1719,22 @@ describe('an omitted lang means the original language', () => {
       );
     }
   );
+
+  it('does not remember a failed track run, so the next call asks again', async () => {
+    memoryCache();
+    listing(['en'], ['de', 'en', 'en-orig']);
+    const download = jest.spyOn(youtube, 'downloadSubtitles').mockResolvedValue(null);
+
+    await failureOf({ url, type: 'auto', lang: 'de' });
+    await failureOf({ url, type: 'auto', lang: 'de' });
+
+    expect(download).toHaveBeenCalledTimes(2);
+    expect(cacheSet).not.toHaveBeenCalledWith(
+      expect.stringMatching(/:empty$/),
+      expect.anything(),
+      expect.anything()
+    );
+  });
 
   it('names a track off YouTube after a list answer without another metadata run', async () => {
     memoryCache();

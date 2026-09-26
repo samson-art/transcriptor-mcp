@@ -399,7 +399,9 @@ async function runYtDlpAndExtractSubtitles(
     await new Promise((resolve) => setTimeout(resolve, 100));
 
     const subtitleFile = await findSubtitleFile(outputPath, tempDir, subFormat, logger);
-    return await readAndReturnSubtitleIfValid(subtitleFile);
+    // '' is a run that went through and brought no text; a failed run returns null below.
+    // Only '' may be remembered as "no text" (#60): a network error must not answer for an hour.
+    return (await readAndReturnSubtitleIfValid(subtitleFile)) ?? '';
   } catch (error: unknown) {
     if (error instanceof HttpError) throw error;
     logger?.error(
@@ -435,6 +437,7 @@ async function runYtDlpAndExtractSubtitles(
  * @param lang - subtitle language (e.g., 'en', 'ru')
  * @param format - subtitle format: srt, vtt, ass, lrc (default from YT_DLP_SUB_FORMAT or srt)
  * @param logger - Fastify logger instance for structured logging
+ * @returns the text; '' when the run went through with no text; null when the run failed
  */
 export async function downloadSubtitles(
   url: string,

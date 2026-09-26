@@ -417,12 +417,12 @@ async function readSub(
 }
 
 /**
- * Asks for one track. A track that brought no text is remembered for the same time as a track
- * list (`ttlMetadataSeconds`): the same call again would spend another caption request on it
- * (#60). The entry lives for the metadata TTL from the empty answer, not the subtitles TTL,
- * because "no text" can also be a temporary failure: a failure about the video, or an
- * unclassified error such as a network error. The canary passes `skipCache`, because each probe
- * must reach the platform.
+ * Asks for one track. A run that went through with no text is remembered for the same time as a
+ * track list (`ttlMetadataSeconds`): the same call again would spend another caption request on
+ * it (#60). The entry lives for the metadata TTL from the empty answer, not the subtitles TTL,
+ * because "no text" can also be a failure about the video that ends. A failed run (null) is not
+ * remembered, so a network error does not answer "no text" to the next call. The canary passes
+ * `skipCache`, because each probe must reach the platform.
  */
 async function downloadTrack(
   url: string,
@@ -434,7 +434,7 @@ async function downloadTrack(
   const noText = buildCacheKey('sub', url, type, lang, resolveSubtitleFormat(format), 'empty');
   if (!skipCache && (await get(noText)) !== undefined) return null;
   const content = await downloadSubtitles(url, type, lang, format, logger);
-  if (!content && !skipCache) await set(noText, '1', getCacheConfig().ttlMetadataSeconds);
+  if (content === '' && !skipCache) await set(noText, '1', getCacheConfig().ttlMetadataSeconds);
   return content;
 }
 
