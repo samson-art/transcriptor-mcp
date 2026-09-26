@@ -40,13 +40,27 @@ describe('errorReason', () => {
 });
 
 describe('httpErrorAnswer', () => {
-  it('does not pair a 4xx status with the text that blames the server', () => {
+  const PATH_ERROR = "EACCES: permission denied, stat '/app/static/x'";
+  const withStatus = (statusCode: unknown, extra?: object) =>
+    Object.assign(new Error(PATH_ERROR), { statusCode, ...extra });
+
+  it("keeps the status and text of Fastify's own 4xx", () => {
+    const err = Object.assign(new Error('Rate limit exceeded'), { statusCode: 429 });
+    expect(httpErrorAnswer(err)).toEqual({ statusCode: 429, message: 'Rate limit exceeded' });
+  });
+
+  it.each([
+    ['a 3xx', withStatus(302)],
+    ['a 5xx', withStatus(500)],
+    ['a status past 599', withStatus(600)],
+    ['NaN', withStatus(NaN)],
+    ['a fraction', withStatus(404.5)],
+    ['a 4xx marked expose: false', withStatus(404, { expose: false })],
     // A thrown plain object has no message worth trusting, and "not in your request"
     // under a 400 would contradict itself.
-    expect(httpErrorAnswer({ statusCode: 400, message: 'x' })).toEqual({
-      statusCode: 500,
-      message: UNEXPECTED_ERROR_MESSAGE,
-    });
+    ['a plain object', { statusCode: 400, message: PATH_ERROR }],
+  ])('answers 500 and the generic text for %s', (_name, err) => {
+    expect(httpErrorAnswer(err)).toEqual({ statusCode: 500, message: UNEXPECTED_ERROR_MESSAGE });
   });
 });
 
