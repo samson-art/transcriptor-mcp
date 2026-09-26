@@ -52,6 +52,7 @@ describe('httpErrorAnswer', () => {
   it.each([
     ['a 3xx', withStatus(302)],
     ['a 5xx', withStatus(500)],
+    ['a 503', withStatus(503)],
     ['a status past 599', withStatus(600)],
     ['NaN', withStatus(NaN)],
     ['a fraction', withStatus(404.5)],
