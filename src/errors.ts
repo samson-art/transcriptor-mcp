@@ -92,6 +92,14 @@ export const UNKNOWN_FAILURE_MESSAGE =
   'The server could not read this URL and could not determine why. Retry once; if it fails again, do not retry.';
 
 /**
+ * The answer to an error nobody planned for, on MCP and REST alike. Its message can hold
+ * a path, stderr or a command line (GET /changelogs once answered with the absolute path
+ * of a missing file), so it stays in the log and this goes out instead.
+ */
+export const UNEXPECTED_ERROR_MESSAGE =
+  'Internal server error (a fault in this server, not in your request). Retry once; if it fails again, do not retry — tell the user this cannot be completed right now.';
+
+/**
  * Said by every tool that takes a video URL. Naming the platforms matters: the server
  * also rejects a supported platform's URL when the scheme is missing, and a caller with
  * "Invalid video URL." alone cannot tell which of the two it hit.
@@ -147,6 +155,29 @@ export class YtDlpError extends HttpError {
     this.reason = reason;
     Object.setPrototypeOf(this, new.target.prototype);
   }
+}
+
+/**
+ * Status and caller text for an error that reaches an HTTP error handler. Our HttpError
+ * texts are written for the caller, and Fastify's own 4xx (schema, JSON body, rate limit)
+ * describe the request. Anything else, including a 4xx that says `expose: false`, answers
+ * 500 and the generic text.
+ */
+export function httpErrorAnswer(err: unknown): { statusCode: number; message: string } {
+  if (err instanceof HttpError) return { statusCode: err.statusCode, message: err.message };
+  if (err instanceof Error) {
+    const { statusCode, expose } = err as { statusCode?: unknown; expose?: unknown };
+    if (
+      typeof statusCode === 'number' &&
+      Number.isInteger(statusCode) &&
+      statusCode >= 400 &&
+      statusCode < 500 &&
+      expose !== false
+    ) {
+      return { statusCode, message: err.message };
+    }
+  }
+  return { statusCode: 500, message: UNEXPECTED_ERROR_MESSAGE };
 }
 
 /**

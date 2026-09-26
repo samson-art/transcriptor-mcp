@@ -1,7 +1,7 @@
 # 006. An omitted `lang` means the video's original language: one track request, or the list
 
 - **Status:** Accepted
-- **Date:** 2026-09-25 (1.5.12)
+- **Date:** 2026-09-25 (1.5.13)
 - **Sources:** issue #54, PR #55; supersedes the ladder part of [ADR 003](003-caption-request-budget.md)
 
 ## Context
