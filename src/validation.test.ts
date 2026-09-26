@@ -1710,8 +1710,8 @@ describe('an omitted lang means the original language', () => {
       expect(second).toBeInstanceOf(NotFoundError);
       expect(second.message).toBe(first.message);
       expect(download).toHaveBeenCalledTimes(1);
-      // Only as long as the track list (CACHE_TTL_METADATA_SECONDS, 3600 in this mock): a track
-      // that failed for a passing reason must not answer "no text" for a week.
+      // The metadata TTL (CACHE_TTL_METADATA_SECONDS, 3600 in this mock), not the subtitles TTL:
+      // a temporary failure must not answer "no text" for a week.
       expect(cacheSet).toHaveBeenCalledWith(
         `sub:${url}:${mark}:srt:empty`,
         expect.any(String),

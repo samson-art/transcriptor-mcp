@@ -35,7 +35,7 @@ In `src/validation.ts`, a call without `lang` goes to auto-discovery (`downloadW
   - the official track in the original language, else the automatic one (`-orig` first);
   - with the language unknown, only a track without a rival.
 
-  If that track is already cached under its own name, no request is made. A Whisper answer stored under that name does not count: it is what a request by name fell back to, not the track. A track that brought no text is remembered for as long as the track list (`CACHE_TTL_METADATA_SECONDS`), under `sub:{url}:{type}:{lang}:{format}:empty` (#60). In that time the same call answers with the list again and makes no request. A request by name reads the same entry. The canary does not read or write it. The caption hold (ADR 002) is checked only in front of a run, so a cached list and a cached track still answer during a hold.
+  If that track is already cached under its own name, no request is made. A Whisper answer stored under that name does not count: it is what a request by name fell back to, not the track. A track that brought no text is remembered for the same time as a track list (`CACHE_TTL_METADATA_SECONDS`), under `sub:{url}:{type}:{lang}:{format}:empty` (#60). In that time the same call answers with the list again and makes no caption request. A request by name reads the same entry. The canary does not read or write it. The caption hold (ADR 002) is checked only in front of a run, so a cached list and a cached track still answer during a hold.
 
 - **The list answer.** It comes back with no track request when no track is in the original language, or when the language is unknown and there are several candidates. It also comes back when the one request returns no text: no second track, no Whisper. The text says "got no text", not "empty", because a download that failed for a reason about this video also returns nothing. The answer is a `NotFoundError` with the lists and one next step:
   - pass `type` and `lang`;
@@ -78,5 +78,5 @@ In `src/validation.ts`, a call without `lang` goes to auto-discovery (`downloadW
 - Don't add a second attempt "to be safe", and don't guess a language that the listing does not name. Both are how a translation comes back as the transcript.
 - Don't let the reported language outrank a lone `-orig` track. The mark is part of the track list, so every cache entry answers the same. The reported language only settles several `-orig` tracks.
 - Don't request `live_chat` or `rechat` as subtitles, and don't send a playlist a track pattern.
-- Don't remember a track that brought no text for longer than the track list. "No text" can also be a failure about the video that passes.
+- Don't remember a track that brought no text for longer than a track list is kept. "No text" can also be a temporary failure: a failure about the video, or an unclassified error such as a network error.
 - Guarded by `an omitted lang means the original language` in `src/validation.test.ts` and in `src/mcp-core.test.ts`, by `the answer when no subtitles came back` in `src/validation.test.ts`, and by the `pickDefaultTrack` tests in `ui/shared/widgets.test.ts`.

@@ -417,10 +417,12 @@ async function readSub(
 }
 
 /**
- * Asks for one track. A track that brought no text is remembered for as long as the track list
- * (`ttlMetadataSeconds`): the same call again would spend another caption request on it (#60).
- * The entry does not outlive the list, because "no text" can also be a failure about the video
- * that passes. The canary passes `skipCache`, because each probe must reach the platform.
+ * Asks for one track. A track that brought no text is remembered for the same time as a track
+ * list (`ttlMetadataSeconds`): the same call again would spend another caption request on it
+ * (#60). The entry lives for the metadata TTL from the empty answer, not the subtitles TTL,
+ * because "no text" can also be a temporary failure: a failure about the video, or an
+ * unclassified error such as a network error. The canary passes `skipCache`, because each probe
+ * must reach the platform.
  */
 async function downloadTrack(
   url: string,
