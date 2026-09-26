@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- `GET /failures` is gone from the REST API. It showed any caller the video URLs of the last 100 failed subtitle requests of all callers, links to unlisted videos included (#56). The server no longer keeps that list. `subtitles_extraction_failures_total{reason}` still counts the failures. `GET /failures` now answers 404 like any path with no route.
+- `GET /metrics` on the REST API has a limit of 60 requests a minute for each client address. It had no limit, and each call serializes all metrics. A Prometheus scrape every 15 s sends 4 requests a minute. This limit counts apart from `RATE_LIMIT_MAX`, so other requests from the address of the scraper do not use it up. `GET /health` and `GET /health/ready` stay unlimited. The `/metrics` of the MCP HTTP server did not change. Limit it at the edge ([ADR 001](docs/adr/001-stateless-streamable-http.md)).
+
+### Changed
+
+- The REST metrics `http_requests_total` and `http_request_duration_seconds` put every request to a path with no route under `route="unmatched"`. Before, each path was a `route` value of its own. Each new path added about 14 series, and they stayed until a restart. A dashboard or an alert that selects such a path by its `route` value now finds nothing. Select `route="unmatched"` instead.
+
+### Fixed
+
+- The REST API does not start when it cannot read `RATE_LIMIT_TIME_WINDOW`, and it prints why. Before, it started, and every rate-limited request answered 500. For example, `docker run --env-file` keeps the quotes of `RATE_LIMIT_TIME_WINDOW="1 minute"`. Use a number of milliseconds or a duration such as `1 minute`, without quotes. A value of zero or below is refused too. Before, a negative value meant one minute.
+
 ## [1.5.13] - 2026-09-26
 
 ### Changed
