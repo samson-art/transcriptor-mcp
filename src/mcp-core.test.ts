@@ -6,11 +6,12 @@ import {
   INVALID_VIDEO_URL_MESSAGE,
   NotFoundError,
   ServerBusyError,
+  UNEXPECTED_ERROR_MESSAGE,
   UNKNOWN_FAILURE_MESSAGE,
   ValidationError,
   YtDlpError,
 } from './errors.js';
-import { createMcpServer, UNEXPECTED_TOOL_ERROR_MESSAGE } from './mcp-core.js';
+import { createMcpServer } from './mcp-core.js';
 import { renderPrometheus } from './metrics.js';
 import * as youtube from './youtube.js';
 import * as validation from './validation.js';
@@ -40,13 +41,15 @@ jest.mock('@modelcontextprotocol/sdk/server/mcp.js', () => {
       // no-op for tests that only exercise tools
     }
 
+    resources = new Map<string, (...args: any[]) => any>();
+
     registerResource(
-      _name: string,
+      name: string,
       _uriOrTemplate: string | { uriTemplate: { toString: () => string } },
       _config: any,
-      _handler: any
+      handler: (...args: any[]) => any
     ) {
-      // no-op for tests that only exercise tools (supports both URI string and ResourceTemplate)
+      this.resources.set(name, handler);
     }
   }
 
@@ -283,7 +286,7 @@ describe('mcp-core tools', () => {
       const result = await handler({ url: testUrl }, {});
 
       expect(result).toMatchObject({ isError: true });
-      expect(result.content[0].text).toBe(UNEXPECTED_TOOL_ERROR_MESSAGE);
+      expect(result.content[0].text).toBe(UNEXPECTED_ERROR_MESSAGE);
       expect(captureExceptionMock).toHaveBeenCalled();
     });
 
@@ -453,8 +456,11 @@ describe('mcp-core tools', () => {
       const result = await handler({ url: testUrl }, {});
 
       expect(result).toMatchObject({ isError: true });
-      // The raw message holds a cookies path: the caller gets a fixed sentence.
-      expect(result.content[0].text).toBe(UNEXPECTED_TOOL_ERROR_MESSAGE);
+      // The raw message holds a cookies path: the caller gets a fixed sentence. Written out,
+      // because REST shares the constant and the tool text must not change with it.
+      expect(result.content[0].text).toBe(
+        'Internal server error (a fault in this server, not in your request). Retry once; if it fails again, do not retry — tell the user this cannot be completed right now.'
+      );
       expect(result.content[0].text).not.toContain('/cookies');
       expect(logger.error).toHaveBeenCalledWith(
         expect.objectContaining({ err: expect.any(Error), tool: 'get_video_info' }),
@@ -634,6 +640,61 @@ describe('mcp-core tools', () => {
       expect(result.content[0].text).toContain('Duration: 120s');
       expect(result.content[0].text).toContain('Views: 42');
       expect(result.content[0].text).toContain('URL: https://example.com/watch?v=video123');
+    });
+  });
+
+  describe('resource reads', () => {
+    const PATH_ERROR =
+      "EACCES: permission denied, copyfile '/cookies/cookies.txt' -> '/tmp/cookies_xxx.txt'";
+    const logger = { error: jest.fn(), warn: jest.fn(), info: jest.fn(), debug: jest.fn() };
+
+    // The SDK answers a failed read with the thrown message, so the caller would see it.
+    it('answer an unplanned error with the generic text, and log and report the real one', async () => {
+      validateAndDownloadSubtitlesMock.mockRejectedValue(new Error(PATH_ERROR));
+      const server = createMcpServer({ logger: logger as any }) as any;
+      const read = server.resources.get('transcript');
+
+      await expect(
+        read(new URL('transcriptor://transcript/abc'), { videoId: 'abc' })
+      ).rejects.toThrow(new Error(UNEXPECTED_ERROR_MESSAGE));
+      expect(logger.error).toHaveBeenCalledWith(
+        expect.objectContaining({
+          err: expect.objectContaining({ message: PATH_ERROR }),
+          resource: 'transcriptor://transcript',
+        }),
+        'MCP tool unexpected error'
+      );
+      expect(captureExceptionMock).toHaveBeenCalled();
+    });
+
+    it('keep the text of a planned error', async () => {
+      validateAndDownloadSubtitlesMock.mockRejectedValue(new NotFoundError('No subtitles.'));
+      const server = createMcpServer({ logger: logger as any }) as any;
+      const read = server.resources.get('transcript');
+
+      await expect(
+        read(new URL('transcriptor://transcript/abc'), { videoId: 'abc' })
+      ).rejects.toThrow(new Error('No subtitles.'));
+      expect(captureExceptionMock).not.toHaveBeenCalled();
+    });
+
+    // Runs before 'widget resources' below, which fills the module's HTML cache.
+    it('answer a missing widget file with the generic text, not its path', async () => {
+      const readFile = jest
+        .spyOn(fs, 'readFile')
+        .mockRejectedValue(
+          new Error("ENOENT: no such file or directory, open '/srv/dist/ui/x.html'")
+        );
+      createMcpServer({ logger: logger as any });
+      const reads = (registerAppResource as jest.Mock).mock.calls.map(
+        (call) => call[4] as () => Promise<unknown>
+      );
+      expect(reads).toHaveLength(4);
+
+      for (const read of reads) {
+        await expect(read()).rejects.toThrow(new Error(UNEXPECTED_ERROR_MESSAGE));
+      }
+      readFile.mockRestore();
     });
   });
 

@@ -1,11 +1,10 @@
-import Fastify from 'fastify';
+import Fastify, { type preHandlerAsyncHookHandler } from 'fastify';
 import cors from '@fastify/cors';
 import rateLimit from '@fastify/rate-limit';
 import swagger from '@fastify/swagger';
 import swaggerUi from '@fastify/swagger-ui';
 import { TypeBoxTypeProvider } from '@fastify/type-provider-typebox';
 import { Type } from '@sinclair/typebox';
-import { HttpError, NotFoundError, ServerBusyError } from './errors.js';
 import { parseSubtitles, detectSubtitleFormat } from './youtube.js';
 import {
   GetAvailableSubtitlesRequest,
@@ -24,15 +23,11 @@ import { checkYtDlpAtStartup } from './yt-dlp-check.js';
 import { close as closeCache, ping as cachePing } from './cache.js';
 import { setupLifecycle } from './lifecycle.js';
 import * as Sentry from '@sentry/node';
-import {
-  recordRequest,
-  recordExpected404,
-  renderPrometheus,
-  getFailedSubtitlesUrls,
-} from './metrics.js';
+import { recordRequest, renderPrometheus, getFailedSubtitlesUrls } from './metrics.js';
 import { createLoggerWithSentryBreadcrumbs } from './logger-sentry-breadcrumbs.js';
 import { readChangelog } from './changelog.js';
 import { parseIntEnv } from './env.js';
+import { restErrorHandler, routeOf } from './rest-error-handler.js';
 
 // Response schemas for OpenAPI/Swagger
 const ErrorResponseSchema = Type.Object({
@@ -98,65 +93,13 @@ const VideoChaptersResponseSchema = Type.Object({
   chapters: Type.Array(ChapterSchema),
 });
 
-const fastify = Fastify({
+// ponytail: exported so index.test.ts can inject requests, but importing this module still starts
+// the server. If another test needs it, split out a buildRestApp() without listen(), like mcp-http.
+export const fastify = Fastify({
   loggerInstance: createLoggerWithSentryBreadcrumbs(),
 }).withTypeProvider<TypeBoxTypeProvider>();
 
-fastify.setErrorHandler((error, request, reply) => {
-  const statusCode = error instanceof HttpError ? error.statusCode : 500;
-  const message = error instanceof Error ? error.message : 'Unknown error occurred';
-  const errorLabel = error instanceof HttpError ? error.errorLabel : 'Internal server error';
-  const route = request.routeOptions?.url ?? request.url?.split('?')[0] ?? 'unknown';
-
-  // Load shedding is a known state under a burst, not a fault to page on.
-  if (statusCode >= 500 && !(error instanceof ServerBusyError)) {
-    fastify.log.error(error);
-  } else {
-    fastify.log.warn({ err: error }, message);
-  }
-
-  // Every 404 here is planned: NotFoundError, or a per-video yt-dlp class (private, removed).
-  if (statusCode === 404) {
-    recordExpected404(request.method, route);
-  }
-
-  Sentry.withScope((scope) => {
-    const requestContext: Record<string, unknown> = {
-      method: request.method,
-      url: request.url,
-      statusCode,
-    };
-    if (
-      statusCode >= 500 &&
-      request.body &&
-      typeof request.body === 'object' &&
-      'url' in request.body &&
-      typeof (request.body as { url?: unknown }).url === 'string'
-    ) {
-      requestContext.requestUrl = (request.body as { url: string }).url;
-    }
-    scope.setContext('request', requestContext);
-    scope.setTag('route', route);
-    if (statusCode >= 400 && statusCode < 500) {
-      scope.setLevel('warning');
-    }
-    Sentry.captureException(error);
-  });
-
-  const payload: {
-    error: string;
-    message: string;
-    available?: { official?: string[]; auto?: string[] };
-  } = { error: errorLabel, message };
-  if (statusCode === 404 && error instanceof NotFoundError && error.details) {
-    payload.available = {
-      ...(error.details.official && { official: error.details.official }),
-      ...(error.details.auto && { auto: error.details.auto }),
-    };
-    if (Object.keys(payload.available).length === 0) delete payload.available;
-  }
-  return reply.code(statusCode).send(payload);
-});
+fastify.setErrorHandler(restErrorHandler);
 
 // Register CORS (optional allowlist via CORS_ALLOWED_ORIGINS comma-separated)
 const corsAllowedOrigins = process.env.CORS_ALLOWED_ORIGINS?.trim()
@@ -174,35 +117,34 @@ fastify.register(rateLimit, {
   timeWindow: process.env.RATE_LIMIT_TIME_WINDOW || '1 minute', // time window
 });
 
-fastify.get('/health', { logLevel: 'warn' }, async (_request, reply) => {
-  return reply.code(200).send({ status: 'ok' });
-});
-
-fastify.get('/health/ready', async (_request, reply) => {
-  const redisOk = await cachePing();
-  if (!redisOk) {
-    return reply.code(503).send({ status: 'not ready', redis: 'unreachable' });
-  }
-  return reply.code(200).send({ status: 'ready' });
-});
-
-// Throw on purpose so Sentry receives a 5xx event (for verifying Sentry integration)
-fastify.get('/health/sentry-test', () => {
-  throw new Error('Sentry test: this event is expected when verifying error reporting');
-});
-
-fastify.get('/metrics', { logLevel: 'warn' }, async (_request, reply) => {
-  const metrics = await renderPrometheus();
-  return reply.header('Content-Type', 'text/plain; charset=utf-8').send(metrics);
-});
-
-fastify.get('/failures', async (_request, reply) => {
-  return reply.code(200).send(getFailedSubtitlesUrls());
-});
-
-fastify.get('/changelogs', async (_request, reply) => {
-  const content = await readChangelog();
-  return reply.header('Content-Type', 'text/markdown; charset=utf-8').code(200).send(content);
+// The rate-limit plugin loads after this synchronous code; routes declared before that miss its
+// onRoute hook and were never limited (2026-09-25). after() declares them once it has loaded.
+// Not a top-level await: ts-jest compiles to CJS, and index.test.ts imports this module.
+fastify.after(() => {
+  // Probes and scrapers must never be refused, and a probe every few seconds must not fill the log.
+  const unlimited = { logLevel: 'warn', config: { rateLimit: false } } as const;
+  fastify.get('/health', unlimited, () => ({ status: 'ok' }));
+  fastify.get('/health/ready', unlimited, async (_request, reply) => {
+    if (!(await cachePing())) {
+      return reply.code(503).send({ status: 'not ready', redis: 'unreachable' });
+    }
+    return { status: 'ready' };
+  });
+  fastify.get('/metrics', unlimited, () => renderPrometheus());
+  fastify.get('/failures', () => getFailedSubtitlesUrls());
+  fastify.get('/changelogs', async (_request, reply) =>
+    reply.header('Content-Type', 'text/markdown; charset=utf-8').send(await readChangelog())
+  );
+  // A path with no route is limited too. The answer is Fastify's own 404. The cast only drops our
+  // logger type: Fastify types the hooks of setNotFoundHandler for its default logger.
+  const preHandler = fastify.rateLimit() as preHandlerAsyncHookHandler;
+  fastify.setNotFoundHandler({ preHandler }, (request, reply) =>
+    reply.code(404).send({
+      message: `Route ${request.method}:${request.url} not found`,
+      error: 'Not Found',
+      statusCode: 404,
+    })
+  );
 });
 
 const requestStartTimes = new WeakMap<object, number>();
@@ -215,10 +157,7 @@ fastify.addHook('onResponse', (request, reply, done) => {
   const start = requestStartTimes.get(request.raw);
   if (start !== undefined) {
     const duration = (Date.now() - start) / 1000;
-    const method = request.method;
-    const route = request.routeOptions?.url ?? request.url?.split('?')[0] ?? 'unknown';
-    const statusCode = reply.statusCode;
-    recordRequest(method, route, statusCode, duration);
+    recordRequest(request.method, routeOf(request), reply.statusCode, duration);
   }
   done();
 });
@@ -268,14 +207,7 @@ fastify.register(async (instance) => {
       const result = await validateAndDownloadSubtitles(body, instance.log);
       const { videoId, type, lang, subtitlesContent, source } = result;
 
-      let plainText: string;
-      try {
-        plainText = parseSubtitles(subtitlesContent, instance.log);
-      } catch (error) {
-        throw new Error(error instanceof Error ? error.message : 'Failed to parse subtitles', {
-          cause: error,
-        });
-      }
+      const plainText = parseSubtitles(subtitlesContent, instance.log);
 
       return reply.send({
         videoId,
