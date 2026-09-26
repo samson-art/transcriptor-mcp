@@ -1,5 +1,6 @@
 import { setTimeout as sleep } from 'node:timers/promises';
 
+import { readChangelog } from '../changelog.js';
 import { parseIntFromString } from '../env.js';
 import { buildDockerImagesIfNeeded, runCommand } from './docker-utils.js';
 import { buildMcpImageRef, runMcpSmokeTest } from './mcp-smoke.js';
@@ -8,8 +9,6 @@ import { getEnvVar, isFlagSet } from './smoke-env.js';
 const DEFAULT_IMAGE_NAME = 'artsamsonov/transcriptor-mcp-api';
 const DEFAULT_IMAGE_TAG = 'latest';
 const DEFAULT_PORT = 33000;
-
-const SWAGGER_DOCS_PATH = '/docs';
 
 function buildImageRef(): string {
   const imageFromEnv = process.env.SMOKE_IMAGE_API;
@@ -56,39 +55,22 @@ async function waitForApiReady(baseUrl: string, timeoutMs: number): Promise<void
   throw new Error(`API did not become ready within ${timeoutMs}ms`);
 }
 
-async function checkSwaggerDocs(apiBaseUrl: string): Promise<void> {
-  const fetchImpl: any = (globalThis as any).fetch;
-  if (!fetchImpl) {
-    throw new Error('Global fetch is not available in this Node.js runtime');
-  }
-
-  const response = await fetchImpl(`${apiBaseUrl}${SWAGGER_DOCS_PATH}`, { method: 'GET' });
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`Swagger docs failed with HTTP ${response.status}: ${text.slice(0, 200)}`);
-  }
-
-  const html = await response.text();
-  if (!html.includes('swagger') && !html.includes('openapi')) {
+async function checkGet(
+  apiBaseUrl: string,
+  path: string,
+  isExpected: (body: string, contentType: string) => boolean
+): Promise<void> {
+  const response = await fetch(`${apiBaseUrl}${path}`);
+  const body = await response.text();
+  const contentType = response.headers.get('content-type') ?? '';
+  if (!response.ok || !isExpected(body, contentType)) {
     throw new Error(
-      `Swagger docs at ${SWAGGER_DOCS_PATH} did not return expected content (no swagger/openapi in body)`
+      `${path} failed: HTTP ${response.status}, ${contentType}, ${body.length} bytes: ${body.slice(0, 200)}`
     );
   }
 
   // eslint-disable-next-line no-console
-  console.log(`[smoke] ${SWAGGER_DOCS_PATH} OK (Swagger UI reachable)`);
-}
-
-// The file is read from the image at request time; 1.5.8 and earlier images lacked it (HTTP 500).
-async function checkChangelog(apiBaseUrl: string): Promise<void> {
-  const response = await fetch(`${apiBaseUrl}/changelogs`);
-  const text = await response.text();
-  if (!response.ok || !text.startsWith('# Changelog')) {
-    throw new Error(`/changelogs failed with HTTP ${response.status}: ${text.slice(0, 200)}`);
-  }
-
-  // eslint-disable-next-line no-console
-  console.log('[smoke] /changelogs OK');
+  console.log(`[smoke] ${path} OK`);
 }
 
 async function runApiSmokeTest(apiBaseUrl: string): Promise<void> {
@@ -97,8 +79,14 @@ async function runApiSmokeTest(apiBaseUrl: string): Promise<void> {
     throw new Error('Global fetch is not available in this Node.js runtime');
   }
 
-  await checkSwaggerDocs(apiBaseUrl);
-  await checkChangelog(apiBaseUrl);
+  await checkGet(apiBaseUrl, '/docs', (body) => /swagger|openapi/.test(body));
+  // The route reads CHANGELOG.md from the image at each request. An image without it answers 500.
+  const changelog = await readChangelog();
+  await checkGet(
+    apiBaseUrl,
+    '/changelogs',
+    (body, contentType) => contentType.startsWith('text/markdown') && body === changelog
+  );
 
   const videoUrl = getEnvVar('SMOKE_VIDEO_URL', 'https://www.youtube.com/watch?v=dQw4w9WgXcQ');
   const requestTimeoutMs = parseIntFromString(

@@ -125,4 +125,4 @@ publish-docker-api: check-no-smoke docker-smoke-api-local docker-buildx-api ## P
 
 publish-docker-mcp: check-no-smoke docker-buildx-mcp ## Publish MCP image to registry (buildx --push)
 
-publish: check-no-smoke publish-docker-api publish-docker-mcp smoke ## Run checks, publish the REST API and MCP Docker images, then smoke-test them
+publish: check-no-smoke publish-docker-api publish-docker-mcp smoke ## Run checks and the API smoke, push both images, then run the MCP smoke. The smokes test local builds, not the pushed images

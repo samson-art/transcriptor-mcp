@@ -83,7 +83,7 @@ export const LANG_PATTERN = '^(?!all$)[A-Za-z0-9][A-Za-z0-9_-]{0,31}$';
 const LANG_RE = new RegExp(LANG_PATTERN);
 
 // TypeBox schema for subtitle request.
-// When both type and lang are omitted, auto-discovery is used (two best-ranked tracks, then Whisper).
+// When both type and lang are omitted, auto-discovery is used (official → auto with -orig for YouTube → auto → Whisper).
 export const GetSubtitlesRequestSchema = Type.Object({
   url: Type.String({
     minLength: 1,
@@ -334,21 +334,19 @@ export function preferredTrackOrder(langs: string[], promote?: string | null): s
 /**
  * How many tracks auto-discovery may ask the platform for. It used to be three official
  * plus three auto, so one call could spend six requests against a caption budget that a
- * day-long 429 is measured in. The ladder alternates between the ranked official and auto
- * lists, so a video that lists both gets its best of each, and a video that lists one kind
- * gets the two best of that kind — the usual YouTube case, where only auto tracks are
- * listed. Past two it is guessing with someone else's quota, and
- * `subtitle_tracks_untried_total` counts what the guessing would have covered.
+ * day-long 429 is measured in. One of each covers a video whose official track is broken
+ * and one whose auto track is missing; past that it is guessing with someone else's quota,
+ * and `subtitle_tracks_untried_total` counts what the guessing would have covered.
  */
 const AUTO_DISCOVERY_ATTEMPTS = 2;
 
+/**
+ * Auto-discovery: try official → auto (-orig first for YouTube) → all auto → Whisper.
+ * @returns subtitle result or null if all attempts failed
+ */
 /** When set, a late Whisper result after {@link getWhisperConfig}.timeout is still written to Redis. */
 type WhisperRedisCacheInfo = { key: string; ttl: number };
 
-/**
- * Auto-discovery: the {@link AUTO_DISCOVERY_ATTEMPTS} best-ranked tracks, then Whisper.
- * @returns subtitle result or null if all attempts failed
- */
 async function downloadWithAutoDiscover(
   url: string,
   format?: SubtitleFormat,
@@ -765,7 +763,7 @@ async function handleExplicitRequestFlow(
 
 /**
  * Validates request and downloads subtitles (supported platforms or Whisper fallback).
- * When type and lang are both omitted, uses auto-discovery: two best-ranked tracks, then Whisper.
+ * When type and lang are both omitted, uses auto-discovery: official → auto (-orig for YouTube) → Whisper.
  * @param logger - Fastify logger instance for structured logging
  * @returns object with subtitle data
  * @throws ValidationError on invalid input, NotFoundError when subtitles are not available
