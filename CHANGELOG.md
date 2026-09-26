@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.9] - 2026-09-26
+
+### Fixed
+
+- `GET /changelogs` works in the REST API image. From 0.5.9, when the endpoint arrived, to 1.5.8, the image shipped without `CHANGELOG.md`, so every call answered HTTP 500, put the file's absolute path in the response body and sent an error event to Sentry. The image now carries the file. The API smoke test fails if the endpoint does not return it. The MCP image does not serve this route and is unchanged.
+- `.env.example` lists five env vars the server already read: `YT_DLP_FRAME_TIMEOUT`, `YT_DLP_JS_RUNTIMES`, `YT_DLP_REMOTE_COMPONENTS`, `YT_DLP_NO_WARNINGS` and `YT_DLP_IGNORE_NO_FORMATS`, with their defaults. Nothing about them changed. Do not set `YT_DLP_NO_WARNINGS=1`: the server reads yt-dlp warnings to classify failures, so a private, removed or bot-checked video can then look like a normal one. A test now fails when the code reads an env var that the file does not name.
+
 ## [1.5.8] - 2026-09-24
 
 ### Changed
@@ -57,7 +64,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **Auto-discovery asks for the track somebody wanted, and asks at most twice.** It used to walk up to three official languages and then three automatic ones, in alphabetical order, so a video listing `ar, de, en` spent two requests before reaching the one the caller would use, and a single call could spend six requests against a caption budget a day-long 429 is measured in. Tracks are now ranked before anything is asked for — the audio's own language first (YouTube's `-orig` track, or the language the platform reports), then English, then the rest — and the ladder stops after the best official and the best automatic track. Most videos are answered by the first request rather than the third. `subtitle_tracks_untried_total` counts every listed track the cap left unasked when the ladder came back empty: that is the upper bound on transcripts this costs, and the number to watch if callers start hearing "no subtitles" for videos that have some.
+- **Auto-discovery asks for the track somebody wanted, and asks at most twice.** It used to walk up to three official languages and then three automatic ones, in alphabetical order, so a video listing `ar, de, en` spent two requests before reaching the one the caller would use, and a single call could spend six requests against a caption budget a day-long 429 is measured in. Tracks are now ranked before anything is asked for — the audio's own language first (YouTube's `-orig` track, or the language the platform reports), then English, then the rest — and the ladder stops after two tracks: it alternates between the ranked official and automatic lists, so a video that lists both gets its best of each, and a video that lists one kind gets the two best of that kind. Most videos are answered by the first request rather than the third. `subtitle_tracks_untried_total` counts every listed track the cap left unasked when the ladder came back empty: that is the upper bound on transcripts this costs, and the number to watch if callers start hearing "no subtitles" for videos that have some.
 - **The canary does not probe when a real transcript just came back from the same platform.** The probe exists to prove the caption path still works, and it spent a request every interval whether or not the path had just proved itself. A successful transcript is the same proof, already paid for. The probe now runs only when nothing has answered for a whole interval — which is also the only time its answer is news. The gauge and the alert are unchanged: an observed success sets `transcriptor_canary_ok` exactly as a probe would, so a platform that stops answering still shows up within one interval. On the hosted server this drops the probe from 24 caption requests a day to none during any hour with traffic.
 
 ## [1.5.3] - 2026-09-22
