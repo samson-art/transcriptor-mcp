@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `YT_DLP_NO_WARNINGS=1` no longer applies to metadata runs (video info, chapters, subtitle lists). By default, the metadata run on a private, removed or bot-checked video exits 0 and names the refusal only in a warning. With the var set to 1, the server did not see that warning. `get_video_info` then returned a stub (`youtube video #<id>`) instead of an error. `get_transcript` without `lang` found no tracks and could start speech-to-text instead of answering 502 `bot_check`. Metadata runs now keep their warnings whatever the var says. The other yt-dlp runs still get `--no-warnings` when it is 1. The default (the var not set) does not change, and no yt-dlp run is added.
+
 ## [1.5.13] - 2026-09-26
 
 ### Changed
