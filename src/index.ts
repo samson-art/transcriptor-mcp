@@ -1,4 +1,4 @@
-import Fastify from 'fastify';
+import Fastify, { type preHandlerAsyncHookHandler } from 'fastify';
 import cors from '@fastify/cors';
 import rateLimit from '@fastify/rate-limit';
 import swagger from '@fastify/swagger';
@@ -93,7 +93,8 @@ const VideoChaptersResponseSchema = Type.Object({
   chapters: Type.Array(ChapterSchema),
 });
 
-// Exported so a test can inject requests; importing this module still starts the server.
+// ponytail: exported so index.test.ts can inject requests, but importing this module still starts
+// the server. If another test needs it, split out a buildRestApp() without listen(), like mcp-http.
 export const fastify = Fastify({
   loggerInstance: createLoggerWithSentryBreadcrumbs(),
 }).withTypeProvider<TypeBoxTypeProvider>();
@@ -120,40 +121,30 @@ fastify.register(rateLimit, {
 // onRoute hook and were never limited (2026-09-25). after() declares them once it has loaded.
 // Not a top-level await: ts-jest compiles to CJS, and index.test.ts imports this module.
 fastify.after(() => {
-  // Probes and scrapers must never be refused.
-  fastify.get(
-    '/health',
-    { logLevel: 'warn', config: { rateLimit: false } },
-    async (_request, reply) => {
-      return reply.code(200).send({ status: 'ok' });
-    }
-  );
-
-  fastify.get('/health/ready', async (_request, reply) => {
-    const redisOk = await cachePing();
-    if (!redisOk) {
+  // Probes and scrapers must never be refused, and a probe every few seconds must not fill the log.
+  const unlimited = { logLevel: 'warn', config: { rateLimit: false } } as const;
+  fastify.get('/health', unlimited, () => ({ status: 'ok' }));
+  fastify.get('/health/ready', unlimited, async (_request, reply) => {
+    if (!(await cachePing())) {
       return reply.code(503).send({ status: 'not ready', redis: 'unreachable' });
     }
-    return reply.code(200).send({ status: 'ready' });
+    return { status: 'ready' };
   });
-
-  fastify.get(
-    '/metrics',
-    { logLevel: 'warn', config: { rateLimit: false } },
-    async (_request, reply) => {
-      const metrics = await renderPrometheus();
-      return reply.header('Content-Type', 'text/plain; charset=utf-8').send(metrics);
-    }
+  fastify.get('/metrics', unlimited, () => renderPrometheus());
+  fastify.get('/failures', () => getFailedSubtitlesUrls());
+  fastify.get('/changelogs', async (_request, reply) =>
+    reply.header('Content-Type', 'text/markdown; charset=utf-8').send(await readChangelog())
   );
-
-  fastify.get('/failures', async (_request, reply) => {
-    return reply.code(200).send(getFailedSubtitlesUrls());
-  });
-
-  fastify.get('/changelogs', async (_request, reply) => {
-    const content = await readChangelog();
-    return reply.header('Content-Type', 'text/markdown; charset=utf-8').code(200).send(content);
-  });
+  // A path with no route is limited too. The answer is Fastify's own 404. The cast only drops our
+  // logger type: Fastify types the hooks of setNotFoundHandler for its default logger.
+  const preHandler = fastify.rateLimit() as preHandlerAsyncHookHandler;
+  fastify.setNotFoundHandler({ preHandler }, (request, reply) =>
+    reply.code(404).send({
+      message: `Route ${request.method}:${request.url} not found`,
+      error: 'Not Found',
+      statusCode: 404,
+    })
+  );
 });
 
 const requestStartTimes = new WeakMap<object, number>();
