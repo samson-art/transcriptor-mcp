@@ -61,7 +61,7 @@ gh run list --workflow publish-docker.yml --branch vX.Y.Z --limit 1 --json datab
 gh run watch <id> --exit-status
 ```
 
-`publish-docker.yml` runs the gate, builds the image, checks the `curl_cffi` impersonation targets and runs the MCP smoke test. Then it pushes both images and publishes `server.json` to the MCP Registry.
+`publish-docker.yml` runs the gate, builds the image, checks the `curl_cffi` impersonation targets and runs the MCP and API smoke tests. The API smoke fails when the image lacks `CHANGELOG.md`. Then it pushes both images and publishes `server.json` to the MCP Registry.
 
 The practice is tags only. Do not create a GitHub Release unless the maintainer asks for one.
 
