@@ -37,10 +37,15 @@ function holdMs(strikes: number): number {
   return Math.min(base * 2 ** (strikes - 1), Math.max(base, MAX_HOLD_MS));
 }
 
+/** Whether this platform's caption path is held back now. */
+export function subtitlesRateLimited(url: string): boolean {
+  const hold = holds.get(extractPlatformFromUrl(url));
+  return !!hold && Date.now() < hold.until;
+}
+
 /** Throws while this platform's caption path is held back. Call before asking it again. */
 export function assertSubtitlesNotRateLimited(url: string): void {
-  const hold = holds.get(extractPlatformFromUrl(url));
-  if (hold && Date.now() < hold.until) throw new YtDlpError('rate_limited');
+  if (subtitlesRateLimited(url)) throw new YtDlpError('rate_limited');
 }
 
 /** The platform answered 429: hold its caption path back, longer on every repeat. */
@@ -71,7 +76,10 @@ export function clearSubtitlesRateLimit(url: string): void {
   setSubtitleRateLimitStrikes(platform, 0);
 }
 
-/** When this platform last handed over a track, or 0. A real call proves what a probe would. */
+/**
+ * When this platform last handed over a track, or 0. A real call proves what a probe would.
+ * The canary's own probe sets it too, so compare it with the stamp of that probe's track.
+ */
 export function lastSubtitlesAnswered(url: string): number {
   return lastAnswered.get(extractPlatformFromUrl(url)) ?? 0;
 }
