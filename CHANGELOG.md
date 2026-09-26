@@ -15,10 +15,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - The REST metrics `http_requests_total` and `http_request_duration_seconds` put every request to a path with no route under `route="unmatched"`. Before, each path was a `route` value of its own. Each new path added about 14 series, and they stayed until a restart. A dashboard or an alert that selects such a path by its `route` value now finds nothing. Select `route="unmatched"` instead.
+- Privacy Policy 1.2 no longer describes a list of the addresses of failed subtitle requests, because the server no longer keeps one (#56). Version 1.1 said that the list stayed empty on the hosted Service while speech-to-text was off. That was not true: a subtitle request that failed at the source platform also added its address.
 
 ### Fixed
 
-- The REST API does not start when it cannot read `RATE_LIMIT_TIME_WINDOW`, and it prints why. Before, it started, and every rate-limited request answered 500. For example, `docker run --env-file` keeps the quotes of `RATE_LIMIT_TIME_WINDOW="1 minute"`. Use a number of milliseconds or a duration such as `1 minute`, without quotes. A value of zero or below is refused too. Before, zero also answered 500 on every rate-limited request, and a negative value turned the limit off.
+- The REST API does not start when it cannot read `RATE_LIMIT_TIME_WINDOW`, and it prints why. Before, it started, and every rate-limited request answered 500. For example, `docker run --env-file` keeps the quotes of `RATE_LIMIT_TIME_WINDOW="1 minute"`. Use a number of milliseconds or a duration such as `1 minute`, without quotes. A value below 1 millisecond is refused too. Before, zero also answered 500 on every rate-limited request, and a negative value or a value between 0 and 1 millisecond turned the limit off.
 
 ## [1.5.13] - 2026-09-26
 

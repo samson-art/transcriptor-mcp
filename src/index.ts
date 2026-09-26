@@ -114,11 +114,13 @@ fastify.register(cors, {
 
 // Read with the plugin's own parser, so that the start fails here. Given a value it cannot read
 // ("1 minute" with the quotes, which `docker run --env-file` keeps), the plugin answered 500 to
-// every limited request. ponytail: @lukeed/ms comes with @fastify/rate-limit and is not in
-// package.json. If the plugin drops it, tsc fails: then declare it.
+// every limited request. Below 1 ms the plugin truncates the window to 0, and 0 resets the counter
+// on every request. ponytail: @lukeed/ms is not in package.json. It resolves to the copy that npm
+// hoists for @fastify/rate-limit and @fastify/send. If one of them moves to another major of it,
+// declare it.
 const rawTimeWindow = process.env.RATE_LIMIT_TIME_WINDOW || '1 minute';
 const timeWindow = parseDuration(rawTimeWindow) ?? 0;
-if (timeWindow <= 0) {
+if (timeWindow < 1) {
   throw new Error(
     `RATE_LIMIT_TIME_WINDOW=${JSON.stringify(rawTimeWindow)} is not a time window. ` +
       'Set a number of milliseconds or a duration such as 1 minute, without quotes.'

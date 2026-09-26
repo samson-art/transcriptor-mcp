@@ -1,8 +1,8 @@
 # Privacy Policy — Transcriptor MCP (hosted service)
 
-**Version:** 1.1
-**Last updated:** September 16, 2026
-**Effective date:** September 16, 2026
+**Version:** 1.2
+**Last updated:** September 26, 2026
+**Effective date:** September 26, 2026
 
 Companion document: [Terms of Service](./TERMS_OF_SERVICE.md). "Output" has the meaning given to it in section 3 of the Terms.
 
@@ -35,8 +35,6 @@ The hosted Service keeps a response cache so that a repeated request is answered
 
 The optional Whisper audio transcription is switched off on the hosted Service, so it downloads no audio and produces no transcript of its own. If we switch it on, we will update this policy first and state the storage period.
 
-If that optional transcription is switched on, our server keeps in memory the addresses of up to the last 100 subtitle requests that failed, with the time of failure, so that we can diagnose faults. It is off on the hosted Service, so the list stays empty. The list is in memory only, it is lost when the server restarts, and no endpoint returns it: the hosted server answers only a health check, a metrics endpoint that reports counts and timings, and the MCP endpoint.
-
 We use nothing you send or receive to train any model, and we allow no provider to do so. We do no advertising, profiling or marketing.
 
 ## 5. Purposes and legal bases
@@ -63,7 +61,6 @@ Our server requests captions, metadata and frames from the source platform over 
 
 - **Output**: not kept beyond the call, except in the response cache. Temporary files are deleted at the end of the call, and at the latest when the server restarts.
 - **Response cache**: no more than 30 days per entry, then expired automatically. Entries hold Output under the video address and request parameters, with no identifier of any user.
-- **Failed-request list**: in memory only, empty while optional transcription is off, replaced after 100 entries, lost on restart.
 - **Usage records that identify you**: 45 days, then deleted automatically. Before deletion they are rolled up into daily totals per server and per tool and into counts of distinct users per day, week and month. Those totals carry no identifier and are kept for the life of the Service.
 - **Account and identity records**: kept by MCPal while your account exists, for the periods in its policy.
 - **Acceptance records, including the IP address and user-agent string captured at sign-in**: held by MCPal while your account exists and deleted with it, for the periods in its policy.

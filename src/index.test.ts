@@ -96,8 +96,9 @@ it('/metrics has its own limit of 60 a minute per address', async () => {
 });
 
 // `docker run --env-file` keeps the quotes. The plugin could not read the value, and every
-// limited request answered 500. Zero did the same, and a negative window turned the limit off.
-it.each(['"1 minute"', '0', '-1 minute'])(
+// limited request answered 500. Zero did the same. A negative window, or one below 1 ms, turned
+// the limit off.
+it.each(['"1 minute"', '0', '-1 minute', '0.5'])(
   'does not start with the time window %s',
   async (value) => {
     process.env.RATE_LIMIT_TIME_WINDOW = value;
