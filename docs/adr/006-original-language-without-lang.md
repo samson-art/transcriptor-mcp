@@ -2,7 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-09-25 (1.5.13)
-- **Sources:** issue #54, PR #55; supersedes the ladder part of [ADR 003](003-caption-request-budget.md)
+- **Sources:** issue #54, PR #55, issue #60; supersedes the ladder part of [ADR 003](003-caption-request-budget.md)
 
 ## Context
 
@@ -35,7 +35,7 @@ In `src/validation.ts`, a call without `lang` goes to auto-discovery (`downloadW
   - the official track in the original language, else the automatic one (`-orig` first);
   - with the language unknown, only a track without a rival.
 
-  If that track is already cached under its own name, no request is made. A Whisper answer stored under that name does not count: it is what a request by name fell back to, not the track. The caption hold (ADR 002) is checked only in front of a run, so a cached list and a cached track still answer during a hold.
+  If that track is already cached under its own name, no request is made. A Whisper answer stored under that name does not count: it is what a request by name fell back to, not the track. A track that brought no text is remembered for as long as the track list (`CACHE_TTL_METADATA_SECONDS`), under `sub:{url}:{type}:{lang}:{format}:empty` (#60). In that time the same call answers with the list again and makes no request. A request by name reads the same entry. The canary does not read or write it. The caption hold (ADR 002) is checked only in front of a run, so a cached list and a cached track still answer during a hold.
 
 - **The list answer.** It comes back with no track request when no track is in the original language, or when the language is unknown and there are several candidates. It also comes back when the one request returns no text: no second track, no Whisper. The text says "got no text", not "empty", because a download that failed for a reason about this video also returns nothing. The answer is a `NotFoundError` with the lists and one next step:
   - pass `type` and `lang`;
@@ -64,7 +64,7 @@ In `src/validation.ts`, a call without `lang` goes to auto-discovery (`downloadW
   - on platforms that report no language, a video with two or more tracks;
   - on YouTube, a video without automatic captions and with two or more official tracks.
 
-  Before this change the server guessed English there.
+  Before this change the server guessed English there. Off YouTube the second call reads the video id from the track list that the list answer cached, so it makes no metadata run (#60).
 
 - Off YouTube, when the metadata lists no tracks, the answer asks for `lang`. A call with a `type` gets that answer without Whisper. A call without one gets it when Whisper is off, or when Whisper ran on a server with a length ceiling. Without a ceiling, Whisper that produced nothing gets one retry, because a job that timed out may still finish. Its late answer goes under the auto-discovery keys, which a call with `lang` does not read, and that call would start a second job. Before this change the call without a `type` got "no subtitle tracks" instead.
 
@@ -78,4 +78,5 @@ In `src/validation.ts`, a call without `lang` goes to auto-discovery (`downloadW
 - Don't add a second attempt "to be safe", and don't guess a language that the listing does not name. Both are how a translation comes back as the transcript.
 - Don't let the reported language outrank a lone `-orig` track. The mark is part of the track list, so every cache entry answers the same. The reported language only settles several `-orig` tracks.
 - Don't request `live_chat` or `rechat` as subtitles, and don't send a playlist a track pattern.
+- Don't remember a track that brought no text for longer than the track list. "No text" can also be a failure about the video that passes.
 - Guarded by `an omitted lang means the original language` in `src/validation.test.ts` and in `src/mcp-core.test.ts`, by `the answer when no subtitles came back` in `src/validation.test.ts`, and by the `pickDefaultTrack` tests in `ui/shared/widgets.test.ts`.

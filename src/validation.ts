@@ -417,6 +417,26 @@ async function readSub(
 }
 
 /**
+ * Asks for one track. A track that brought no text is remembered for as long as the track list
+ * (`ttlMetadataSeconds`): the same call again would spend another caption request on it (#60).
+ * The entry does not outlive the list, because "no text" can also be a failure about the video
+ * that passes. The canary passes `skipCache`, because each probe must reach the platform.
+ */
+async function downloadTrack(
+  url: string,
+  { type, lang }: Track,
+  format: SubtitleFormat | undefined,
+  logger: FastifyBaseLogger | undefined,
+  skipCache = false
+): Promise<string | null> {
+  const noText = buildCacheKey('sub', url, type, lang, resolveSubtitleFormat(format), 'empty');
+  if (!skipCache && (await get(noText)) !== undefined) return null;
+  const content = await downloadSubtitles(url, type, lang, format, logger);
+  if (!content && !skipCache) await set(noText, '1', getCacheConfig().ttlMetadataSeconds);
+  return content;
+}
+
+/**
  * Auto-discovery: an omitted `lang` means the video's original language (ADR 006). One
  * metadata run and at most one track request. When the server cannot tell which track is in
  * that language, or that track comes back empty, the answer is the track list and the caller
@@ -448,7 +468,7 @@ async function downloadWithAutoDiscover(
         false
       );
       if (cached) return cached;
-      const content = await downloadSubtitles(url, track.type, track.lang, format, logger);
+      const content = await downloadTrack(url, track, format, logger);
       if (content && content.trim().length > 0) {
         return { videoId, ...track, subtitlesContent: content, source: platform };
       }
@@ -572,6 +592,26 @@ export function resetVideoJsonInFlight(): void {
   videoJsonInFlight.clear();
 }
 
+/** The cached track list, counted as a hit or a miss. A corrupted entry is a miss. */
+async function readCachedAvail(
+  url: string,
+  logger?: FastifyBaseLogger
+): Promise<AvailableSubtitles | undefined> {
+  const cacheKey = buildCacheKey('avail', url);
+  const cached = await get(cacheKey);
+  if (cached !== undefined) {
+    try {
+      const parsed = JSON.parse(cached) as AvailableSubtitles;
+      recordCacheHit('avail');
+      return parsed;
+    } catch (e) {
+      logger?.warn({ err: e, cacheKey }, 'Corrupted cache entry, treating as miss');
+    }
+  }
+  recordCacheMiss('avail');
+  return undefined;
+}
+
 /**
  * Reads the track list, from the cache or from one yt-dlp run. For captions that run stands
  * in front of a track request, so a held platform refuses it (ADR 002); a cached list still
@@ -582,18 +622,8 @@ async function loadAvailableSubtitles(
   logger?: FastifyBaseLogger,
   forCaptions = false
 ): Promise<AvailableSubtitles> {
-  const cacheKey = buildCacheKey('avail', url);
-  const cached = await get(cacheKey);
-  if (cached !== undefined) {
-    try {
-      const parsed = JSON.parse(cached) as AvailableSubtitles;
-      recordCacheHit('avail');
-      return withoutChatReplays(parsed);
-    } catch (e) {
-      logger?.warn({ err: e, cacheKey }, 'Corrupted cache entry, treating as miss');
-    }
-  }
-  recordCacheMiss('avail');
+  const cached = await readCachedAvail(url, logger);
+  if (cached) return withoutChatReplays(cached);
   if (forCaptions) assertSubtitlesNotRateLimited(url);
 
   const loaded = await loadVideoJson(url, logger);
@@ -795,14 +825,24 @@ async function handleExplicitRequestFlow(
   if (cached) return cached;
   assertSubtitlesNotRateLimited(url);
 
-  let subtitlesContent = await downloadSubtitles(url, type, sanitizedLang, format, logger);
+  let subtitlesContent = await downloadTrack(
+    url,
+    { type, lang: sanitizedLang },
+    format,
+    logger,
+    skipCache
+  );
   let source: string = extractPlatformFromUrl(url);
-  // A YouTube URL carries the id; anywhere else it costs one yt-dlp run, made after the
-  // track so that it never stands in front of it (that run also fills the info, track-list
-  // and chapters caches the widgets read next). The canary keeps its single run.
+  // A YouTube URL carries the id. Elsewhere the cached track list has it, for example after a
+  // list answer (#60). Without it the id costs one yt-dlp run, made after the track so that it
+  // never stands in front of it. That run also fills the info, track-list and chapters caches
+  // that the widgets read next. The canary keeps its single run.
   const videoIdFor = async (): Promise<string> =>
     extractYouTubeVideoId(url) ??
-    (skipCache ? null : await loadVideoJson(url, logger))?.info.videoId ??
+    (skipCache
+      ? undefined
+      : ((await readCachedAvail(url, logger))?.videoId ??
+        (await loadVideoJson(url, logger))?.info.videoId)) ??
     'unknown';
 
   if (!subtitlesContent) {

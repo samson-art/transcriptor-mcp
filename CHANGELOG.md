@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- A track that brought no text was not remembered, so the same call again spent one more caption request on the same track (#60). This was true with and without `lang`. The server now remembers such a track for `CACHE_TTL_METADATA_SECONDS` (1 hour by default), as long as the track list. Within that time the same call gets the same answer and sends no request. After that time the server asks for the track again, because "no text" can also be a failure that passes. With Redis caching, this adds a cache key shape: `sub:{url}:{type}:{lang}:{format}:empty`. The canary does not read or write it.
+- Off YouTube, a call that named a track after a list answer ran the metadata request again, only to get the video id (#60). It now reads the id from the track list that the list answer cached. That lookup counts in `cache_hits_total{kind="avail"}` or `cache_misses_total{kind="avail"}`.
+
 ## [1.5.13] - 2026-09-26
 
 ### Changed

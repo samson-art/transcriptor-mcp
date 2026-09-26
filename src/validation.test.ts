@@ -584,6 +584,21 @@ describe('validation', () => {
       expect(cacheSet).not.toHaveBeenCalled();
       // One probe, one yt-dlp run: the metadata JSON is for callers, not for the canary.
       expect(youtube.fetchYtDlpJson).not.toHaveBeenCalled();
+
+      // An empty probe neither reads nor writes the entry for a track with no text. Every probe
+      // must reach the platform.
+      downloadSpy.mockResolvedValue(null);
+      await validateAndDownloadSubtitles(
+        { url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ', type: 'auto', lang: 'en' } as any,
+        undefined,
+        { skipCache: true }
+      ).catch(() => null);
+      const noTextKeys = (mock: unknown): string[] =>
+        (mock as jest.Mock).mock.calls
+          .map((call: unknown[]) => String(call[0]))
+          .filter((key) => key.endsWith(':empty'));
+      expect(noTextKeys(cacheGet)).toEqual([]);
+      expect(noTextKeys(cacheSet)).toEqual([]);
     });
 
     it('keys the cache by the format the content is in and by the type, not by whether a format was named', async () => {
@@ -1666,6 +1681,60 @@ describe('an omitted lang means the original language', () => {
 
   afterEach(() => {
     (cacheGet as jest.Mock).mockReset().mockResolvedValue(undefined);
+    (cacheSet as jest.Mock).mockReset().mockResolvedValue(undefined);
+  });
+
+  /** A cache that keeps what the server stores, as Redis would within the TTL. */
+  const memoryCache = (): void => {
+    const store = new Map<string, string>();
+    (cacheSet as jest.Mock).mockImplementation((key: string, value: string) => {
+      store.set(key, value);
+      return Promise.resolve();
+    });
+    (cacheGet as jest.Mock).mockImplementation((key: string) => Promise.resolve(store.get(key)));
+  };
+
+  it.each([
+    { flow: 'without lang', request: {}, mark: 'official:en' },
+    { flow: 'by name', request: { type: 'auto', lang: 'de' }, mark: 'auto:de' },
+  ])(
+    'remembers a track that brought no text, so the same call again asks for nothing ($flow)',
+    async ({ request, mark }) => {
+      memoryCache();
+      listing(['en'], ['de', 'en', 'en-orig']);
+      const download = jest.spyOn(youtube, 'downloadSubtitles').mockResolvedValue(null);
+
+      const first = await failureOf({ url, ...request });
+      const second = await failureOf({ url, ...request });
+
+      expect(second).toBeInstanceOf(NotFoundError);
+      expect(second.message).toBe(first.message);
+      expect(download).toHaveBeenCalledTimes(1);
+      // Only as long as the track list (CACHE_TTL_METADATA_SECONDS, 3600 in this mock): a track
+      // that failed for a passing reason must not answer "no text" for a week.
+      expect(cacheSet).toHaveBeenCalledWith(
+        `sub:${url}:${mark}:srt:empty`,
+        expect.any(String),
+        3600
+      );
+    }
+  );
+
+  it('names a track off YouTube after a list answer without another metadata run', async () => {
+    memoryCache();
+    const vimeo = 'https://vimeo.com/123';
+    const metadata = listing(['de', 'fr'], []);
+    const download = jest.spyOn(youtube, 'downloadSubtitles').mockResolvedValue('WEBVTT\n\nhallo');
+
+    // No language reported and two tracks: the caller gets the list and picks one.
+    expect(await failureOf({ url: vimeo })).toMatchObject({ details: { official: ['de', 'fr'] } });
+    expect(
+      await validateAndDownloadSubtitles({ url: vimeo, type: 'official', lang: 'de' })
+    ).toMatchObject({ videoId: id, lang: 'de', subtitlesContent: 'WEBVTT\n\nhallo' });
+
+    // The video id comes from the list the first call cached, not from a second run.
+    expect(metadata).toHaveBeenCalledTimes(1);
+    expect(download).toHaveBeenCalledTimes(1);
   });
 
   it('answers an English video that lists an Arabic official track with its en-orig track, in one request', async () => {
