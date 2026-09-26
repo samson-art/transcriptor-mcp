@@ -1648,6 +1648,7 @@ describe('an omitted lang means the original language', () => {
     return line ? Number(line.split(' ').pop()) : 0;
   }
   const untried = () => counter('subtitle_tracks_untried_total{platform="youtube"');
+  const failures = () => counter('subtitles_extraction_failures_total{reason="no_subtitles"');
   /** The one track auto-discovery asks for on this listing, as [type, lang]. */
   const picked = async (official: string[], auto: string[], language?: string) => {
     listing(official, auto, language);
@@ -1767,7 +1768,6 @@ describe('an omitted lang means the original language', () => {
     (whisper.getWhisperConfig as jest.Mock).mockReturnValue({ mode: 'local', timeout: 600_000 });
     listing(['en'], ['en', 'en-orig']);
     const download = jest.spyOn(youtube, 'downloadSubtitles').mockResolvedValue(null);
-    const failures = () => counter('subtitles_extraction_failures_total{reason="no_subtitles"');
     const failuresBefore = await failures();
     const untriedBefore = await untried();
 
@@ -1849,6 +1849,11 @@ describe('an omitted lang means the original language', () => {
     const typed = (await failureOf({ url: tiktok, type: 'official' })).message;
     expect(typed).toContain('pass lang');
     expect(whisperJobs.startOrReuseWhisperJob).not.toHaveBeenCalled();
+
+    // Without a type speech-to-text runs, and here it produces nothing: that is a failure.
+    const before = await failures();
+    await failureOf({ url: tiktok });
+    expect(await failures()).toBe(before + 1);
   });
 
   it('treats chat replays as no subtitles: speech-to-text runs and the chat is never asked for', async () => {

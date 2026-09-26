@@ -23,7 +23,7 @@ Caption requests are a quota per outbound address (ADR 002).
 In `src/validation.ts`, a call without `lang` goes to auto-discovery (`downloadWithAutoDiscover`). With a `type`, only tracks of that type are candidates.
 
 - **The track list.** `loadAvailableSubtitles` drops chat replays (`CHAT_REPLAYS`) on read, so every reader gets the same list: auto-discovery, `get_available_subtitles`, the REST list and the "no subtitles" hint. It also covers lists cached before this change.
-- **No tracks at all.** Whisper runs if it is enabled, since it hears the original language by itself. Its answer goes under the auto-discovery key of every type, so a call with or without a `type` reads it. Without Whisper, YouTube answers "no subtitle tracks". Off YouTube an empty list proves nothing (TikTok, Bilibili and Reddit list tracks only to a request that names one), so the answer asks for `lang`, and a call that gives a `type` does not start Whisper.
+- **No tracks at all.** Whisper runs if it is enabled, since it hears the original language by itself. Its answer goes under the auto-discovery key of every type, so a call with or without a `type` reads it. Without Whisper, YouTube answers "no subtitle tracks". Off YouTube an empty list proves nothing (TikTok, Bilibili and Reddit list tracks only to a request that names one), so the answer asks for `lang`, and a call that gives a `type` does not start Whisper. One exception: Whisper ran on a server without a length ceiling and produced nothing. Then the answer offers one retry, because a job that timed out may still finish.
 - **The original language** comes from `originalLanguage`:
   - a lone `-orig` track names it;
   - several `-orig` tracks (a dubbed video) are settled by the language the platform reports; with nothing to settle them, the language is unknown;
@@ -66,7 +66,7 @@ In `src/validation.ts`, a call without `lang` goes to auto-discovery (`downloadW
 
   Before this change the server guessed English there.
 
-- Off YouTube, when the metadata lists no tracks, the answer asks for `lang`. A call with a `type` gets that answer without Whisper. A call without one gets it when Whisper is off or produced nothing. Before this change the call without a `type` got "no subtitle tracks" instead.
+- Off YouTube, when the metadata lists no tracks, the answer asks for `lang`. A call with a `type` gets that answer without Whisper. A call without one gets it when Whisper is off, or when Whisper ran on a server with a length ceiling. Without a ceiling, Whisper that produced nothing gets one retry, because a job that timed out may still finish. Its late answer goes under the auto-discovery keys, which a call with `lang` does not read, and that call would start a second job. Before this change the call without a `type` got "no subtitle tracks" instead.
 
 - `type` without `lang` on YouTube now pays the metadata run that auto-discovery always paid.
 - `subtitles_extraction_failures_total{reason="no_subtitles"}` counts a failure only when Whisper actually ran. List answers show as `not_found` in the per-call log line.
