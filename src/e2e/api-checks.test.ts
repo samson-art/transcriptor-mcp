@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 
 import { runApiSmokeTest } from './api-checks.js';
 
@@ -84,9 +84,15 @@ describe('runApiSmokeTest', () => {
 describe('publish-docker.yml', () => {
   it('runs the API smoke with the transcript skipped before it pushes the API image', () => {
     const workflow = readFileSync('.github/workflows/publish-docker.yml', 'utf-8');
-    const smoke = workflow.split('\n').find((line) => line.includes('npm run test:e2e:api'));
+    const smoke = workflow.split('- name: ').find((step) => step.includes('npm run test:e2e:api'));
 
     expect(smoke).toContain('SMOKE_SKIP_TRANSCRIPT=1');
+    // Without these two, docker pulls the published :latest images and tests those instead.
+    expect(smoke).toContain('SMOKE_IMAGE_API=transcriptor-mcp-api:smoke');
+    expect(smoke).toContain('SMOKE_SKIP_MCP=1');
+    // Older tags would call YouTube. If the guarded file is renamed, the smoke silently never runs.
+    expect(smoke).toContain("if: hashFiles('src/e2e/api-checks.ts') != ''");
+    expect(existsSync('src/e2e/api-checks.ts')).toBe(true);
     expect(workflow.indexOf('npm run test:e2e:api')).toBeLessThan(
       workflow.indexOf('name: Build and push REST API image')
     );

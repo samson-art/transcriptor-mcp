@@ -166,7 +166,11 @@ jobs:
           tags: transcriptor-mcp-api:smoke
 
       # /changelogs must return this checkout's CHANGELOG.md, so an image without the file fails here.
+      # A dispatch can check out an older tag. Tags without api-checks.ts ignore SMOKE_SKIP_TRANSCRIPT
+      # and would call YouTube, so this step skips them.
+      # ponytail: drop the if once no tag that a dispatch can rebuild is older than api-checks.ts.
       - name: API smoke (/docs, /changelogs; no YouTube)
+        if: hashFiles('src/e2e/api-checks.ts') != ''
         run: SMOKE_SKIP_BUILD=1 SMOKE_SKIP_MCP=1 SMOKE_SKIP_TRANSCRIPT=1 SMOKE_IMAGE_API=transcriptor-mcp-api:smoke npm run test:e2e:api
 
       - name: Build and push REST API image
