@@ -655,7 +655,7 @@ async function throwNoSubtitlesError(opts: {
     : (opts.why ?? 'No subtitles could be downloaded for this video.');
 
   // A length ceiling means the job will never run for this video again, so the useful next
-  // step is a different track rather than another wait — that is what the ladder below reads.
+  // step is a different track rather than another wait. The next step below reads it.
   const whisperCeiling = parseIntEnv('WHISPER_MAX_DURATION_SECONDS', 0);
   // Enabled but not run says nothing: speech-to-text neither failed nor is it the way forward.
   const verdict =
