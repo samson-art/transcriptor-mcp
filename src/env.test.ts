@@ -59,7 +59,8 @@ describe('parseIntEnv', () => {
 
 describe('.env.example', () => {
   // Nothing compared the file with the code, and five variables went missing until 1.5.9.
-  it('mentions every env var that non-test src/ reads', () => {
+  // A name only inside another entry's comment does not count: it needs its own `NAME=` line.
+  it('has an entry line for every env var that non-test src/ reads', () => {
     const example = readFileSync('.env.example', 'utf-8');
     const names = new Set<string>();
     for (const file of readdirSync('src', { recursive: true }) as string[]) {
@@ -71,6 +72,8 @@ describe('.env.example', () => {
     }
 
     expect([...names]).toEqual(expect.arrayContaining(['YT_DLP_NO_WARNINGS', 'YT_DLP_TIMEOUT']));
-    expect([...names].filter((name) => !new RegExp(`\\b${name}\\b`).test(example))).toEqual([]);
+    expect([...names].filter((name) => !new RegExp(`^#? *${name}=`, 'm').test(example))).toEqual(
+      []
+    );
   });
 });
