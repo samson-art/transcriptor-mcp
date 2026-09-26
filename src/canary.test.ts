@@ -238,6 +238,17 @@ describe('canary', () => {
       expect(validateAndDownloadSubtitlesMock).toHaveBeenCalledTimes(1);
     });
 
+    it('stands down for a real track that comes back after its own delivered probe', async () => {
+      process.env.CANARY_INTERVAL_MS = '1000';
+
+      startCanary(createLogger() as any);
+      await jest.advanceTimersByTimeAsync(500);
+      clearSubtitlesRateLimit(CANARY_URL);
+      await jest.advanceTimersByTimeAsync(500);
+
+      expect(validateAndDownloadSubtitlesMock).toHaveBeenCalledTimes(1);
+    });
+
     it('stays off when the interval is 0', () => {
       process.env.CANARY_INTERVAL_MS = '0';
 
