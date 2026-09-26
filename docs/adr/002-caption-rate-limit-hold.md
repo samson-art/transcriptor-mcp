@@ -34,6 +34,7 @@ From 1.5.2 to 1.5.7, a refusal counted as a repeat strike only under one conditi
 
 - During a ban the server sends one wave of caption requests per hold: normally one yt-dlp run, from a caller or from the canary. Concurrent calls at expiry, a playlist run, or yt-dlp's own retries can send more than one request.
 - A refused call costs milliseconds and no platform request.
+- A refused call sends no Sentry event. The 429 that started the hold sent one (#57). `src/instrument.test.ts` guards this.
 - Alerts use strikes ≥ 2 instead of firing on each 429. A restart resets the count, so such an alert also resolves on restart.
 - The limit can lift sooner, but uncached transcripts on a held platform still fail for up to an hour.
 

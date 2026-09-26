@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- A caption hold no longer sends one Sentry event per call. During a hold ([ADR 002](docs/adr/002-caption-rate-limit-hold.md)), the server answers each call that misses the cache with a 502 and sends no request to the platform. Each of these answers sent an error event, so 50 calls during one hold sent 50 events. A burst of such calls can use up the Sentry quota. Now these answers send no event. The 429 of a platform run that starts a hold still sends one event. Callers get the same 502 and text, and the metrics and the "MCP tool call" log line do not change.
+- A REST 5xx event in Sentry now has the `route` tag and the video URL (`requestUrl` in the `request` context). Sentry's Fastify integration comes with tracing, which is on by default (`SENTRY_TRACES_SAMPLE_RATE=0.1`). It sent the error first, marked unhandled, before the REST error handler ran. Sentry then dropped the report of the error handler as a duplicate, and with it the tag and the context. The integration now only traces, and the error handler sends the one event. The MCP HTTP server works the same way for a 5xx outside a tool call. These events are now marked handled, so a Sentry filter on unhandled errors no longer shows them.
+
 ## [1.5.13] - 2026-09-26
 
 ### Changed
