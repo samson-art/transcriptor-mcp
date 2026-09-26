@@ -53,6 +53,8 @@ COPY package*.json ./
 RUN /usr/local/bin/npm ci --omit=dev --ignore-scripts && /usr/local/bin/npm cache clean --force
 
 COPY --from=builder /app/dist ./dist
+# GET /changelogs reads it from the working directory.
+COPY CHANGELOG.md ./
 
 EXPOSE 3000
 
