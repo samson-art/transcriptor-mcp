@@ -403,10 +403,10 @@ function toolError(message: string): ToolErrorResult {
 const TRACK_HINT_LIMIT = 15;
 
 /**
- * The codes the caller can actually ask for, appended to a "no subtitles" answer. Ranked
- * by the same rule auto-discovery uses, with the language of the track that just came back
- * without text in the place the spoken language takes there. That track itself goes last,
- * under both of its names (`en` and `en-orig`): asking for it again gets the same nothing.
+ * The codes the caller can actually ask for, appended to a "no subtitles" answer: `-orig`
+ * first, then the language of the track that just came back without text, then English.
+ * That track itself goes last, under both of its names (`en` and `en-orig`): asking for it
+ * again gets the same nothing.
  */
 function trackHint(details?: NotFoundDetails): string {
   const official = details?.official ?? [];
@@ -1339,11 +1339,7 @@ export function createMcpServer(opts?: CreateMcpServerOptions) {
         // This URI cannot carry type or lang: where the answer asks for them, name the tracks
         // and the tool that takes them. Next to any other step it would be a second one.
         if (err instanceof NotFoundError && err.message.endsWith(LIST_ANSWER_STEP)) {
-          throw new NotFoundError(
-            `${err.message}${trackHint(err.details)} This resource takes no type or lang; get_transcript does.`,
-            err.errorLabel,
-            err.details
-          );
+          err.message += `${trackHint(err.details)} This resource takes no type or lang; get_transcript does.`;
         }
         throw err;
       });

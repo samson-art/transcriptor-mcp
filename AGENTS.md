@@ -39,7 +39,7 @@ For anything else that fits in one sentence, edit, run the gate and open the PR.
 
 ## Rules that are easy to break
 
-- Caption requests use a quota per outbound IP. Limits last from hours to a day. Every extra caption request (a retry, another track, a probe, a metadata run in front of the track) makes a limit last longer. Do not add retries or fan-out on the caption path. See [ADR 002](docs/adr/002-caption-rate-limit-hold.md) and [ADR 003](docs/adr/003-caption-request-budget.md).
+- Caption requests use a quota per outbound IP. Limits last from hours to a day. Every extra caption request (a retry, another track, a probe, a metadata run in front of the track) makes a limit last longer. Do not add retries or fan-out on the caption path. See [ADR 002](docs/adr/002-caption-rate-limit-hold.md), [ADR 003](docs/adr/003-caption-request-budget.md) and [ADR 006](docs/adr/006-original-language-without-lang.md) (one track request without `lang`).
 - Tracks come through yt-dlp only. Node never fetches them ([ADR 005](docs/adr/005-captions-via-yt-dlp-only.md)).
 - Every `yt-dlp`/`ffmpeg` run that reaches a platform goes through `execFileAsync` in `src/youtube.ts`. It enforces the process cap and queue, and it throws `ServerBusyError` (503) above them. Two exceptions are deliberate. The local `ffprobe` length probe skips the queue, because a full queue made short videos read as "too long" (1.5.0). The startup `yt-dlp --version` check in `src/yt-dlp-check.ts` has its own `execFileAsync`.
 - Never give `COOKIES_FILE_PATH` itself to yt-dlp. Pass a copy from `copyCookiesFile` ([ADR 004](docs/adr/004-private-cookies-copy.md)).

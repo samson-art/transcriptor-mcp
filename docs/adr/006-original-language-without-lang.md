@@ -16,7 +16,7 @@ What the platforms give (yt-dlp 2026.03.13, in the server's metadata run: `--dum
 - **Other platforms** key tracks their own way: Facebook by locale (`en_US`), Vimeo lists its automatic track as the official `en-x-autogen`, Dailymotion and VK by language code. They almost never report a language. TikTok, Bilibili and Reddit list their tracks only when subtitles are requested (yt-dlp's `extract_subtitles`), so the metadata run sees none.
 - **Chat replays** appear among the subtitles: Twitch lists `rechat` and YouTube live replays list `live_chat`.
 
-Caption requests are a quota per outbound address (ADR 002). A second guess costs a request and can still be a translation.
+Caption requests are a quota per outbound address (ADR 002).
 
 ## Decision
 
@@ -44,7 +44,7 @@ In `src/validation.ts`, a call without `lang` goes to auto-discovery (`downloadW
   `subtitle_tracks_untried_total` counts the candidates it did not request.
 
 - **Explicit requests.** A `lang` without a `type` still means `auto`, and the service layer fills it in, so its "no subtitles" answer can say so. `resolveSubtitleArgs` in `src/mcp-core.ts` passes `type` and `lang` on as given. When a named track is missing, the answer suggests omitting `type` and `lang` only where auto-discovery would pick another track, not the same one under its other name. A `lang` that names a chat replay is refused before any run.
-- **Playlists** (`get_playlist_transcripts`) need a `lang`. Without one, or with one the server cannot use, the call is refused before any run. A single run cannot pick each video's original language, and the pattern `.*-orig` requests every audio track of a dubbed video.
+- **Playlists** (`get_playlist_transcripts`) need a `lang`. Without one, or with one the server cannot use, the call is refused before any run.
 - **The transcript resource** (`transcriptor://transcript/{videoId}`) cannot carry `type` or `lang`. Its list answer names the tracks and points to `get_transcript`.
 - **Widgets.** `pickDefaultTrack` in `ui/shared/subtitleTracks.ts` repeats the part of the rule the track list shows: a lone `-orig` and the official track in its language. It never sees the reported language. Where it cannot tell, it still shows a track (English first, and the `-orig` name of a speech track before the plain one), because the `get_video_info` and `search_videos` widgets have a picker.
 
@@ -68,9 +68,7 @@ In `src/validation.ts`, a call without `lang` goes to auto-discovery (`downloadW
   Before this change the server guessed English there.
 
 - `type` without `lang` on YouTube now pays the metadata run that auto-discovery always paid.
-- `get_available_subtitles` and the REST list no longer show chat replays.
-- `get_playlist_transcripts` without `lang` is an error.
-- `subtitles_extraction_failures_total{reason="no_subtitles"}` counts a failure only when Whisper actually ran. List answers show up in `subtitle_tracks_untried_total` and as `not_found` in the per-call log line.
+- `subtitles_extraction_failures_total{reason="no_subtitles"}` counts a failure only when Whisper actually ran. List answers show as `not_found` in the per-call log line.
 - Answers cached under the auto-discovery key before this change are served until they expire (`CACHE_TTL_SUBTITLES_SECONDS`). Track lists cached before it have no reported language until they expire (`CACHE_TTL_METADATA_SECONDS`).
 
 ## Don't

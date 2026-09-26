@@ -1,5 +1,5 @@
 import { formatDuration, isYouTubePage, pageFromInput, watchUrlAt } from './format';
-import { pickDefaultTrack } from './subtitleTracks';
+import { pickDefaultTrack, type AvailableSubtitleTracks } from './subtitleTracks';
 import { videoInfoToMeta, type VideoInfoData } from './videoInfo';
 
 const reel = 'https://www.instagram.com/reel/DdZsSYXxBqd/';
@@ -55,50 +55,22 @@ describe('pickDefaultTrack', () => {
     expect(pickDefaultTrack(none, null)).toBeNull();
   });
 
-  it("shows the video's original language, not the first official track (#54)", () => {
-    expect(pickDefaultTrack({ official: ['ar'], auto: ['ar', 'en', 'en-orig'] })).toEqual({
-      type: 'auto',
-      lang: 'en-orig',
-    });
-    expect(pickDefaultTrack({ official: ['ar', 'en'], auto: ['en', 'en-orig'] })).toEqual({
-      type: 'official',
-      lang: 'en',
-    });
-  });
-
-  it('falls back to English, then the first track, where the server would ask the caller', () => {
-    expect(pickDefaultTrack({ official: ['ar', 'en_US'], auto: [] })).toEqual({
-      type: 'official',
-      lang: 'en_US',
-    });
-    expect(pickDefaultTrack({ official: ['de', 'fr'], auto: [] })).toEqual({
-      type: 'official',
-      lang: 'de',
-    });
-  });
-
-  it('does not take one of several -orig tracks for the original on a dubbed video', () => {
-    expect(
-      pickDefaultTrack({ official: ['ar', 'en'], auto: ['ar-orig', 'de-orig', 'en-orig'] })
-    ).toEqual({ type: 'official', lang: 'en' });
-    expect(pickDefaultTrack({ official: [], auto: ['ar-orig', 'es-orig'] })).toEqual({
-      type: 'auto',
-      lang: 'ar-orig',
-    });
-  });
-
-  it('prefers the -orig name of a speech track, as the server does, when it guesses', () => {
-    // On YouTube a plain code also gathers translations into that language from every
-    // dubbed audio track; the -orig one is the speech itself.
-    const dubbed = ['ar', 'ar-orig', 'en', 'en-orig', 'es', 'es-orig'];
-    expect(pickDefaultTrack({ official: [], auto: dubbed })).toEqual({
-      type: 'auto',
-      lang: 'en-orig',
-    });
-    expect(pickDefaultTrack({ official: [], auto: ['ar', 'ar-orig', 'es', 'es-orig'] })).toEqual({
-      type: 'auto',
-      lang: 'ar-orig',
-    });
+  it.each<[AvailableSubtitleTracks, 'official' | 'auto', string]>([
+    // A lone -orig track names the original language, and its official track comes first (#54).
+    [{ official: ['ar'], auto: ['ar', 'en', 'en-orig'] }, 'auto', 'en-orig'],
+    [{ official: ['ar', 'en'], auto: ['en', 'en-orig'] }, 'official', 'en'],
+    // Where the server would ask the caller: English first, then the first track.
+    [{ official: ['ar', 'en_US'], auto: [] }, 'official', 'en_US'],
+    [{ official: ['de', 'fr'], auto: [] }, 'official', 'de'],
+    // Several -orig tracks on a dubbed video name no original language.
+    [{ official: ['ar', 'en'], auto: ['ar-orig', 'de-orig', 'en-orig'] }, 'official', 'en'],
+    [{ official: [], auto: ['ar-orig', 'es-orig'] }, 'auto', 'ar-orig'],
+    // A guess takes the -orig name of a speech track, as the server does: on YouTube a plain
+    // code also gathers translations into that language from every dubbed audio track.
+    [{ official: [], auto: ['ar', 'ar-orig', 'en', 'en-orig', 'es', 'es-orig'] }, 'auto', 'en-orig'],
+    [{ official: [], auto: ['ar', 'ar-orig', 'es', 'es-orig'] }, 'auto', 'ar-orig'],
+  ])('picks from %j the %s track %s', (available, type, lang) => {
+    expect(pickDefaultTrack(available)).toEqual({ type, lang });
   });
 });
 

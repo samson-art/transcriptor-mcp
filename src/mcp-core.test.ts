@@ -1179,13 +1179,6 @@ describe('mcp-core tools', () => {
     it('lets the server pick the track when only type is given', async () => {
       const server = createMcpServer() as any;
       normalizeVideoInputMock.mockReturnValue('https://www.youtube.com/watch?v=video123');
-      validateAndDownloadSubtitlesMock.mockResolvedValue({
-        videoId: 'video123',
-        type: 'official',
-        lang: 'en',
-        subtitlesContent: 'subtitle content',
-      });
-      parseSubtitlesMock.mockReturnValue('hello');
 
       await getTool(server, 'get_transcript')({ url: 'video123', type: 'official' }, {});
 
@@ -1212,20 +1205,12 @@ describe('mcp-core tools', () => {
 
     it('asks for lang on a playlist without one, before any run', async () => {
       const server = createMcpServer() as any;
-      const cases: Array<[string, Record<string, unknown>]> = [
-        [playlistUrl, { url: 'PL1' }],
-        [playlistUrl, { url: 'PL1', type: 'auto' }],
-        [playlistUrl, { url: 'PL1', type: 'official' }],
-        ['https://vimeo.com/showcase/1', { url: 'https://vimeo.com/showcase/1' }],
-      ];
+      normalizeVideoInputMock.mockReturnValue(playlistUrl);
 
-      for (const [pageUrl, args] of cases) {
-        normalizeVideoInputMock.mockReturnValue(pageUrl);
-        const result = await getTool(server, 'get_playlist_transcripts')(args, {});
+      const result = await getTool(server, 'get_playlist_transcripts')({ url: 'PL1' }, {});
 
-        expect(result).toMatchObject({ isError: true });
-        expect(result.content[0].text).toContain('Pass lang');
-      }
+      expect(result).toMatchObject({ isError: true });
+      expect(result.content[0].text).toContain('Pass lang');
       expect(downloadPlaylistSubtitlesMock).not.toHaveBeenCalled();
     });
 

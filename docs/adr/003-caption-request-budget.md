@@ -1,4 +1,4 @@
-# 003. Auto-discovery asks for at most two ranked tracks, and the canary stands down while real traffic proves the path
+# 003. Auto-discovery asks for at most two ranked tracks (superseded by 006), and the canary stands down while real traffic proves the path
 
 - Status: Accepted. The ladder part is superseded by [006](006-original-language-without-lang.md): one track request, or the track list. The canary part stands.
 - Date: 2026-09-22 (1.5.4)
@@ -12,7 +12,7 @@ Caption requests are a budget measured per outbound address (ADR 002), and befor
 
 In `src/validation.ts`:
 
-- `preferredTrackOrder` ranks tracks before any request: an `-orig` track first, then the language the platform reports, then English, then the rest. The same ranking drives the "no subtitles" next-step suggestion in `src/mcp-core.ts`.
+- *(Superseded by ADR 006. The ranking now only orders the hint and puts `-orig` before its twin.)* `preferredTrackOrder` ranks tracks before any request: an `-orig` track first, then the language the platform reports, then English, then the rest. The same ranking drives the "no subtitles" next-step suggestion in `src/mcp-core.ts`.
 - *(Superseded by ADR 006.)* The ladder (the ordered list of track requests) asks for at most `AUTO_DISCOVERY_ATTEMPTS = 2` tracks. This is a module constant, not an env var. It alternates between the ranked official and automatic lists. When a video lists only one kind, it asks for the two best of that kind.
 - *(Superseded by ADR 006.)* `subtitle_tracks_untried_total{platform}` counts the tracks that the cap left unasked. It counts them only for a ladder that came back empty.
 
@@ -22,7 +22,7 @@ If any track from the platform of the canary URL came back within the last `CANA
 
 - The old ladder, 3 official then 3 automatic. Up to six requests per call.
 - Try every listed track (reconstructed, not recorded).
-- Make the cap configurable (reconstructed). It stays a constant. PR #39 names it as the dial to turn in one case: `no_subtitles` failures climb together with the untried count.
+- *(Superseded by ADR 006.)* Make the cap configurable (reconstructed). It stays a constant. PR #39 names it as the dial to turn in one case: `no_subtitles` failures climb together with the untried count.
 - An unconditional canary on its own schedule, as before 1.5.4.
 
 ## Consequences
@@ -32,6 +32,6 @@ If any track from the platform of the canary URL came back within the last `CANA
 
 ## Do not
 
-- Do not raise the cap or walk every track in answer to one "no subtitles for a video that has some" report. Look at the untried metric first.
-- Do not drop the ranking "to keep the platform order", or make the canary always probe "to be safe". Both spend caption quota.
+- *(Superseded by ADR 006.)* Do not raise the cap or walk every track in answer to one "no subtitles for a video that has some" report. Look at the untried metric first.
+- Do not make the canary always probe "to be safe". It spends caption quota. (The rule about the ranking is superseded by ADR 006.)
 - Guarded by `src/canary.test.ts`. The ladder tests went with the ladder (ADR 006).

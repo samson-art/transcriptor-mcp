@@ -164,7 +164,7 @@ export function classifyYtDlpFailure(d: {
 /**
  * Turns an infrastructure-class failure into a typed error so it stops being
  * reported as "no subtitles". Benign classes return, keeping the caller's
- * existing null semantics (auto-discovery fan-out, Whisper leg).
+ * existing null semantics (auto-discovery's list answer, Whisper leg).
  */
 function rethrowInfra(error: unknown): void {
   if (error instanceof HttpError) throw error;
