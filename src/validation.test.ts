@@ -37,8 +37,8 @@ jest.mock('./cache.js', () => ({
 }));
 
 beforeEach(() => {
-  // Tests change these mocks. restoreAllMocks in afterEach restores only spies, so without
-  // this reset the result of a test depended on the order of the tests.
+  // restoreAllMocks in afterEach restores only spies. Without this reset, a mock that one test
+  // changes stays changed for the next test, and results depend on test order.
   jest.resetAllMocks();
   (whisper.getWhisperConfig as jest.Mock).mockReturnValue({ mode: 'off', timeout: 600_000 });
   (getCacheConfig as jest.Mock).mockReturnValue({
@@ -1468,7 +1468,6 @@ describe('the answer when no subtitles came back', () => {
     /Do not repeat the same call|Do not retry|You may retry the same call once in a few minutes|To try a track auto-discovery skipped|Omit type and lang to let the server choose|Pass a type and lang the video actually has/g;
 
   beforeEach(() => {
-    (whisper.getWhisperConfig as jest.Mock).mockReturnValue({ mode: 'off' });
     (whisperJobs.startOrReuseWhisperJob as jest.Mock).mockResolvedValue(null);
   });
 
