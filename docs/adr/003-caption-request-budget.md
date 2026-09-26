@@ -16,7 +16,7 @@ In `src/validation.ts`:
 - The ladder (the ordered list of track requests) asks for at most `AUTO_DISCOVERY_ATTEMPTS = 2` tracks. This is a module constant, not an env var. It alternates between the ranked official and automatic lists. When a video lists only one kind, it asks for the two best of that kind.
 - `subtitle_tracks_untried_total{platform}` counts the tracks that the cap left unasked. It counts them only for a ladder that came back empty.
 
-In `src/canary.ts`, a tick is skipped when a track from the canary URL's platform came back within the last `CANARY_INTERVAL_MS`. That track must be newer than the track of the last probe that returned one. During a 429 hold (ADR 002) no tick is skipped, and the probe stops at the hold with no request. A skipped tick counts as a success: it sets `transcriptor_canary_ok` to 1, ends a failure streak, and reports the recovery the same way a probe does.
+In `src/canary.ts`, a tick is skipped when a track from the canary URL's platform came back within the last `CANARY_INTERVAL_MS`. That track must be newer than the track of the last probe that returned one. After a 429 (ADR 002), no tick is skipped until a track comes back. During the hold the probe stops at the hold with no request. After the hold the probe asks the platform. A skipped tick counts as a success: it sets `transcriptor_canary_ok` to 1, ends a failure streak, and reports the recovery the same way a probe does.
 
 ## Alternatives
 
@@ -29,7 +29,7 @@ In `src/canary.ts`, a tick is skipped when a track from the canary URL's platfor
 
 - Other tracks can be listed, but a video whose two best tracks both fail still answers "no subtitles". It can then fall back to Whisper. The "no subtitles" text states the cap. To see the cost, compare `subtitle_tracks_untried_total` with the "no subtitles" answers. `subtitles_extraction_failures_total{reason="no_subtitles"}` counts them only for a `WHISPER_MODE` other than `off`. With Whisper off (the default), use the `not_found` outcome of `get_transcript` in the per-call log line or in `mcp_tool_errors_total`.
 - The canary makes no caption requests while real traffic keeps returning tracks. An idle server probes once per interval: 96 times a day at the default 15 minutes, 24 at one hour.
-- A track from a real call that comes back while a probe returns its own is taken for the probe's own. The next tick may then probe once more than it had to. A probe that fails, or stops at a busy server or a hold, hides no real track.
+- A track from a real call that comes back while a probe runs to success is taken for the probe's own. When Whisper answers the probe, the run includes the whole transcription. The next tick may then probe once more than it had to. A probe that fails, or stops at a busy server or a hold, hides no real track.
 
 ## Do not
 

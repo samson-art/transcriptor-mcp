@@ -37,15 +37,15 @@ function holdMs(strikes: number): number {
   return Math.min(base * 2 ** (strikes - 1), Math.max(base, MAX_HOLD_MS));
 }
 
-/** Whether this platform's caption path is held back now. */
-export function subtitlesRateLimited(url: string): boolean {
-  const hold = holds.get(extractPlatformFromUrl(url));
-  return !!hold && Date.now() < hold.until;
-}
-
 /** Throws while this platform's caption path is held back. Call before asking it again. */
 export function assertSubtitlesNotRateLimited(url: string): void {
-  if (subtitlesRateLimited(url)) throw new YtDlpError('rate_limited');
+  const hold = holds.get(extractPlatformFromUrl(url));
+  if (hold && Date.now() < hold.until) throw new YtDlpError('rate_limited');
+}
+
+/** Whether this platform answered 429 since its last track. Only a track clears a hold. */
+export function subtitlesRefusedSinceTrack(url: string): boolean {
+  return holds.has(extractPlatformFromUrl(url));
 }
 
 /** The platform answered 429: hold its caption path back, longer on every repeat. */

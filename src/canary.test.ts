@@ -47,6 +47,10 @@ describe('canary', () => {
     delete process.env.CANARY_URL;
   });
 
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
   describe('runCanary', () => {
     it('does not probe when a real call just came back from the platform', async () => {
       // The probe exists to prove the caption path works. A transcript that came back
@@ -68,25 +72,35 @@ describe('canary', () => {
       expect(validateAndDownloadSubtitlesMock).not.toHaveBeenCalled();
     });
 
-    it('does not stand down while the platform holds its caption path back', async () => {
-      // A track from before the 429 proves nothing now. The probe stops at the hold,
-      // with no request.
+    it('does not stand down after a 429 until a track comes back', async () => {
+      // A track from before the 429 proves nothing, during the hold or after it. During the
+      // hold the probe stops at the hold, with no request.
+      jest.useFakeTimers();
+      const logger = createLogger();
+      validateAndDownloadSubtitlesMock.mockRejectedValue(new YtDlpError('rate_limited'));
+      await runCanary(logger as any);
+      await runCanary(logger as any);
+      captureMessageMock.mockClear();
       clearSubtitlesRateLimit(CANARY_URL);
       noteSubtitlesRateLimited(CANARY_URL);
-      validateAndDownloadSubtitlesMock.mockRejectedValue(new YtDlpError('rate_limited'));
 
-      await runCanary(createLogger() as any);
+      await runCanary(logger as any);
+      // Past the 10-minute hold, inside the 15-minute interval.
+      jest.advanceTimersByTime(11 * 60 * 1000);
+      await runCanary(logger as any);
 
-      expect(validateAndDownloadSubtitlesMock).toHaveBeenCalled();
+      expect(validateAndDownloadSubtitlesMock).toHaveBeenCalledTimes(4);
+      expect(captureMessageMock).not.toHaveBeenCalled();
       expect(await renderPrometheus()).toMatch(/^transcriptor_canary_ok\{[^}]*\} 0$/m);
     });
 
     it('probes again once nothing has answered for a whole interval', async () => {
+      jest.useFakeTimers();
       process.env.CANARY_INTERVAL_MS = '1';
       clearSubtitlesRateLimit(CANARY_URL);
       validateAndDownloadSubtitlesMock.mockResolvedValue({ subtitlesContent: 'hello' });
 
-      await new Promise((resolve) => setTimeout(resolve, 5));
+      jest.advanceTimersByTime(1);
       await runCanary(createLogger() as any);
 
       expect(validateAndDownloadSubtitlesMock).toHaveBeenCalled();
@@ -205,10 +219,6 @@ describe('canary', () => {
         clearSubtitlesRateLimit(url);
         return { subtitlesContent: 'hello' };
       });
-    });
-
-    afterEach(() => {
-      jest.useRealTimers();
     });
 
     it('probes once per interval when nothing else answers', async () => {
