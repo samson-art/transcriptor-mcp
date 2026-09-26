@@ -71,6 +71,8 @@ it('limits every other route', async () => {
       const remoteAddress = `10.1.0.${seen.length}`;
       const res = await app.inject({ method, url, remoteAddress });
       seen.push(`${method} ${url}`);
+      // The not-found handler is limited too: a 404 means the URL missed its route.
+      expect(`${method} ${url} ${res.statusCode}`).not.toMatch(/ 404$/);
       expect(`${method} ${url} ${res.headers['x-ratelimit-limit']}`).toBe(
         `${method} ${url} ${MAX}`
       );
