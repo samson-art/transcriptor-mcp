@@ -6,7 +6,7 @@ import { createRoot } from 'react-dom/client';
 import { AppShell } from '@shared/AppShell';
 import { isYouTubePage, pageFromInput, watchUrlAt } from '@shared/format';
 import { notifyHostAboutResize } from '@shared/resize';
-import type { SubtitleTrack } from '@shared/subtitleTracks';
+import { parseToolError, type SubtitleTrack, type ToolError } from '@shared/subtitleTracks';
 import { SubtitlesPanel } from '@shared/SubtitlesPanel';
 import { styles } from '@shared/styles';
 import type { VideoMeta } from '@shared/types';
@@ -55,6 +55,7 @@ function TranscriptApp() {
   const [video, setVideo] = useState<VideoMeta | null>(null);
   const [preferredTrack, setPreferredTrack] = useState<SubtitleTrack | null>(null);
   const [status, setStatus] = useState<'waiting' | 'ready'>('waiting');
+  const [failure, setFailure] = useState<ToolError | null>(null);
   const [appRef, setAppRef] = useState<App | null>(null);
 
   // The url the model passed to the tool, set by `ontoolinput` and read from the
@@ -134,6 +135,14 @@ function TranscriptApp() {
         }
       };
       createdApp.ontoolresult = (result) => {
+        // An error has only text: without this, the card stayed empty (#62).
+        const failed = parseToolError(result);
+        setFailure(failed);
+        if (failed) {
+          setStatus('ready');
+          return;
+        }
+
         const structured = result.structuredContent as Record<string, unknown> | undefined;
         if (structured?.results) return;
 
@@ -165,7 +174,14 @@ function TranscriptApp() {
 
   useEffect(() => {
     notifyHostAboutResize();
-  }, [video, subtitles.cuesStatus, subtitles.cues.length, subtitles.isTruncated, subtitles.tracksLoading]);
+  }, [
+    video,
+    failure,
+    subtitles.cuesStatus,
+    subtitles.cues.length,
+    subtitles.isTruncated,
+    subtitles.tracksLoading,
+  ]);
 
   if (error) {
     return <div style={styles.centered}>Error: {error.message}</div>;
@@ -176,8 +192,21 @@ function TranscriptApp() {
 
   return (
     <AppShell title="Transcript">
-      {status === 'waiting' && (
-        <div style={styles.centered}>Waiting for video or transcript…</div>
+      {status === 'waiting' && <div style={styles.centered}>Waiting for video or transcript…</div>}
+
+      {failure && (
+        <div style={styles.failure}>
+          <p style={styles.failureText}>{failure.message}</p>
+          {failure.tracks.map(({ type, langs, more }) => (
+            <div key={type} style={styles.trackGroup}>
+              <span style={styles.trackGroupLabel}>{type}</span>
+              <span style={{ flex: 1 }}>
+                {langs.join(', ')}
+                {more > 0 && ` (+${more} more)`}
+              </span>
+            </div>
+          ))}
+        </div>
       )}
 
       {video && (

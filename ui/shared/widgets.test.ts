@@ -1,5 +1,5 @@
 import { formatDuration, isYouTubePage, pageFromInput, watchUrlAt } from './format';
-import { pickDefaultTrack, type AvailableSubtitleTracks } from './subtitleTracks';
+import { parseToolError, pickDefaultTrack, type AvailableSubtitleTracks } from './subtitleTracks';
 import { videoInfoToMeta, type VideoInfoData } from './videoInfo';
 
 const reel = 'https://www.instagram.com/reel/DdZsSYXxBqd/';
@@ -67,7 +67,11 @@ describe('pickDefaultTrack', () => {
     [{ official: [], auto: ['ar-orig', 'es-orig'] }, 'auto', 'ar-orig'],
     // A guess takes the -orig name of a speech track, as the server does: on YouTube a plain
     // code also gathers translations into that language from every dubbed audio track.
-    [{ official: [], auto: ['ar', 'ar-orig', 'en', 'en-orig', 'es', 'es-orig'] }, 'auto', 'en-orig'],
+    [
+      { official: [], auto: ['ar', 'ar-orig', 'en', 'en-orig', 'es', 'es-orig'] },
+      'auto',
+      'en-orig',
+    ],
     [{ official: [], auto: ['ar', 'ar-orig', 'es', 'es-orig'] }, 'auto', 'ar-orig'],
   ])('picks from %j the %s track %s', (available, type, lang) => {
     expect(pickDefaultTrack(available)).toEqual({ type, lang });
@@ -94,5 +98,40 @@ describe('videoInfoToMeta', () => {
   it('upgrades an http thumbnail, which the https widget could not load', () => {
     const meta = videoInfoToMeta({ ...info, thumbnail: 'http://i2.hdslb.com/bfs/a.jpg' });
     expect(meta.thumbnail).toBe('https://i2.hdslb.com/bfs/a.jpg');
+  });
+});
+
+describe('parseToolError', () => {
+  const failed = (text: string) => ({ isError: true, content: [{ type: 'text' as const, text }] });
+  const listAnswer =
+    'The platform does not say which language the video is spoken in, and it lists more than one track. To try a track auto-discovery skipped, pass type and lang explicitly.';
+
+  it('gives the text of a failed call', () => {
+    const text =
+      'The platform lists no subtitle tracks for this video, so no type or lang will work. Do not repeat the same call.';
+    expect(parseToolError(failed(text))).toEqual({ message: text, tracks: [] });
+  });
+
+  it('splits the listed tracks off the text of a track-list answer', () => {
+    // The sentence as trackHint in src/mcp-core.ts writes it, for a TikTok video.
+    const text = `${listAnswer} Available tracks — official: none; auto: eng-US, rus-RU.`;
+    expect(parseToolError(failed(text))).toEqual({
+      message: listAnswer,
+      tracks: [{ type: 'auto', langs: ['eng-US', 'rus-RU'], more: 0 }],
+    });
+  });
+
+  it('counts the tracks the answer left out', () => {
+    const official = Array.from({ length: 15 }, (_, i) => `l${i}`);
+    const text = `${listAnswer} Available tracks — official: ${official.join(', ')} (+3 more, full list: get_available_subtitles); auto: en-orig, en.`;
+    expect(parseToolError(failed(text))?.tracks).toEqual([
+      { type: 'official', langs: official, more: 3 },
+      { type: 'auto', langs: ['en-orig', 'en'], more: 0 },
+    ]);
+  });
+
+  it('reads nothing from a call that did not fail', () => {
+    const transcript = { content: [{ type: 'text' as const, text: 'Hello.' }] };
+    expect(parseToolError(transcript)).toBeNull();
   });
 });

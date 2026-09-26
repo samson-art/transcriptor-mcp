@@ -1110,10 +1110,10 @@ describe('mcp-core tools', () => {
 
       const result = await getTool(server, 'get_transcript')(transcriptArgs, {});
 
-      const text = result.content[0].text as string;
-      expect(text).toContain('official: none;');
-      expect(text).toContain('+5 more');
-      expect(text).toContain('get_available_subtitles');
+      // The whole sentence: the transcript widget reads it back (ui/shared/subtitleTracks.ts).
+      expect(result.content[0].text).toBe(
+        `none Available tracks — official: none; auto: ${many.slice(0, 15).join(', ')} (+5 more, full list: get_available_subtitles).`
+      );
     });
 
     it('adds no track list when the video has no tracks', async () => {

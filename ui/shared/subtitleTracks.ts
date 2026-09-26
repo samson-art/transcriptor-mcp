@@ -28,10 +28,36 @@ export function parseAvailableSubtitles(result: CallToolResult): AvailableSubtit
   }
 }
 
-export function trackMatches(
-  available: AvailableSubtitleTracks,
-  track: SubtitleTrack
-): boolean {
+/** A failed call as the widget shows it: the server's text, and the tracks it lists. */
+export type ToolError = {
+  message: string;
+  /** One group per type that lists a track, ranked as the server ranks them. */
+  tracks: { type: SubtitleTrack['type']; langs: string[]; more: number }[];
+};
+
+/**
+ * The sentence the server appends to a "no subtitles" answer, the #55 track-list answer
+ * included (trackHint in src/mcp-core.ts): ` Available tracks — official: en, de (+5 more,
+ * full list: get_available_subtitles); auto: none.` If you change one, change the other.
+ */
+const TRACK_HINT = / Available tracks — official: (.+?); auto: (.+)\.$/s;
+const CUT_LIST = /^(.*?)(?: \(\+(\d+) more\b[^)]*\))?$/s;
+
+export function parseToolError(result: CallToolResult): ToolError | null {
+  if (!result.isError) return null;
+  const text = result.content?.find((c) => c.type === 'text')?.text ?? '';
+  const hint = TRACK_HINT.exec(text);
+  if (!hint) return { message: text, tracks: [] };
+  const tracks = (['official', 'auto'] as const).flatMap((type, i) => {
+    const [, codes, more] = CUT_LIST.exec(hint[i + 1]) ?? [];
+    return !codes || codes === 'none'
+      ? []
+      : [{ type, langs: codes.split(', '), more: Number(more ?? 0) }];
+  });
+  return { message: text.slice(0, hint.index), tracks };
+}
+
+export function trackMatches(available: AvailableSubtitleTracks, track: SubtitleTrack): boolean {
   return track.type === 'official'
     ? available.official.includes(track.lang)
     : available.auto.includes(track.lang);
