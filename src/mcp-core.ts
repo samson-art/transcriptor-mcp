@@ -28,6 +28,7 @@ import {
   HttpError,
   INVALID_LANGUAGE_MESSAGE,
   INVALID_VIDEO_URL_MESSAGE,
+  LIST_ANSWER_STEP,
   NotFoundError,
   type NotFoundDetails,
   ServerBusyError,
@@ -38,6 +39,7 @@ import { extractPlatformFromUrl } from './platform.js';
 import {
   normalizeVideoInput,
   preferredTrackOrder,
+  sameTrack,
   sanitizeLang,
   validateAndDownloadSubtitles,
   validateAndFetchAvailableSubtitles,
@@ -402,20 +404,24 @@ const TRACK_HINT_LIMIT = 15;
 
 /**
  * The codes the caller can actually ask for, appended to a "no subtitles" answer. Ranked
- * by the same rule auto-discovery uses, with the language the caller just asked for in the
- * place the spoken language takes there.
+ * by the same rule auto-discovery uses, with the language of the track that just came back
+ * without text in the place the spoken language takes there. That track itself goes last,
+ * under both of its names (`en` and `en-orig`): asking for it again gets the same nothing.
  */
 function trackHint(details?: NotFoundDetails): string {
   const official = details?.official ?? [];
   const auto = details?.auto ?? [];
   if (official.length === 0 && auto.length === 0) return '';
-  const show = (codes: string[]): string => {
+  const tried = details?.tried;
+  const show = (codes: string[], type: 'official' | 'auto'): string => {
     if (codes.length === 0) return 'none';
-    const ranked = preferredTrackOrder(codes, details?.tried);
+    const dead = (code: string): number =>
+      tried?.type === type && sameTrack(code, tried.lang) ? 1 : 0;
+    const ranked = preferredTrackOrder(codes, tried?.lang).sort((a, b) => dead(a) - dead(b));
     const rest = ranked.length - TRACK_HINT_LIMIT;
     return `${ranked.slice(0, TRACK_HINT_LIMIT).join(', ')}${rest > 0 ? ` (+${rest} more, full list: get_available_subtitles)` : ''}`;
   };
-  return ` Available tracks — official: ${show(official)}; auto: ${show(auto)}.`;
+  return ` Available tracks — official: ${show(official, 'official')}; auto: ${show(auto, 'auto')}.`;
 }
 
 /** What a tool was called with, as far as the per-call log line needs it. */
@@ -886,18 +892,20 @@ export function createMcpServer(opts?: CreateMcpServerOptions) {
           );
         }
 
-        // Kept as the values actually used, not as the arguments: the empty answer below
-        // reports what the server asked for, and a silent fallback is what it asked for.
+        // Kept as the value actually used, not as the argument: the empty answer below
+        // reports what the server asked for, and that includes the default type.
         const type = args.type ?? 'auto';
-        const lang = args.lang ? (sanitizeLang(args.lang) ?? 'en') : undefined;
         // One run cannot pick each video's original language: a pattern such as `.*-orig`
         // matches every audio track of a dubbed video, one caption request each (ADR 006).
-        if (lang === undefined) {
+        if (!args.lang) {
           throw new ValidationError(
             'Pass lang for this playlist (for example "en"): the server picks the original language only for one video at a time.',
             'Language required'
           );
         }
+        // Refused, not replaced: a lang nobody asked for costs a caption request per video.
+        const lang = sanitizeLang(args.lang);
+        if (!lang) throw new ValidationError(INVALID_LANGUAGE_MESSAGE, 'Invalid language code');
 
         const format =
           args.format && ['srt', 'vtt', 'ass', 'lrc'].includes(args.format)
@@ -1328,8 +1336,9 @@ export function createMcpServer(opts?: CreateMcpServerOptions) {
         { url, type: undefined, lang: undefined },
         log
       ).catch((err: unknown) => {
-        // This URI cannot carry type or lang: name the tracks, and the tool that takes them.
-        if (err instanceof NotFoundError && err.details) {
+        // This URI cannot carry type or lang: where the answer asks for them, name the tracks
+        // and the tool that takes them. Next to any other step it would be a second one.
+        if (err instanceof NotFoundError && err.message.endsWith(LIST_ANSWER_STEP)) {
           throw new NotFoundError(
             `${err.message}${trackHint(err.details)} This resource takes no type or lang; get_transcript does.`,
             err.errorLabel,
@@ -1361,27 +1370,15 @@ export function createMcpServer(opts?: CreateMcpServerOptions) {
   return server;
 }
 
+/**
+ * Type and lang go to the service layer as given: it checks the lang, and it fills in the
+ * type for a lang without one, which its "no subtitles" answer then says (ADR 006).
+ */
 function resolveSubtitleArgs(args: z.infer<typeof subtitleInputSchema>) {
-  const url = requireVideoUrl(args.url);
-
-  // No lang is the auto-discovery request, in the video's original language, with or without
-  // a type to keep to (ADR 006). A lang without a type asks for the automatic track by name.
-  let type = args.type;
-  let lang: string | undefined;
-
-  if (args.lang !== undefined && args.lang !== null) {
-    const sanitized = sanitizeLang(args.lang);
-    if (!sanitized) {
-      throw new ValidationError(INVALID_LANGUAGE_MESSAGE, 'Invalid language code');
-    }
-    lang = sanitized;
-    type = type ?? 'auto';
-  }
-
   return {
-    url,
-    type,
-    lang,
+    url: requireVideoUrl(args.url),
+    type: args.type,
+    lang: args.lang,
     format: args.format,
     responseLimit: args.response_limit ?? Infinity,
     nextCursor: args.next_cursor,

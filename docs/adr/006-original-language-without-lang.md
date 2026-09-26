@@ -23,27 +23,30 @@ Caption requests are a quota per outbound address (ADR 002). A second guess cost
 In `src/validation.ts`, a call without `lang` goes to auto-discovery (`downloadWithAutoDiscover`). With a `type`, only tracks of that type are candidates.
 
 - **The track list.** `loadAvailableSubtitles` drops chat replays (`CHAT_REPLAYS`) on read, so every reader gets the same list: auto-discovery, `get_available_subtitles`, the REST list and the "no subtitles" hint. It also covers lists cached before this change.
-- **No tracks at all.** Whisper runs if it is enabled, since it hears the original language by itself. Otherwise the answer is "no subtitle tracks". A Whisper answer to a `type` also goes under the untyped cache key, where the transcript widget asks again.
+- **No tracks at all.** Whisper runs if it is enabled, since it hears the original language by itself. Its answer goes under the auto-discovery key of every type, so a call with or without a `type` reads it. Without Whisper, YouTube answers "no subtitle tracks". Off YouTube an empty list proves nothing (TikTok, Bilibili and Reddit list tracks only to a request that names one), so the answer asks for `lang`, and a call that gives a `type` does not start Whisper.
 - **The original language** comes from `originalLanguage`:
   - a lone `-orig` track names it;
   - several `-orig` tracks (a dubbed video) are settled by the language the platform reports; with nothing to settle them, the language is unknown;
   - without `-orig`, the reported language.
 
   That language is stored in the `avail` cache entry, so a cached list answers like a fresh one. `und`, `mul`, `zxx` and `mis` count as unknown. `baseLang` reduces `en-US`, `en_US` and `en-x-autogen` to `en`.
+
 - **The track.** `pickOriginalTrack` chooses at most one track:
   - the official track in the original language, else the automatic one (`-orig` first);
   - with the language unknown, only a track without a rival.
 
-  If that track is already cached under its own name (`cachedTrack`), no request is made.
-- **The list answer.** It comes back with no track request when no track is in the original language, or when the language is unknown and there are several candidates. It also comes back when the one request returns empty: no second track, no Whisper. The answer is a `NotFoundError` with the lists and one next step:
+  If that track is already cached under its own name, no request is made. A Whisper answer stored under that name does not count: it is what a request by name fell back to, not the track.
+
+- **The list answer.** It comes back with no track request when no track is in the original language, or when the language is unknown and there are several candidates. It also comes back when the one request returns no text: no second track, no Whisper. The text says "got no text", not "empty", because a download that failed for a reason about this video also returns nothing. The answer is a `NotFoundError` with the lists and one next step:
   - pass `type` and `lang`;
-  - "do not repeat the same call" when the empty track was the only one listed.
+  - "do not repeat the same call" when the track was the only one listed. YouTube's `en` and `en-orig` count as one track: they have one URL.
 
   `subtitle_tracks_untried_total` counts the candidates it did not request.
-- **Explicit requests.** A `lang` without a `type` still means `auto`. `resolveSubtitleArgs` in `src/mcp-core.ts` no longer substitutes `lang: "en"`. When a named track is missing, the answer suggests omitting `type` and `lang` only where auto-discovery would pick a track.
-- **Playlists** (`get_playlist_transcripts`) need a `lang`. Without one, the call is refused before any run. A single run cannot pick each video's original language, and the pattern `.*-orig` requests every audio track of a dubbed video.
+
+- **Explicit requests.** A `lang` without a `type` still means `auto`, and the service layer fills it in, so its "no subtitles" answer can say so. `resolveSubtitleArgs` in `src/mcp-core.ts` passes `type` and `lang` on as given. When a named track is missing, the answer suggests omitting `type` and `lang` only where auto-discovery would pick another track, not the same one under its other name. A `lang` that names a chat replay is refused before any run.
+- **Playlists** (`get_playlist_transcripts`) need a `lang`. Without one, or with one the server cannot use, the call is refused before any run. A single run cannot pick each video's original language, and the pattern `.*-orig` requests every audio track of a dubbed video.
 - **The transcript resource** (`transcriptor://transcript/{videoId}`) cannot carry `type` or `lang`. Its list answer names the tracks and points to `get_transcript`.
-- **Widgets.** `pickDefaultTrack` in `ui/shared/subtitleTracks.ts` repeats the part of the rule the track list shows: a lone `-orig` and the official track in its language. It never sees the reported language. Where it cannot tell, it still shows a track (English first), because the `get_video_info` and `search_videos` widgets have a picker.
+- **Widgets.** `pickDefaultTrack` in `ui/shared/subtitleTracks.ts` repeats the part of the rule the track list shows: a lone `-orig` and the official track in its language. It never sees the reported language. Where it cannot tell, it still shows a track (English first, and the `-orig` name of a speech track before the plain one), because the `get_video_info` and `search_videos` widgets have a picker.
 
 ## Alternatives
 
@@ -57,11 +60,13 @@ In `src/validation.ts`, a call without `lang` goes to auto-discovery (`downloadW
 ## Consequences
 
 - A call without `lang` spends at most one caption request, where it used to spend two.
-- The caller has to make a second call with `type` and `lang` in two cases:
+- The caller has to make a second call with `type` and `lang` in three cases:
   - on platforms that report no language, a video with two or more tracks;
-  - on YouTube, a video without automatic captions and with two or more official tracks.
+  - on YouTube, a video without automatic captions and with two or more official tracks;
+  - off YouTube, a video whose metadata lists no tracks (with Whisper, only when it produced nothing).
 
   Before this change the server guessed English there.
+
 - `type` without `lang` on YouTube now pays the metadata run that auto-discovery always paid.
 - `get_available_subtitles` and the REST list no longer show chat replays.
 - `get_playlist_transcripts` without `lang` is an error.

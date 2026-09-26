@@ -522,7 +522,8 @@ export type PlaylistSubtitlesResult = {
 /** Options for downloadPlaylistSubtitles */
 export type DownloadPlaylistSubtitlesOptions = {
   type?: 'official' | 'auto';
-  lang?: string;
+  /** Required: one run cannot pick each video's original language (ADR 006). */
+  lang: string;
   /** Subtitle format: srt, vtt, ass, lrc (default from YT_DLP_SUB_FORMAT or srt) */
   format?: SubtitleFormat | null;
   /** yt-dlp -I/--playlist-items, e.g. "1:5", "1,3,7", "-1" */
@@ -683,10 +684,10 @@ async function handlePlaylistDownloadError(
  */
 export async function downloadPlaylistSubtitles(
   url: string,
-  options: DownloadPlaylistSubtitlesOptions = {},
+  options: DownloadPlaylistSubtitlesOptions,
   logger?: FastifyBaseLogger
 ): Promise<PlaylistSubtitlesResult[]> {
-  const { type = 'auto', lang = 'en', format, playlistItems, maxItems } = options;
+  const { type = 'auto', lang, format, playlistItems, maxItems } = options;
   const subFormat = resolveSubtitleFormat(format);
   // One playlist run asks for as many tracks as it has items: the heaviest caller of the
   // caption endpoint must be the first to stop while the platform is refusing.

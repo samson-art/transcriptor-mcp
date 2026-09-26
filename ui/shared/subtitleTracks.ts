@@ -71,7 +71,10 @@ export function pickDefaultTrack(
   const english = (lang: string): boolean => baseLang(lang) === 'en';
   const firstOfficial = official.find(english) ?? official[0];
   if (firstOfficial) return { type: 'official', lang: firstOfficial };
-  const firstAuto = auto.find(english) ?? auto[0];
+  // -orig first, as the server ranks: on YouTube a plain code also gathers translations into
+  // that language from every dubbed audio track, and the -orig one is the speech itself.
+  const ranked = sortAutoLanguages(auto);
+  const firstAuto = ranked.find(english) ?? ranked[0];
   if (firstAuto) return { type: 'auto', lang: firstAuto };
   // No tracks, yet a transcript with a language: speech-to-text, asked for by name.
   // Asking again by the same name reads its cache entry instead of transcribing again.

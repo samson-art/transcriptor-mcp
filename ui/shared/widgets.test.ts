@@ -86,6 +86,20 @@ describe('pickDefaultTrack', () => {
       lang: 'ar-orig',
     });
   });
+
+  it('prefers the -orig name of a speech track, as the server does, when it guesses', () => {
+    // On YouTube a plain code also gathers translations into that language from every
+    // dubbed audio track; the -orig one is the speech itself.
+    const dubbed = ['ar', 'ar-orig', 'en', 'en-orig', 'es', 'es-orig'];
+    expect(pickDefaultTrack({ official: [], auto: dubbed })).toEqual({
+      type: 'auto',
+      lang: 'en-orig',
+    });
+    expect(pickDefaultTrack({ official: [], auto: ['ar', 'ar-orig', 'es', 'es-orig'] })).toEqual({
+      type: 'auto',
+      lang: 'ar-orig',
+    });
+  });
 });
 
 describe('videoInfoToMeta', () => {
