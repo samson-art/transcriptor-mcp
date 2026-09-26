@@ -26,8 +26,11 @@ export class ValidationError extends HttpError {
 export type NotFoundDetails = {
   official?: string[];
   auto?: string[];
-  /** The language the caller just asked for, so a hint can list it before the alphabet. */
-  tried?: string;
+  /**
+   * The track that just came back without text. The hint lists its language first and the
+   * track itself last, under both of its names.
+   */
+  tried?: { type: 'official' | 'auto'; lang: string };
 };
 
 /** 404 Not Found – resource or subtitles not found */
@@ -106,7 +109,15 @@ export const INVALID_VIDEO_URL_MESSAGE =
 
 /** Says the real rule, which is wider than a two-letter code: tracks are named `en_US`, `en-nP7-2PuUl7o`. */
 export const INVALID_LANGUAGE_MESSAGE =
-  'Invalid language code. Use a code such as "en", "ru" or "pt-BR" — letters, digits, hyphens and underscores, up to 32 characters. The list of available subtitles gives the exact codes a video has. Fix the argument and call again.';
+  'Invalid language code. Use a code such as "en", "ru" or "pt-BR" — letters, digits, hyphens and underscores, up to 32 characters. A chat replay (live_chat, rechat) is not a subtitle track. The list of available subtitles gives the exact codes a video has. Fix the argument and call again.';
+
+/**
+ * The next step of a list answer, where auto-discovery could not pick a track and the caller
+ * can. The transcript resource takes no type or lang, so it looks for this step to point the
+ * caller to get_transcript.
+ */
+export const LIST_ANSWER_STEP =
+  'To try a track auto-discovery skipped, pass type and lang explicitly.';
 
 /** User-facing text per reason. Never includes a command line, stderr or operator hints. */
 const YT_DLP_MESSAGES: Record<YtDlpFailureReason, string> = {

@@ -4,6 +4,7 @@ import fs from 'node:fs/promises';
 import {
   INVALID_LANGUAGE_MESSAGE,
   INVALID_VIDEO_URL_MESSAGE,
+  LIST_ANSWER_STEP,
   NotFoundError,
   ServerBusyError,
   UNEXPECTED_ERROR_MESSAGE,
@@ -32,6 +33,7 @@ jest.mock('@modelcontextprotocol/ext-apps/server', () => ({
 jest.mock('@modelcontextprotocol/sdk/server/mcp.js', () => {
   class FakeMcpServer {
     tools = new Map<string, (args: any, extra: any) => any>();
+    resources = new Map<string, (...args: any[]) => any>();
 
     registerTool(name: string, _definition: any, handler: (args: any, extra: any) => any) {
       this.tools.set(name, handler);
@@ -40,8 +42,6 @@ jest.mock('@modelcontextprotocol/sdk/server/mcp.js', () => {
     registerPrompt(_name: string, _config: any, _handler: any) {
       // no-op for tests that only exercise tools
     }
-
-    resources = new Map<string, (...args: any[]) => any>();
 
     registerResource(
       name: string,
@@ -75,9 +75,10 @@ jest.mock('./youtube.js', () => ({
 }));
 
 jest.mock('./validation.js', () => ({
-  // The real one: the hint's ranking is the behaviour under test, not a stub's.
+  // The real ones: the hint's ranking is the behaviour under test, not a stub's.
   preferredTrackOrder:
     jest.requireActual<typeof import('./validation.js')>('./validation.js').preferredTrackOrder,
+  sameTrack: jest.requireActual<typeof import('./validation.js')>('./validation.js').sameTrack,
   normalizeVideoInput: jest.fn(),
   sanitizeLang: jest.fn(),
   validateAndDownloadSubtitles: jest.fn(),
@@ -476,7 +477,10 @@ describe('mcp-core tools', () => {
       normalizeVideoInputMock.mockReturnValue('https://www.youtube.com/playlist?list=PLxxx');
       downloadPlaylistSubtitlesMock.mockRejectedValue(new YtDlpError('rate_limited'));
 
-      const result = await handler({ url: 'https://www.youtube.com/playlist?list=PLxxx' }, {});
+      const result = await handler(
+        { url: 'https://www.youtube.com/playlist?list=PLxxx', lang: 'en' },
+        {}
+      );
 
       expect(result).toMatchObject({ isError: true });
       expect(result.content[0].text).toBe(
@@ -1049,8 +1053,8 @@ describe('mcp-core tools', () => {
       validateAndDownloadSubtitlesMock.mockRejectedValue(
         new NotFoundError('No auto subtitles could be downloaded for language "de".', 'x', {
           official: ['en'],
-          auto: ['ar', 'de', 'en', 'ru-orig', 'zu'],
-          tried: 'de',
+          auto: ['ar', 'de', 'de-AT', 'en', 'ru-orig', 'zu'],
+          tried: { type: 'auto', lang: 'de' },
         })
       );
 
@@ -1063,8 +1067,37 @@ describe('mcp-core tools', () => {
       expect(text).toContain('No auto subtitles could be downloaded');
       expect(text).toContain('official: en;');
       const autoCodes = /auto: ([^.]+)\./.exec(text)?.[1].split(', ');
-      // -orig first (it is the audio's own track), then what the caller just tried, then en.
-      expect(autoCodes?.slice(0, 3)).toEqual(['ru-orig', 'de', 'en']);
+      // -orig first (it is the audio's own track), then the rest of the language the caller
+      // asked for, then en. The track that just came back empty goes last.
+      expect(autoCodes).toEqual(['ru-orig', 'de-AT', 'en', 'ar', 'zu', 'de']);
+    });
+
+    it('puts the track that just came back empty last, under both of its names', async () => {
+      // YouTube lists its speech track as `en` and `en-orig`, with one URL.
+      const server = createMcpServer() as any;
+      normalizeVideoInputMock.mockReturnValue(transcriptArgs.url);
+      validateAndDownloadSubtitlesMock.mockRejectedValue(
+        new NotFoundError('The server asked for the auto track "en-orig" and got no text.', 'x', {
+          official: ['de', 'en'],
+          auto: ['ab', 'ar', 'de', 'en', 'en-orig', 'fr', 'ru'],
+          tried: { type: 'auto', lang: 'en-orig' },
+        })
+      );
+
+      const result = await getTool(server, 'get_transcript')(transcriptArgs, {});
+
+      const text = result.content[0].text as string;
+      expect(/auto: ([^.]+)\./.exec(text)?.[1].split(', ')).toEqual([
+        'ab',
+        'ar',
+        'de',
+        'fr',
+        'ru',
+        'en-orig',
+        'en',
+      ]);
+      // Another type is another track: the official en is still the best guess there.
+      expect(text).toContain('official: en, de;');
     });
 
     it('cuts the track list and says where the rest is', async () => {
@@ -1111,20 +1144,6 @@ describe('mcp-core tools', () => {
       expect(result.content[0].text).toBe(UNKNOWN_FAILURE_MESSAGE);
     });
 
-    it('answers a bad language code with the rule the server enforces', async () => {
-      const server = createMcpServer() as any;
-      normalizeVideoInputMock.mockReturnValue(transcriptArgs.url);
-      sanitizeLangMock.mockReturnValue(null);
-
-      const result = await getTool(server, 'get_transcript')(
-        { ...transcriptArgs, lang: 'not a code' },
-        {}
-      );
-
-      expect(result.content[0].text).toBe(INVALID_LANGUAGE_MESSAGE);
-      expect(validateAndDownloadSubtitlesMock).not.toHaveBeenCalled();
-    });
-
     it('rejects a bad URL before it looks at the language', async () => {
       const server = createMcpServer() as any;
       normalizeVideoInputMock.mockReturnValue(null);
@@ -1167,22 +1186,35 @@ describe('mcp-core tools', () => {
     it('reports the type and lang an empty playlist actually used', async () => {
       const server = createMcpServer() as any;
       normalizeVideoInputMock.mockReturnValue('https://www.youtube.com/playlist?list=PL1');
-      sanitizeLangMock.mockReturnValue(null);
+      sanitizeLangMock.mockReturnValue('de');
       downloadPlaylistSubtitlesMock.mockResolvedValue([]);
+
+      const result = await getTool(server, 'get_playlist_transcripts')(
+        { url: 'PL1', lang: ' de ' },
+        {}
+      );
+
+      const text = result.content[0].text as string;
+      expect(text).toContain('type "auto"');
+      expect(text).toContain('lang "de"');
+      expect(result.isError).toBeFalsy();
+      expect(result.structuredContent).toEqual({ results: [] });
+    });
+
+    it('refuses a playlist lang it cannot use, instead of asking for English', async () => {
+      // One run spends a caption request per video: a lang nobody asked for costs them all.
+      const server = createMcpServer() as any;
+      normalizeVideoInputMock.mockReturnValue('https://www.youtube.com/playlist?list=PL1');
+      sanitizeLangMock.mockReturnValue(null);
 
       const result = await getTool(server, 'get_playlist_transcripts')(
         { url: 'PL1', lang: 'zz!!' },
         {}
       );
 
-      const text = result.content[0].text as string;
-      // The server silently falls back to en here; reporting args.lang would describe an
-      // attempt it never made.
-      expect(text).toContain('type "auto"');
-      expect(text).toContain('lang "en"');
-      expect(text).not.toContain('zz!!');
-      expect(result.isError).toBeFalsy();
-      expect(result.structuredContent).toEqual({ results: [] });
+      expect(result).toMatchObject({ isError: true });
+      expect(result.content[0].text).toBe(INVALID_LANGUAGE_MESSAGE);
+      expect(downloadPlaylistSubtitlesMock).not.toHaveBeenCalled();
     });
 
     it('masks an internal fault instead of answering 404 for it', async () => {
@@ -1197,6 +1229,101 @@ describe('mcp-core tools', () => {
       expect(result).toMatchObject({ isError: true });
       expect(result.content[0].text).toContain('Internal server error');
       expect(captureExceptionMock).toHaveBeenCalled();
+    });
+  });
+
+  describe('an omitted lang means the original language', () => {
+    const playlistUrl = 'https://www.youtube.com/playlist?list=PL1';
+
+    it('lets the server pick the track when only type is given', async () => {
+      const server = createMcpServer() as any;
+      normalizeVideoInputMock.mockReturnValue('https://www.youtube.com/watch?v=video123');
+
+      await getTool(server, 'get_transcript')({ url: 'video123', type: 'official' }, {});
+
+      expect(validateAndDownloadSubtitlesMock).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'official', lang: undefined }),
+        expect.anything()
+      );
+    });
+
+    it('leaves the type to the service when only lang is given, so its answer can say so', async () => {
+      // The service defaults it to auto and says so in a "no subtitles" answer; a default
+      // filled in here hides that sentence from every MCP caller.
+      const server = createMcpServer() as any;
+      normalizeVideoInputMock.mockReturnValue('https://www.youtube.com/watch?v=video123');
+      validateAndDownloadSubtitlesMock.mockRejectedValue(new NotFoundError('none'));
+
+      await getTool(server, 'get_transcript')({ url: 'video123', lang: 'ru' }, {});
+
+      expect(validateAndDownloadSubtitlesMock).toHaveBeenCalledWith(
+        expect.objectContaining({ type: undefined, lang: 'ru' }),
+        expect.anything()
+      );
+    });
+
+    it('asks for lang on a playlist without one, before any run', async () => {
+      const server = createMcpServer() as any;
+      normalizeVideoInputMock.mockReturnValue(playlistUrl);
+
+      const result = await getTool(server, 'get_playlist_transcripts')({ url: 'PL1' }, {});
+
+      expect(result).toMatchObject({ isError: true });
+      expect(result.content[0].text).toContain('Pass lang');
+      expect(downloadPlaylistSubtitlesMock).not.toHaveBeenCalled();
+    });
+
+    it('names the tracks when the transcript resource gets the list answer', async () => {
+      const server = createMcpServer() as any;
+      validateAndDownloadSubtitlesMock.mockRejectedValue(
+        new NotFoundError(
+          `The platform does not say which language… ${LIST_ANSWER_STEP}`,
+          'Subtitles not found',
+          { official: ['en', 'es'], auto: [] }
+        )
+      );
+
+      const read = server.resources.get('transcript')(new URL('transcriptor://transcript/abc'), {
+        videoId: 'abc',
+      });
+
+      await expect(read).rejects.toThrow(/Available tracks — official: en, es.*get_transcript/);
+    });
+
+    it('points the transcript resource to get_transcript only where type and lang would help', async () => {
+      // A second next step next to "do not repeat" or "retry in a few minutes" contradicts it.
+      const server = createMcpServer() as any;
+      for (const message of [
+        'The server asked for the official track "en" and got no text. Do not repeat the same call.',
+        'Speech-to-text was also tried and produced nothing. You may retry the same call once in a few minutes; if it fails again, do not retry.',
+      ]) {
+        validateAndDownloadSubtitlesMock.mockRejectedValue(
+          new NotFoundError(message, 'Subtitles not found', { official: ['en'], auto: [] })
+        );
+        const read = server.resources.get('transcript')(new URL('transcriptor://transcript/abc'), {
+          videoId: 'abc',
+        });
+        await expect(read).rejects.toThrow(message);
+        await expect(read).rejects.not.toThrow(/get_transcript/);
+      }
+    });
+
+    it('passes a playlist lang through as before', async () => {
+      const server = createMcpServer() as any;
+      normalizeVideoInputMock.mockReturnValue(playlistUrl);
+      sanitizeLangMock.mockReturnValue('de');
+      downloadPlaylistSubtitlesMock.mockResolvedValue([]);
+
+      await getTool(server, 'get_playlist_transcripts')(
+        { url: 'PL1', type: 'official', lang: 'de' },
+        {}
+      );
+
+      expect(downloadPlaylistSubtitlesMock).toHaveBeenCalledWith(
+        playlistUrl,
+        expect.objectContaining({ type: 'official', lang: 'de' }),
+        expect.anything()
+      );
     });
   });
 });

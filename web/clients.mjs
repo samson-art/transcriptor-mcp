@@ -163,12 +163,12 @@ export const clients = [
 ];
 
 export const tools = [
-  { name: 'get_transcript', ask: 'Summarize this video for me', desc: 'clean plain-text transcript, language auto-detected, cursor-paged' },
+  { name: 'get_transcript', ask: 'Summarize this video for me', desc: "clean plain-text transcript in the video's original language, cursor-paged" },
   { name: 'get_raw_subtitles', ask: 'Give me the subtitles as an SRT file', desc: 'raw SRT or VTT content, in parts' },
   { name: 'get_available_subtitles', ask: 'Is there a German track for this video?', desc: 'lists official and auto caption languages' },
   { name: 'get_video_info', ask: 'Who published this and how many views?', desc: 'title, channel, views, likes, upload date, tags, thumbnails' },
   { name: 'get_video_chapters', ask: 'Go to the part about pricing', desc: 'chapter titles with start and end times' },
   { name: 'get_video_frame', ask: 'Show me the screen at 4:12', desc: 'a single still frame at any timecode (jpeg or png)' },
-  { name: 'get_playlist_transcripts', ask: 'Get transcripts for the first 5 videos in this playlist', desc: 'transcripts for a selection of playlist videos' },
+  { name: 'get_playlist_transcripts', ask: 'Get English transcripts for the first 5 videos in this playlist', desc: 'transcripts for a selection of playlist videos' },
   { name: 'search_videos', ask: 'Find recent videos about X', desc: 'YouTube search with date filters' },
 ];

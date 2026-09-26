@@ -2066,7 +2066,9 @@ today to pay our respects to MCP, which
           setImmediate(() => cb(null, '', ''));
         }
       );
-      await downloadPlaylistSubtitles('https://www.youtube.com/playlist?list=PLxxx', {});
+      await downloadPlaylistSubtitles('https://www.youtube.com/playlist?list=PLxxx', {
+        lang: 'en',
+      });
       expect(capturedArgs).not.toContain('--ignore-errors');
     });
 
@@ -2088,7 +2090,7 @@ today to pay our respects to MCP, which
         }
       );
       await expect(
-        downloadPlaylistSubtitles('https://www.youtube.com/playlist?list=PLxxx', {})
+        downloadPlaylistSubtitles('https://www.youtube.com/playlist?list=PLxxx', { lang: 'en' })
       ).rejects.toMatchObject({ name: 'YtDlpError', reason: 'private' });
     });
 
@@ -2099,7 +2101,10 @@ today to pay our respects to MCP, which
       );
 
       await expect(
-        downloadPlaylistSubtitles('https://www.youtube.com/playlist?list=PLxxx', { maxItems: 2 })
+        downloadPlaylistSubtitles('https://www.youtube.com/playlist?list=PLxxx', {
+          lang: 'en',
+          maxItems: 2,
+        })
       ).rejects.toMatchObject({ name: 'YtDlpError', reason: 'rate_limited' });
     });
 
@@ -2107,7 +2112,10 @@ today to pay our respects to MCP, which
       noteSubtitlesRateLimited('https://www.youtube.com/watch?v=x');
 
       await expect(
-        downloadPlaylistSubtitles('https://www.youtube.com/playlist?list=PLxxx', { maxItems: 2 })
+        downloadPlaylistSubtitles('https://www.youtube.com/playlist?list=PLxxx', {
+          lang: 'en',
+          maxItems: 2,
+        })
       ).rejects.toMatchObject({ name: 'YtDlpError', reason: 'rate_limited' });
       expect(execFileMock).not.toHaveBeenCalled();
     });
@@ -2118,7 +2126,10 @@ today to pay our respects to MCP, which
       mockExecFileFailure('', 101);
 
       await expect(
-        downloadPlaylistSubtitles('https://www.youtube.com/playlist?list=PLxxx', { maxItems: 2 })
+        downloadPlaylistSubtitles('https://www.youtube.com/playlist?list=PLxxx', {
+          lang: 'en',
+          maxItems: 2,
+        })
       ).resolves.toEqual([]);
     });
 
@@ -2144,7 +2155,7 @@ today to pay our respects to MCP, which
 
       const results = await downloadPlaylistSubtitles(
         'https://www.youtube.com/playlist?list=PLxxx',
-        { maxItems: 1 }
+        { lang: 'en', maxItems: 1 }
       );
 
       expect(results.map((r) => r.videoId)).toEqual(['vid1']);
