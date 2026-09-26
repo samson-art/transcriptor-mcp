@@ -18,7 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- The REST API does not start when it cannot read `RATE_LIMIT_TIME_WINDOW`, and it prints why. Before, it started, and every rate-limited request answered 500. For example, `docker run --env-file` keeps the quotes of `RATE_LIMIT_TIME_WINDOW="1 minute"`. Use a number of milliseconds or a duration such as `1 minute`, without quotes. A value of zero or below is refused too. Before, a negative value meant one minute.
+- The REST API does not start when it cannot read `RATE_LIMIT_TIME_WINDOW`, and it prints why. Before, it started, and every rate-limited request answered 500. For example, `docker run --env-file` keeps the quotes of `RATE_LIMIT_TIME_WINDOW="1 minute"`. Use a number of milliseconds or a duration such as `1 minute`, without quotes. A value of zero or below is refused too. Before, zero also answered 500 on every rate-limited request, and a negative value turned the limit off.
 
 ## [1.5.13] - 2026-09-26
 

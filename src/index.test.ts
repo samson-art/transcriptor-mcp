@@ -96,19 +96,22 @@ it('/metrics has its own limit of 60 a minute per address', async () => {
 });
 
 // `docker run --env-file` keeps the quotes. The plugin could not read the value, and every
-// limited request answered 500.
-it('does not start with a time window it cannot parse', async () => {
-  process.env.RATE_LIMIT_TIME_WINDOW = '"1 minute"';
-  try {
-    await jest.isolateModulesAsync(async () => {
-      await expect(import('./index.js')).rejects.toThrow(
-        'RATE_LIMIT_TIME_WINDOW="\\"1 minute\\"" is not a time window.'
-      );
-    });
-  } finally {
-    process.env.RATE_LIMIT_TIME_WINDOW = '1 minute';
+// limited request answered 500. Zero did the same, and a negative window turned the limit off.
+it.each(['"1 minute"', '0', '-1 minute'])(
+  'does not start with the time window %s',
+  async (value) => {
+    process.env.RATE_LIMIT_TIME_WINDOW = value;
+    try {
+      await jest.isolateModulesAsync(async () => {
+        await expect(import('./index.js')).rejects.toThrow(
+          `RATE_LIMIT_TIME_WINDOW=${JSON.stringify(value)} is not a time window.`
+        );
+      });
+    } finally {
+      process.env.RATE_LIMIT_TIME_WINDOW = '1 minute';
+    }
   }
-});
+);
 
 // A route declared before the plugin has loaded is silently unlimited (2026-09-25), so walk them all.
 it('limits every other route', async () => {
