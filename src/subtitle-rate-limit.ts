@@ -43,6 +43,11 @@ export function assertSubtitlesNotRateLimited(url: string): void {
   if (hold && Date.now() < hold.until) throw new YtDlpError('rate_limited');
 }
 
+/** Whether this platform answered 429 since its last track. Only a track clears a hold. */
+export function subtitlesRefusedSinceTrack(url: string): boolean {
+  return holds.has(extractPlatformFromUrl(url));
+}
+
 /** The platform answered 429: hold its caption path back, longer on every repeat. */
 export function noteSubtitlesRateLimited(url: string): void {
   // Hold off means strike count off: without a wait, every 429 in flight would be a strike.
@@ -71,7 +76,10 @@ export function clearSubtitlesRateLimit(url: string): void {
   setSubtitleRateLimitStrikes(platform, 0);
 }
 
-/** When this platform last handed over a track, or 0. A real call proves what a probe would. */
+/**
+ * When this platform last handed over a track, or 0. A real call proves what a probe would.
+ * The canary's own probe sets it too, so compare it with the stamp of that probe's track.
+ */
 export function lastSubtitlesAnswered(url: string): number {
   return lastAnswered.get(extractPlatformFromUrl(url)) ?? 0;
 }
