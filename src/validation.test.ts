@@ -417,6 +417,33 @@ describe('validation', () => {
       expect(downloadSpy).not.toHaveBeenCalled();
     });
 
+    it('does not start speech-to-text during a hold when the cached list is empty', async () => {
+      const url = 'https://www.youtube.com/watch?v=dQw4w9WgXcQ';
+      (cacheGet as jest.Mock).mockImplementation((key: string) =>
+        Promise.resolve(
+          key === buildCacheKey('avail', url)
+            ? JSON.stringify({ videoId: 'dQw4w9WgXcQ', official: [], auto: [] })
+            : undefined
+        )
+      );
+      (whisper.getWhisperConfig as jest.Mock).mockReturnValue({ mode: 'local', timeout: 600_000 });
+      (whisperJobs.startOrReuseWhisperJob as jest.Mock).mockClear();
+      noteSubtitlesRateLimited(url);
+      const jsonSpy = jest.spyOn(youtube, 'fetchYtDlpJson');
+
+      try {
+        await expect(validateAndDownloadSubtitles({ url })).rejects.toMatchObject({
+          name: 'YtDlpError',
+          reason: 'rate_limited',
+        });
+      } finally {
+        (cacheGet as jest.Mock).mockReset().mockResolvedValue(undefined);
+        (whisper.getWhisperConfig as jest.Mock).mockReturnValue({ mode: 'off', timeout: 600_000 });
+      }
+      expect(whisperJobs.startOrReuseWhisperJob).not.toHaveBeenCalled();
+      expect(jsonSpy).not.toHaveBeenCalled();
+    });
+
     it('refuses a chat replay named as lang before any run', async () => {
       const downloadSpy = jest.spyOn(youtube, 'downloadSubtitles').mockResolvedValue(null);
 

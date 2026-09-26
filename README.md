@@ -79,7 +79,7 @@ If you want to run the server yourself, read [Self-host](#-self-host). The tools
 | *"Who published this and how many views?"* | `get_video_info` |
 | *"Go to the part about pricing"* | `get_video_chapters` |
 | *"Show me the screen at 4:12"* | `get_video_frame` |
-| *"Get transcripts for the first 5 videos in this playlist"* | `get_playlist_transcripts` |
+| *"Get English transcripts for the first 5 videos in this playlist"* | `get_playlist_transcripts` |
 | *"Find recent videos about X"* | `search_videos` (YouTube) |
 
 Long transcripts come in parts. Each response gives a cursor for the next part, so no text is lost.

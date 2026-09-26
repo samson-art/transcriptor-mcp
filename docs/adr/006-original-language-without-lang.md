@@ -60,12 +60,13 @@ In `src/validation.ts`, a call without `lang` goes to auto-discovery (`downloadW
 ## Consequences
 
 - A call without `lang` spends at most one caption request, where it used to spend two.
-- The caller has to make a second call with `type` and `lang` in three cases:
+- The caller has to make a second call with `type` and `lang` in two cases:
   - on platforms that report no language, a video with two or more tracks;
-  - on YouTube, a video without automatic captions and with two or more official tracks;
-  - off YouTube, a video whose metadata lists no tracks (with Whisper, only when it produced nothing).
+  - on YouTube, a video without automatic captions and with two or more official tracks.
 
   Before this change the server guessed English there.
+
+- Off YouTube, when the metadata lists no tracks, the answer asks for `lang`. A call with a `type` gets that answer without Whisper. A call without one gets it when Whisper is off or produced nothing. Before this change the call without a `type` got "no subtitle tracks" instead.
 
 - `type` without `lang` on YouTube now pays the metadata run that auto-discovery always paid.
 - `subtitles_extraction_failures_total{reason="no_subtitles"}` counts a failure only when Whisper actually ran. List answers show as `not_found` in the per-call log line.
