@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.11] - 2026-09-26
+
+### Security
+
+- `GET /health/sentry-test` is gone. It threw on purpose, so every call sent one error event to Sentry, and it was not rate-limited: anyone who could reach a public REST API with `SENTRY_DSN` set could spend the whole Sentry quota. Nothing used it. To make sure that a DSN accepts events, send it a test event with `sentry-cli`: `SENTRY_DSN=<dsn> sentry-cli send-event -m test`. The server itself sends an event only for a real 5xx.
+
+### Fixed
+
+- `RATE_LIMIT_MAX` now covers `GET /failures`, `GET /changelogs` and every path that has no route. The two routes were declared before the rate-limit plugin had loaded, so they were never limited. On 2026-09-25 with `RATE_LIMIT_MAX=3`, `/failures` still answered 200 on the fifth request. A path with no route answered 404 with no limit. The limit counts per client address across every limited route. `GET /health`, `GET /health/ready` and `GET /metrics` stay unlimited on purpose, so that a probe or a Prometheus scrape never gets a 429. A CORS preflight request (`OPTIONS`) is not limited either. `GET /health/ready` now logs only warnings and errors, like `GET /health`.
+
 ## [1.5.10] - 2026-09-26
 
 ### Security
