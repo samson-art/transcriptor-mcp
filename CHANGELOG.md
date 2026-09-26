@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- With speech-to-text on, the canary counted an empty caption track as a working path when speech-to-text answered the probe. It set `transcriptor_canary_ok` to 1 and could end a failure streak while captions failed. The probe now never falls back to speech-to-text. An empty track is a failed probe: the gauge goes to 0 and the streak goes on. The probe also no longer costs a transcription. Its empty track does not count in `subtitles_extraction_failures_total{reason="no_subtitles"}`, which counts a failure only when speech-to-text ran.
+- A speech-to-text answer that came after `WHISPER_TIMEOUT` went into the cache, also for a call that skips the cache. The canary probe skips the cache, so its late answer could land under the key of the canary video. Real calls for that video then got speech-to-text text instead of captions until the entry expired (`CACHE_TTL_SUBTITLES_SECONDS`, 7 days by default). A call that skips the cache now writes nothing to it, also late.
+
 ## [1.5.13] - 2026-09-26
 
 ### Changed
