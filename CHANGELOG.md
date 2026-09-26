@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.10] - 2026-09-26
+
+### Security
+
+- An unplanned REST error no longer sends its own message to the caller. The REST API answered every error with its message, so an error nobody planned for could show an internal detail: while the API image lacked `CHANGELOG.md`, `GET /changelogs` answered `ENOENT: no such file or directory, open '/app/CHANGELOG.md'`. A 5xx that is not one of the server's own errors now answers the text MCP tools already used — `Internal server error (a fault in this server, not in your request)…` — and the real error goes to the log and to Sentry as before. The MCP HTTP transport's own error handler (outside tool calls) does the same. So does an MCP resource read, such as `transcriptor://transcript/{videoId}` or a widget page, on HTTP and stdio: its error carried its own message, for example a cookies path. The REST log line of such an error now carries the request id, which links it to the log lines of its request.
+
+### Fixed
+
+- The REST API answers 400 and 429 where it answered 500. Every error that was not one of the server's own became a 500: a body that failed the schema (`body must have required property 'url'`), a body that was not JSON, and a request over `RATE_LIMIT_MAX` — each reported to Sentry as an error. They now keep Fastify's status and message, labelled `Bad request` or `Too many requests`, and are no longer sent to Sentry: under a burst, one event per rejected request would spend the quota the limit protects. In `http_requests_total`, these requests move from `status_code="500"` to `400` or `429`, so an alert on the REST 5xx rate sees fewer events.
+
 ## [1.5.9] - 2026-09-26
 
 ### Fixed

@@ -27,7 +27,18 @@ jest.mock('node:child_process', () => ({
   execFile: jest.fn(),
 }));
 
+// Only to see what reaches Sentry; nothing initialises Sentry here, so nothing is sent.
+jest.mock('@sentry/node', () => ({
+  ...jest.requireActual<typeof import('@sentry/node')>('@sentry/node'),
+  captureException: jest.fn(),
+}));
+
 import { execFile } from 'node:child_process';
+import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
+import * as Sentry from '@sentry/node';
+import type { FastifyBaseLogger } from 'fastify';
+import pino from 'pino';
+import { UNEXPECTED_ERROR_MESSAGE } from './errors.js';
 import { buildMcpHttpApp } from './mcp-http.js';
 import { createLoggerWithSentryBreadcrumbs } from './logger-sentry-breadcrumbs.js';
 
@@ -231,5 +242,70 @@ describe('operational endpoints', () => {
     expect(response.status).toBe(404);
     const body = await readMcpBody(response);
     expect(body.error?.code).toBe(-32601);
+  });
+});
+
+describe('unplanned errors', () => {
+  const PATH_ERROR = "ENOENT: no such file or directory, open '/app/CHANGELOG.md'";
+
+  // A fresh app whose warn and error lines land in `lines`, as pino writes them.
+  function appWithLogLines() {
+    const lines: Array<Record<string, unknown>> = [];
+    const local = buildMcpHttpApp({
+      loggerInstance: pino(
+        { level: 'warn' },
+        { write: (line: string) => lines.push(JSON.parse(line)) }
+      ) as FastifyBaseLogger,
+    });
+    return { local, lines };
+  }
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+    jest.clearAllMocks();
+  });
+
+  it('answers a 5xx from the error handler with the generic text, not its message', async () => {
+    const { local, lines } = appWithLogLines();
+    local.get('/boom', () => {
+      throw new Error(PATH_ERROR);
+    });
+
+    const response = await local.inject({ method: 'GET', url: '/boom' });
+    await local.close();
+
+    expect(response.statusCode).toBe(500);
+    expect(response.json().error.message).toBe(UNEXPECTED_ERROR_MESSAGE);
+    // The operator still gets the real error, in the log and in Sentry.
+    expect(lines).toContainEqual(
+      expect.objectContaining({ level: 50, err: expect.objectContaining({ message: PATH_ERROR }) })
+    );
+    expect(Sentry.captureException).toHaveBeenCalledWith(
+      expect.objectContaining({ message: PATH_ERROR })
+    );
+  });
+
+  it('answers a failed transport with the generic text, not its message', async () => {
+    jest
+      .spyOn(StreamableHTTPServerTransport.prototype, 'handleRequest')
+      .mockRejectedValue(new Error(PATH_ERROR));
+    const { local, lines } = appWithLogLines();
+
+    const response = await local.inject({
+      method: 'POST',
+      url: '/mcp',
+      payload: initializeBody(),
+      headers: { 'content-type': 'application/json', accept: MCP_ACCEPT },
+    });
+    await local.close();
+
+    expect(response.statusCode).toBe(500);
+    expect(response.json().error.message).toBe(UNEXPECTED_ERROR_MESSAGE);
+    expect(lines).toContainEqual(
+      expect.objectContaining({ level: 50, err: expect.objectContaining({ message: PATH_ERROR }) })
+    );
+    expect(Sentry.captureException).toHaveBeenCalledWith(
+      expect.objectContaining({ message: PATH_ERROR })
+    );
   });
 });

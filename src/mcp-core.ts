@@ -31,6 +31,7 @@ import {
   NotFoundError,
   type NotFoundDetails,
   ServerBusyError,
+  UNEXPECTED_ERROR_MESSAGE,
   ValidationError,
   YtDlpError,
 } from './errors.js';
@@ -460,8 +461,39 @@ function toolCallLogFields({ args, extra }: ToolCall) {
   };
 }
 
-export const UNEXPECTED_TOOL_ERROR_MESSAGE =
-  'Internal server error (a fault in this server, not in your request). Retry once; if it fails again, do not retry — tell the user this cannot be completed right now.';
+/**
+ * What the caller reads of a failed tool call or resource read. `where` names the tool or
+ * the resource in the log line.
+ */
+function errorText(err: unknown, log: FastifyBaseLogger, where: Record<string, string>): string {
+  // Load shedding is a state of this server, not a fault: say so and move on.
+  if (err instanceof ServerBusyError) {
+    log.warn(where, 'MCP tool rejected: server busy');
+    return err.message;
+  }
+  // Every error class we raise on purpose carries a message meant for the caller.
+  if (err instanceof HttpError && err.statusCode < 500) return err.message;
+  log.error({ err, ...where }, 'MCP tool unexpected error');
+  Sentry.captureException(err);
+  // An unplanned error's message can hold the yt-dlp command line, a cookies
+  // path or a proxy URL, so it never goes to the caller.
+  return err instanceof YtDlpError ? err.message : UNEXPECTED_ERROR_MESSAGE;
+}
+
+/** The SDK answers a failed resource read with the thrown message, so it gets the tools' rule. */
+function withResourceErrorHandling<A extends unknown[], R>(
+  log: FastifyBaseLogger,
+  resource: string,
+  read: (...args: A) => Promise<R>
+): (...args: A) => Promise<R> {
+  return async (...args) => {
+    try {
+      return await read(...args);
+    } catch (err) {
+      throw new Error(errorText(err, log, { resource }));
+    }
+  };
+}
 
 async function withToolErrorHandling(
   toolName: string,
@@ -480,20 +512,7 @@ async function withToolErrorHandling(
     if (err instanceof NotFoundError) {
       return toolError(err.message + trackHint(err.details));
     }
-    // Load shedding is a state of this server, not a fault: say so and move on.
-    if (err instanceof ServerBusyError) {
-      log.warn({ tool: toolName }, 'MCP tool rejected: server busy');
-      return toolError(err.message);
-    }
-    // Every error class we raise on purpose carries a message meant for the caller.
-    if (err instanceof HttpError && err.statusCode < 500) {
-      return toolError(err.message);
-    }
-    log.error({ err, tool: toolName }, 'MCP tool unexpected error');
-    Sentry.captureException(err);
-    // An unplanned error's message can hold the yt-dlp command line, a cookies
-    // path or a proxy URL, so it never goes to the caller.
-    return toolError(err instanceof YtDlpError ? err.message : UNEXPECTED_TOOL_ERROR_MESSAGE);
+    return toolError(errorText(err, log, { tool: toolName }));
   } finally {
     const seconds = (performance.now() - start) / 1000;
     const outcome = reason === undefined ? 'ok' : 'error';
@@ -1083,7 +1102,7 @@ export function createMcpServer(opts?: CreateMcpServerOptions) {
         'Interactive carousel for YouTube search results with video details and subtitle search',
       mimeType: RESOURCE_MIME_TYPE,
     },
-    async () => {
+    withResourceErrorHandling(log, SEARCH_UI_URI, async () => {
       const html = await readCachedUiHtml('search.html');
       return {
         contents: [
@@ -1099,7 +1118,7 @@ export function createMcpServer(opts?: CreateMcpServerOptions) {
           },
         ],
       };
-    }
+    })
   );
 
   registerAppResource(
@@ -1111,7 +1130,7 @@ export function createMcpServer(opts?: CreateMcpServerOptions) {
       description: 'Video card with metadata and description',
       mimeType: RESOURCE_MIME_TYPE,
     },
-    async () => {
+    withResourceErrorHandling(log, VIDEO_INFO_UI_URI, async () => {
       const html = await readCachedUiHtml('video-info.html');
       return {
         contents: [
@@ -1126,7 +1145,7 @@ export function createMcpServer(opts?: CreateMcpServerOptions) {
           },
         ],
       };
-    }
+    })
   );
 
   registerAppResource(
@@ -1138,7 +1157,7 @@ export function createMcpServer(opts?: CreateMcpServerOptions) {
       description: 'Video card with searchable timed subtitles',
       mimeType: RESOURCE_MIME_TYPE,
     },
-    async () => {
+    withResourceErrorHandling(log, TRANSCRIPT_UI_URI, async () => {
       const html = await readCachedUiHtml('transcript.html');
       return {
         contents: [
@@ -1153,7 +1172,7 @@ export function createMcpServer(opts?: CreateMcpServerOptions) {
           },
         ],
       };
-    }
+    })
   );
 
   registerAppResource(
@@ -1165,7 +1184,7 @@ export function createMcpServer(opts?: CreateMcpServerOptions) {
       description: 'Captured video frame with timestamp controls',
       mimeType: RESOURCE_MIME_TYPE,
     },
-    async () => {
+    withResourceErrorHandling(log, VIDEO_FRAME_UI_URI, async () => {
       const html = await readCachedUiHtml('video-frame.html');
       return {
         contents: [
@@ -1180,7 +1199,7 @@ export function createMcpServer(opts?: CreateMcpServerOptions) {
           },
         ],
       };
-    }
+    })
   );
 
   const INFO_URI = 'transcriptor://info';
@@ -1306,7 +1325,7 @@ export function createMcpServer(opts?: CreateMcpServerOptions) {
         'Get the transcript for a video by YouTube video ID. Use URI format: transcriptor://transcript/{videoId}',
       mimeType: 'application/json',
     },
-    async (uri, variables) => {
+    withResourceErrorHandling(log, 'transcriptor://transcript', async (uri, variables) => {
       const { videoId } = variables as { videoId: string };
       const url = `https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}`;
       const result = await validateAndDownloadSubtitles(
@@ -1330,7 +1349,7 @@ export function createMcpServer(opts?: CreateMcpServerOptions) {
           },
         ],
       };
-    }
+    })
   );
 
   return server;

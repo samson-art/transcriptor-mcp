@@ -12,6 +12,7 @@ import Fastify, {
 } from 'fastify';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import * as Sentry from '@sentry/node';
+import { httpErrorAnswer, UNEXPECTED_ERROR_MESSAGE } from './errors.js';
 import { createMcpServer } from './mcp-core.js';
 import { createLoggerWithSentryBreadcrumbs } from './logger-sentry-breadcrumbs.js';
 import { renderPrometheus } from './metrics.js';
@@ -68,7 +69,7 @@ export function buildMcpHttpApp(opts?: BuildMcpHttpAppOptions): FastifyInstance 
   });
 
   app.setErrorHandler((error: FastifyError, request, reply) => {
-    const statusCode = typeof error.statusCode === 'number' ? error.statusCode : 500;
+    const { statusCode, message } = httpErrorAnswer(error);
     if (statusCode >= 500) {
       request.log.error({ err: error }, 'MCP HTTP request failed');
       Sentry.captureException(error);
@@ -83,7 +84,7 @@ export function buildMcpHttpApp(opts?: BuildMcpHttpAppOptions): FastifyInstance 
       code = JSONRPC_INTERNAL_ERROR;
     }
 
-    return reply.code(statusCode).send(jsonRpcError(code, error.message));
+    return reply.code(statusCode).send(jsonRpcError(code, message));
   });
 
   app.setNotFoundHandler((request, reply) => {
@@ -132,7 +133,7 @@ export function buildMcpHttpApp(opts?: BuildMcpHttpAppOptions): FastifyInstance 
       if (!reply.raw.headersSent) {
         reply.raw.writeHead(500, { 'Content-Type': 'application/json' });
         reply.raw.end(
-          JSON.stringify(jsonRpcError(JSONRPC_INTERNAL_ERROR, 'Internal server error'))
+          JSON.stringify(jsonRpcError(JSONRPC_INTERNAL_ERROR, UNEXPECTED_ERROR_MESSAGE))
         );
       } else {
         reply.raw.end();
