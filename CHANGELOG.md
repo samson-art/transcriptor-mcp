@@ -7,12 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [1.5.9] - 2026-09-25
+## [1.5.9] - 2026-09-26
 
 ### Fixed
 
-- **`GET /changelogs` works in the REST API image.** From 0.5.9, when the endpoint arrived, to 1.5.8, the image shipped without `CHANGELOG.md`, so every call answered HTTP 500, put the file's absolute path in the response body and sent an error event to Sentry. The image now carries the file. The API smoke test fails if the endpoint does not return it. The MCP image does not serve this route and is unchanged.
-- **`.env.example` lists five env vars the server already read:** `YT_DLP_FRAME_TIMEOUT`, `YT_DLP_JS_RUNTIMES`, `YT_DLP_REMOTE_COMPONENTS`, `YT_DLP_NO_WARNINGS` and `YT_DLP_IGNORE_NO_FORMATS`, with their defaults. Nothing about them changed. Do not set `YT_DLP_NO_WARNINGS=1`: the server reads yt-dlp warnings to classify failures, so a private, removed or bot-checked video can then look like a normal one. A test now fails when the code reads an env var that the file does not name.
+- `GET /changelogs` works in the REST API image. From 0.5.9, when the endpoint arrived, to 1.5.8, the image shipped without `CHANGELOG.md`, so every call answered HTTP 500, put the file's absolute path in the response body and sent an error event to Sentry. The image now carries the file. The API smoke test fails if the endpoint does not return it. The MCP image does not serve this route and is unchanged.
+- `.env.example` lists five env vars the server already read: `YT_DLP_FRAME_TIMEOUT`, `YT_DLP_JS_RUNTIMES`, `YT_DLP_REMOTE_COMPONENTS`, `YT_DLP_NO_WARNINGS` and `YT_DLP_IGNORE_NO_FORMATS`, with their defaults. Nothing about them changed. Do not set `YT_DLP_NO_WARNINGS=1`: the server reads yt-dlp warnings to classify failures, so a private, removed or bot-checked video can then look like a normal one. A test now fails when the code reads an env var that the file does not name.
 
 ## [1.5.8] - 2026-09-24
 
