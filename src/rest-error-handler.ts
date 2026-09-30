@@ -7,9 +7,11 @@ import { recordExpected404 } from './metrics.js';
 /** 'Too Many Requests' → 'Too many requests', like our own labels ('Bad request'). */
 const sentenceCase = (s: string) => s.charAt(0) + s.slice(1).toLowerCase();
 
-/** The `route` label of the REST metrics: the route's pattern, or the path when no route matched. */
-export const routeOf = (request: FastifyRequest) =>
-  request.routeOptions.url ?? request.url.split('?')[0];
+/**
+ * The `route` label of the REST metrics: the route's pattern, or `unmatched` when no route
+ * matched. The raw path made about 14 series per new path, and prom-client never drops them.
+ */
+export const routeOf = (request: FastifyRequest) => request.routeOptions.url ?? 'unmatched';
 
 /** The REST API's error handler. Its own module so tests can mount it without starting the server. */
 export function restErrorHandler(error: Error, request: FastifyRequest, reply: FastifyReply) {
