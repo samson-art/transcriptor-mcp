@@ -17,7 +17,7 @@ import {
 import { extractPlatformFromUrl } from './platform.js';
 import * as youtube from './youtube.js';
 import { renderPrometheus } from './metrics.js';
-import { buildCacheKey, get as cacheGet, set as cacheSet } from './cache.js';
+import { buildCacheKey, get as cacheGet, getCacheConfig, set as cacheSet } from './cache.js';
 import * as whisper from './whisper.js';
 import * as whisperJobs from './whisper-jobs.js';
 import {
@@ -25,31 +25,31 @@ import {
   resetSubtitleRateLimitsForTests,
 } from './subtitle-rate-limit.js';
 
-jest.mock('./whisper.js', () => ({
-  getWhisperConfig: jest.fn(() => ({ mode: 'off', timeout: 600_000 })),
+jest.mock('./whisper.js', () => ({ getWhisperConfig: jest.fn() }));
+
+jest.mock('./whisper-jobs.js', () => ({ startOrReuseWhisperJob: jest.fn() }));
+
+jest.mock('./cache.js', () => ({
+  ...jest.requireActual<typeof import('./cache.js')>('./cache.js'),
+  getCacheConfig: jest.fn(),
+  get: jest.fn(),
+  set: jest.fn(),
 }));
 
-jest.mock('./whisper-jobs.js', () => ({
-  startOrReuseWhisperJob: jest.fn(),
-}));
-
-jest.mock('./cache.js', () => {
-  const actual = jest.requireActual<typeof import('./cache.js')>('./cache.js');
-  return {
-    ...actual,
-    getCacheConfig: jest.fn(() => ({
-      mode: 'off',
-      ttlSubtitlesSeconds: 604800,
-      ttlMetadataSeconds: 3600,
-    })),
-    get: jest.fn().mockResolvedValue(undefined),
-    set: jest.fn().mockResolvedValue(undefined),
-  };
-});
-
-// Every path that reads metadata now goes through fetchYtDlpJson: without a default spy a
-// test that does not mock it would run the real yt-dlp against YouTube.
 beforeEach(() => {
+  // restoreAllMocks in afterEach restores only spies. Without this reset, a mock that one test
+  // changes stays changed for the next test, and results depend on test order.
+  jest.resetAllMocks();
+  (whisper.getWhisperConfig as jest.Mock).mockReturnValue({ mode: 'off', timeout: 600_000 });
+  (getCacheConfig as jest.Mock).mockReturnValue({
+    mode: 'off',
+    ttlSubtitlesSeconds: 604800,
+    ttlMetadataSeconds: 3600,
+  });
+  (cacheGet as jest.Mock).mockResolvedValue(undefined);
+  (cacheSet as jest.Mock).mockResolvedValue(undefined);
+  // Every path that reads metadata now goes through fetchYtDlpJson: without a default spy a
+  // test that does not mock it would run the real yt-dlp against YouTube.
   jest.spyOn(youtube, 'fetchYtDlpJson').mockResolvedValue(null);
 });
 
@@ -408,11 +408,7 @@ describe('validation', () => {
       const jsonSpy = jest.spyOn(youtube, 'fetchYtDlpJson');
       const downloadSpy = jest.spyOn(youtube, 'downloadSubtitles').mockResolvedValue(null);
 
-      try {
-        expect(await validateAndDownloadSubtitles({ url, type: 'auto' })).toEqual(track);
-      } finally {
-        (cacheGet as jest.Mock).mockReset().mockResolvedValue(undefined);
-      }
+      expect(await validateAndDownloadSubtitles({ url, type: 'auto' })).toEqual(track);
       expect(jsonSpy).not.toHaveBeenCalled();
       expect(downloadSpy).not.toHaveBeenCalled();
     });
@@ -427,19 +423,13 @@ describe('validation', () => {
         )
       );
       (whisper.getWhisperConfig as jest.Mock).mockReturnValue({ mode: 'local', timeout: 600_000 });
-      (whisperJobs.startOrReuseWhisperJob as jest.Mock).mockClear();
       noteSubtitlesRateLimited(url);
       const jsonSpy = jest.spyOn(youtube, 'fetchYtDlpJson');
 
-      try {
-        await expect(validateAndDownloadSubtitles({ url })).rejects.toMatchObject({
-          name: 'YtDlpError',
-          reason: 'rate_limited',
-        });
-      } finally {
-        (cacheGet as jest.Mock).mockReset().mockResolvedValue(undefined);
-        (whisper.getWhisperConfig as jest.Mock).mockReturnValue({ mode: 'off', timeout: 600_000 });
-      }
+      await expect(validateAndDownloadSubtitles({ url })).rejects.toMatchObject({
+        name: 'YtDlpError',
+        reason: 'rate_limited',
+      });
       expect(whisperJobs.startOrReuseWhisperJob).not.toHaveBeenCalled();
       expect(jsonSpy).not.toHaveBeenCalled();
     });
@@ -567,8 +557,6 @@ describe('validation', () => {
     });
 
     it('skips the cache when asked, so the canary always exercises yt-dlp', async () => {
-      (cacheGet as jest.Mock).mockClear();
-      (cacheSet as jest.Mock).mockClear();
       const downloadSpy = jest.spyOn(youtube, 'downloadSubtitles').mockResolvedValue('fresh');
       jest.spyOn(youtube, 'fetchYtDlpJson').mockResolvedValue({ id: 'dQw4w9WgXcQ' });
 
@@ -646,7 +634,6 @@ describe('validation', () => {
     });
 
     it('should call cache.set when Whisper finishes after WHISPER_TIMEOUT (explicit lang)', async () => {
-      (cacheSet as jest.Mock).mockClear();
       jest.spyOn(youtube, 'downloadSubtitles').mockResolvedValue(null);
       jest.spyOn(youtube, 'fetchYtDlpJson').mockResolvedValue({ id: 'dQw4w9WgXcQ' });
       (whisper.getWhisperConfig as jest.Mock).mockReturnValue({ mode: 'local', timeout: 1 });
@@ -894,7 +881,6 @@ describe('validation', () => {
       });
 
       it('should call cache.set when Whisper finishes after WHISPER_TIMEOUT (auto-discover)', async () => {
-        (cacheSet as jest.Mock).mockClear();
         jest.spyOn(youtube, 'fetchYtDlpJson').mockResolvedValue({
           id: 'dQw4w9WgXcQ',
           subtitles: {},
@@ -1482,7 +1468,6 @@ describe('the answer when no subtitles came back', () => {
     /Do not repeat the same call|Do not retry|You may retry the same call once in a few minutes|To try a track auto-discovery skipped|Omit type and lang to let the server choose|Pass a type and lang the video actually has/g;
 
   beforeEach(() => {
-    (whisper.getWhisperConfig as jest.Mock).mockReturnValue({ mode: 'off' });
     (whisperJobs.startOrReuseWhisperJob as jest.Mock).mockResolvedValue(null);
   });
 
@@ -1660,12 +1645,7 @@ describe('an omitted lang means the original language', () => {
   };
 
   beforeEach(() => {
-    (whisper.getWhisperConfig as jest.Mock).mockReturnValue({ mode: 'off', timeout: 600_000 });
-    (whisperJobs.startOrReuseWhisperJob as jest.Mock).mockReset().mockResolvedValue(null);
-  });
-
-  afterEach(() => {
-    (cacheGet as jest.Mock).mockReset().mockResolvedValue(undefined);
+    (whisperJobs.startOrReuseWhisperJob as jest.Mock).mockResolvedValue(null);
   });
 
   it('answers an English video that lists an Arabic official track with its en-orig track, in one request', async () => {
@@ -1698,7 +1678,6 @@ describe('an omitted lang means the original language', () => {
     const availKey = buildCacheKey('avail', vimeo);
     jest.spyOn(youtube, 'downloadSubtitles').mockResolvedValue('WEBVTT\n\nhallo');
     listing(['de', 'en'], [], 'de');
-    (cacheSet as jest.Mock).mockClear();
     expect(await validateAndDownloadSubtitles({ url: vimeo })).toMatchObject({ lang: 'de' });
 
     // No -orig off YouTube: without the reported language the cached list would be a guess.
