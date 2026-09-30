@@ -340,7 +340,7 @@ today to pay our respects to MCP, which
       dateSpy.mockRestore();
     });
 
-    it('should return null when no subtitle file is found', async () => {
+    it("should return '' when the run brings no subtitle file", async () => {
       const url = 'https://www.youtube.com/watch?v=video-no-file';
       const timestamp = 1234567891;
       const dateSpy = jest.spyOn(Date, 'now').mockReturnValue(timestamp);
@@ -364,12 +364,12 @@ today to pay our respects to MCP, which
 
       const result = await downloadSubtitles(url, 'auto', 'en');
 
-      expect(result).toBeNull();
+      expect(result).toBe('');
 
       dateSpy.mockRestore();
     });
 
-    it('should return null when subtitle file is empty', async () => {
+    it("should return '' when the subtitle file is empty", async () => {
       const url = 'https://www.youtube.com/watch?v=video-empty';
       const content = '   ';
       const timestamp = 1234567892;
@@ -394,7 +394,7 @@ today to pay our respects to MCP, which
 
       const result = await downloadSubtitles(url, 'auto', 'en');
 
-      expect(result).toBeNull();
+      expect(result).toBe('');
       await expect(access(subtitleFilePath, constants.F_OK)).resolves.toBeUndefined();
 
       dateSpy.mockRestore();
@@ -606,7 +606,7 @@ today to pay our respects to MCP, which
       );
       await expect(
         youtube.downloadSubtitles('https://www.youtube.com/watch?v=n', 'auto', 'en')
-      ).resolves.toBeNull();
+      ).resolves.toBe('');
 
       mockExecFileFailure('ERROR: HTTP Error 429: Too Many Requests');
       await youtube
@@ -1849,6 +1849,35 @@ today to pay our respects to MCP, which
       }
     });
 
+    it('should reject a bot check that yt-dlp reports as a warning when YT_DLP_NO_WARNINGS is 1', async () => {
+      process.env.YT_DLP_NO_WARNINGS = '1';
+      // Like yt-dlp: --no-warnings drops the WARNING lines, and the refusal is only there.
+      execFileMock.mockImplementation(
+        (
+          _file: string,
+          args: string[],
+          _options: unknown,
+          callback: (error: Error | null, result?: { stdout: string; stderr: string }) => void
+        ) => {
+          callback(null, {
+            stdout: JSON.stringify({ id: 'x', title: 'youtube video #x', formats: [] }),
+            stderr: args.includes('--no-warnings')
+              ? ''
+              : "WARNING: [youtube] x: Sign in to confirm you're not a bot\nWARNING: No video formats found!",
+          });
+        }
+      );
+      try {
+        await expect(fetchYtDlpJson('https://www.youtube.com/watch?v=x')).rejects.toMatchObject({
+          name: 'YtDlpError',
+          reason: 'bot_check',
+          statusCode: 502,
+        });
+      } finally {
+        delete process.env.YT_DLP_NO_WARNINGS;
+      }
+    });
+
     it('should keep a video whose formats failed but whose subtitle tracks are listed', async () => {
       execFileMock.mockImplementation(
         (
@@ -1899,6 +1928,13 @@ today to pay our respects to MCP, which
       await expect(
         downloadSubtitles('https://www.youtube.com/watch?v=abc', 'auto', 'en')
       ).rejects.toMatchObject({ name: 'YtDlpError', reason: 'rate_limited' });
+    });
+
+    it('should return null, not an empty text, for a run that failed without a class', async () => {
+      mockExecFileFailure('ERROR: Unable to download video subtitles: HTTP Error 500');
+      await expect(
+        downloadSubtitles('https://www.youtube.com/watch?v=abc', 'auto', 'en')
+      ).resolves.toBeNull();
     });
 
     it('should never put the command line or stderr in the error message', async () => {

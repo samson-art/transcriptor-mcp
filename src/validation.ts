@@ -417,6 +417,28 @@ async function readSub(
 }
 
 /**
+ * Asks for one track. A run that went through with no text is remembered for the same time as a
+ * track list (`ttlMetadataSeconds`): the same call again would spend another caption request on
+ * it (#60). The entry lives for the metadata TTL from the empty answer, not the subtitles TTL,
+ * because "no text" can also be a failure about the video that ends. A failed run (null) is not
+ * remembered, so a network error does not answer "no text" to the next call. The canary passes
+ * `skipCache`, because each probe must reach the platform.
+ */
+async function downloadTrack(
+  url: string,
+  { type, lang }: Track,
+  format: SubtitleFormat | undefined,
+  logger: FastifyBaseLogger | undefined,
+  skipCache = false
+): Promise<string | null> {
+  const noText = buildCacheKey('sub', url, type, lang, resolveSubtitleFormat(format), 'empty');
+  if (!skipCache && (await get(noText)) !== undefined) return null;
+  const content = await downloadSubtitles(url, type, lang, format, logger);
+  if (content === '' && !skipCache) await set(noText, '1', getCacheConfig().ttlMetadataSeconds);
+  return content;
+}
+
+/**
  * Auto-discovery: an omitted `lang` means the video's original language (ADR 006). One
  * metadata run and at most one track request. When the server cannot tell which track is in
  * that language, or that track comes back empty, the answer is the track list and the caller
@@ -448,7 +470,7 @@ async function downloadWithAutoDiscover(
         false
       );
       if (cached) return cached;
-      const content = await downloadSubtitles(url, track.type, track.lang, format, logger);
+      const content = await downloadTrack(url, track, format, logger);
       if (content && content.trim().length > 0) {
         return { videoId, ...track, subtitlesContent: content, source: platform };
       }
@@ -572,6 +594,26 @@ export function resetVideoJsonInFlight(): void {
   videoJsonInFlight.clear();
 }
 
+/** The cached track list, counted as a hit or a miss. A corrupted entry is a miss. */
+async function readCachedAvail(
+  url: string,
+  logger?: FastifyBaseLogger
+): Promise<AvailableSubtitles | undefined> {
+  const cacheKey = buildCacheKey('avail', url);
+  const cached = await get(cacheKey);
+  if (cached !== undefined) {
+    try {
+      const parsed = JSON.parse(cached) as AvailableSubtitles;
+      recordCacheHit('avail');
+      return parsed;
+    } catch (e) {
+      logger?.warn({ err: e, cacheKey }, 'Corrupted cache entry, treating as miss');
+    }
+  }
+  recordCacheMiss('avail');
+  return undefined;
+}
+
 /**
  * Reads the track list, from the cache or from one yt-dlp run. For captions that run stands
  * in front of a track request, so a held platform refuses it (ADR 002); a cached list still
@@ -582,18 +624,8 @@ async function loadAvailableSubtitles(
   logger?: FastifyBaseLogger,
   forCaptions = false
 ): Promise<AvailableSubtitles> {
-  const cacheKey = buildCacheKey('avail', url);
-  const cached = await get(cacheKey);
-  if (cached !== undefined) {
-    try {
-      const parsed = JSON.parse(cached) as AvailableSubtitles;
-      recordCacheHit('avail');
-      return withoutChatReplays(parsed);
-    } catch (e) {
-      logger?.warn({ err: e, cacheKey }, 'Corrupted cache entry, treating as miss');
-    }
-  }
-  recordCacheMiss('avail');
+  const cached = await readCachedAvail(url, logger);
+  if (cached) return withoutChatReplays(cached);
   if (forCaptions) assertSubtitlesNotRateLimited(url);
 
   const loaded = await loadVideoJson(url, logger);
@@ -647,7 +679,7 @@ async function throwNoSubtitlesError(opts: {
       if (err instanceof YtDlpError) throw err;
       return undefined;
     }));
-  if (whisperTried) recordSubtitlesFailure(opts.url, 'no_subtitles');
+  if (whisperTried) recordSubtitlesFailure('no_subtitles');
 
   const base = opts.asked
     ? `No ${opts.asked.type} subtitles could be downloaded for language "${opts.asked.lang}".` +
@@ -778,7 +810,7 @@ async function handleExplicitRequestFlow(
   request: GetSubtitlesRequest,
   url: string,
   logger?: FastifyBaseLogger,
-  skipCache = false
+  { skipCache = false, skipWhisper = false } = {}
 ): Promise<SubtitleResult> {
   const type = request.type ?? 'auto';
   const format = request.format as SubtitleFormat | undefined;
@@ -795,26 +827,39 @@ async function handleExplicitRequestFlow(
   if (cached) return cached;
   assertSubtitlesNotRateLimited(url);
 
-  let subtitlesContent = await downloadSubtitles(url, type, sanitizedLang, format, logger);
+  let subtitlesContent = await downloadTrack(
+    url,
+    { type, lang: sanitizedLang },
+    format,
+    logger,
+    skipCache
+  );
   let source: string = extractPlatformFromUrl(url);
-  // A YouTube URL carries the id; anywhere else it costs one yt-dlp run, made after the
-  // track so that it never stands in front of it (that run also fills the info, track-list
-  // and chapters caches the widgets read next). The canary keeps its single run.
+  // A YouTube URL carries the id. Elsewhere the cached track list has it, for example after a
+  // list answer (#60). Without it the id costs one yt-dlp run, made after the track so that it
+  // never stands in front of it. That run also fills the info, track-list and chapters caches
+  // that the widgets read next. The canary keeps its single run.
   const videoIdFor = async (): Promise<string> =>
     extractYouTubeVideoId(url) ??
-    (skipCache ? null : await loadVideoJson(url, logger))?.info.videoId ??
+    (skipCache
+      ? undefined
+      : ((await readCachedAvail(url, logger))?.videoId ??
+        (await loadVideoJson(url, logger))?.info.videoId)) ??
     'unknown';
 
+  // The canary skips speech-to-text: its answer would pass the probe while captions fail (#59).
+  const whisperConfig = getWhisperConfig();
+  const transcribe = !skipWhisper && whisperConfig.mode !== 'off';
   if (!subtitlesContent) {
-    const whisperConfig = getWhisperConfig();
-    if (whisperConfig.mode !== 'off') {
+    if (transcribe) {
       logger?.info({ lang: sanitizedLang }, 'Trying Whisper fallback');
       const job = startOrReuseWhisperJob(url, sanitizedLang, 'srt', logger);
       const outcome = await raceWhisperJob(job, whisperConfig.timeout);
 
       if (outcome.kind === 'timeout') {
         void job.then(async (text) => {
-          if (!text?.trim()) {
+          // A call that skips the cache does not fill it later either (#59).
+          if (skipCache || !text?.trim()) {
             return;
           }
           const vid = await videoIdFor();
@@ -840,7 +885,7 @@ async function handleExplicitRequestFlow(
       // A lang without a type means the server substituted the type, and the caller cannot
       // see that unless the text says so.
       asked: { type, lang: sanitizedLang, defaulted: request.type === undefined },
-      whisperTried: getWhisperConfig().mode !== 'off',
+      whisperTried: transcribe,
       logger,
     });
   }
@@ -868,7 +913,8 @@ async function handleExplicitRequestFlow(
 export async function validateAndDownloadSubtitles(
   request: GetSubtitlesRequest,
   logger?: FastifyBaseLogger,
-  opts?: { skipCache?: boolean }
+  /** The canary's options. They apply only to a request that names lang. */
+  opts?: { skipCache?: boolean; skipWhisper?: boolean }
 ): Promise<SubtitleResult> {
   const validated = validateVideoRequest(request.url);
   const { url } = validated;
@@ -877,9 +923,9 @@ export async function validateAndDownloadSubtitles(
     if (request.lang === undefined) {
       return await handleAutoDiscoverFlow(request, url, logger);
     }
-    return await handleExplicitRequestFlow(request, url, logger, opts?.skipCache);
+    return await handleExplicitRequestFlow(request, url, logger, opts);
   } catch (err) {
-    if (err instanceof YtDlpError) recordSubtitlesFailure(url, err.reason);
+    if (err instanceof YtDlpError) recordSubtitlesFailure(err.reason);
     throw err;
   }
 }

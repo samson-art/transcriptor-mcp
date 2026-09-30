@@ -314,11 +314,6 @@ export type VideoInfo = {
   thumbnails: Array<{ url: string; width?: number; height?: number; id?: string }> | null;
 };
 
-export type AvailableSubtitles = {
-  official: string[];
-  auto: string[];
-};
-
 /**
  * Extracts YouTube video ID from a URL.
  * Used as a fallback for display/logging when yt-dlp does not return an id.
@@ -399,7 +394,9 @@ async function runYtDlpAndExtractSubtitles(
     await new Promise((resolve) => setTimeout(resolve, 100));
 
     const subtitleFile = await findSubtitleFile(outputPath, tempDir, subFormat, logger);
-    return await readAndReturnSubtitleIfValid(subtitleFile);
+    // '' is a run that went through and brought no text; a failed run returns null below.
+    // Only '' may be remembered as "no text" (#60): a network error must not answer for an hour.
+    return (await readAndReturnSubtitleIfValid(subtitleFile)) ?? '';
   } catch (error: unknown) {
     if (error instanceof HttpError) throw error;
     logger?.error(
@@ -435,6 +432,7 @@ async function runYtDlpAndExtractSubtitles(
  * @param lang - subtitle language (e.g., 'en', 'ru')
  * @param format - subtitle format: srt, vtt, ass, lrc (default from YT_DLP_SUB_FORMAT or srt)
  * @param logger - Fastify logger instance for structured logging
+ * @returns the text; '' when the run went through with no text; null when the run failed
  */
 export async function downloadSubtitles(
   url: string,
@@ -861,27 +859,6 @@ export async function fetchVideoChapters(
         title: ch.title,
       })
     );
-}
-
-export async function fetchAvailableSubtitles(
-  url: string,
-  logger?: FastifyBaseLogger
-): Promise<AvailableSubtitles | null> {
-  const data = await fetchYtDlpJson(url, logger);
-  if (!data) {
-    return null;
-  }
-
-  const official = data.subtitles ? Object.keys(data.subtitles) : [];
-  const auto = data.automatic_captions ? Object.keys(data.automatic_captions) : [];
-
-  const sortedOfficial = [...official].sort((a, b) => a.localeCompare(b));
-  const sortedAuto = [...auto].sort((a, b) => a.localeCompare(b));
-
-  return {
-    official: sortedOfficial,
-    auto: sortedAuto,
-  };
 }
 
 /**
@@ -1530,6 +1507,8 @@ export async function copyCookiesFile(
 export type AppendYtDlpEnvArgsOptions = {
   /** When false, omit --no-progress and --quiet (e.g. verbose diagnostic replay). Default true. */
   quiet?: boolean;
+  /** When true, ignore YT_DLP_NO_WARNINGS: the metadata run reads the warnings (rethrowRefusalWarning). */
+  keepWarnings?: boolean;
 };
 
 // Exported for testing.
@@ -1547,7 +1526,7 @@ export function appendYtDlpEnvArgs(
     out.push('--no-progress', '--quiet');
   }
 
-  if (process.env.YT_DLP_NO_WARNINGS === '1') {
+  if (process.env.YT_DLP_NO_WARNINGS === '1' && !opts?.keepWarnings) {
     out.push('--no-warnings');
   }
 
@@ -1843,11 +1822,12 @@ export async function fetchYtDlpJson(
   if (process.env.YT_DLP_IGNORE_NO_FORMATS !== '0') {
     optionalArgs.push('--ignore-no-formats-error');
   }
-  appendYtDlpEnvArgs(optionalArgs, {
-    jsRuntimes,
-    remoteComponents,
-    cookiesFilePathFromEnv: cookiesPathToUse,
-  });
+  // With --ignore-no-formats-error a refusal is only a warning, so --no-warnings would hide it.
+  appendYtDlpEnvArgs(
+    optionalArgs,
+    { jsRuntimes, remoteComponents, cookiesFilePathFromEnv: cookiesPathToUse },
+    { keepWarnings: true }
+  );
   const args = [...baseArgs, ...optionalArgs, url];
 
   try {

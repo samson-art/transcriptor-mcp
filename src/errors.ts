@@ -147,12 +147,18 @@ const YT_DLP_MESSAGES: Record<YtDlpFailureReason, string> = {
  */
 export class YtDlpError extends HttpError {
   readonly reason: YtDlpFailureReason;
+  /**
+   * Thrown by a caption hold (ADR 002), with no run: the 429 that started the hold was
+   * already reported, so this one is not sent to Sentry.
+   */
+  readonly held: boolean;
 
-  constructor(reason: YtDlpFailureReason) {
+  constructor(reason: YtDlpFailureReason, { held = false } = {}) {
     const infra = YT_DLP_INFRA_REASONS.has(reason);
     super(infra ? 502 : 404, YT_DLP_MESSAGES[reason], infra ? 'Upstream error' : 'Not found');
     this.name = 'YtDlpError';
     this.reason = reason;
+    this.held = held;
     Object.setPrototypeOf(this, new.target.prototype);
   }
 }

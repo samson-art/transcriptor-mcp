@@ -1,6 +1,6 @@
 import * as Sentry from '@sentry/node';
 
-import { ServerBusyError, YtDlpError } from './errors.js';
+import { NotFoundError, ServerBusyError, YtDlpError } from './errors.js';
 import { runCanary, startCanary, resetCanaryForTests } from './canary.js';
 import { renderPrometheus } from './metrics.js';
 import {
@@ -106,7 +106,7 @@ describe('canary', () => {
       expect(validateAndDownloadSubtitlesMock).toHaveBeenCalled();
     });
 
-    it('probes CANARY_URL with one explicit language and skips the cache', async () => {
+    it('probes CANARY_URL with one explicit language and skips the cache and speech-to-text', async () => {
       process.env.CANARY_URL = 'https://www.youtube.com/watch?v=other123';
       validateAndDownloadSubtitlesMock.mockResolvedValue({ subtitlesContent: 'hello' });
 
@@ -119,7 +119,28 @@ describe('canary', () => {
           lang: 'en',
         }),
         expect.anything(),
-        { skipCache: true }
+        { skipCache: true, skipWhisper: true }
+      );
+    });
+
+    it('counts an empty track as a failure when speech-to-text is on', async () => {
+      // Like the real call with speech-to-text on: an empty track gets a speech-to-text answer
+      // unless the caller turns the fallback off. That answer says nothing about captions.
+      const logger = createLogger();
+      validateAndDownloadSubtitlesMock.mockImplementation((_request, _log, opts) =>
+        opts?.skipWhisper
+          ? Promise.reject(new NotFoundError('No official subtitles.', 'Subtitles not found'))
+          : Promise.resolve({ subtitlesContent: 'speech', source: 'whisper' })
+      );
+
+      await runCanary(logger as any);
+      await runCanary(logger as any);
+
+      expect(await renderPrometheus()).toMatch(/^transcriptor_canary_ok\{[^}]*\} 0$/m);
+      expect(captureMessageMock).toHaveBeenCalledTimes(1);
+      expect(captureMessageMock).toHaveBeenCalledWith(
+        'canary: transcript path failing',
+        expect.objectContaining({ tags: { reason: 'not_found', canary: 'true' } })
       );
     });
 
