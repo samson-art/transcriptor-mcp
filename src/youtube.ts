@@ -314,11 +314,6 @@ export type VideoInfo = {
   thumbnails: Array<{ url: string; width?: number; height?: number; id?: string }> | null;
 };
 
-export type AvailableSubtitles = {
-  official: string[];
-  auto: string[];
-};
-
 /**
  * Extracts YouTube video ID from a URL.
  * Used as a fallback for display/logging when yt-dlp does not return an id.
@@ -864,27 +859,6 @@ export async function fetchVideoChapters(
         title: ch.title,
       })
     );
-}
-
-export async function fetchAvailableSubtitles(
-  url: string,
-  logger?: FastifyBaseLogger
-): Promise<AvailableSubtitles | null> {
-  const data = await fetchYtDlpJson(url, logger);
-  if (!data) {
-    return null;
-  }
-
-  const official = data.subtitles ? Object.keys(data.subtitles) : [];
-  const auto = data.automatic_captions ? Object.keys(data.automatic_captions) : [];
-
-  const sortedOfficial = [...official].sort((a, b) => a.localeCompare(b));
-  const sortedAuto = [...auto].sort((a, b) => a.localeCompare(b));
-
-  return {
-    official: sortedOfficial,
-    auto: sortedAuto,
-  };
 }
 
 /**
@@ -1533,6 +1507,8 @@ export async function copyCookiesFile(
 export type AppendYtDlpEnvArgsOptions = {
   /** When false, omit --no-progress and --quiet (e.g. verbose diagnostic replay). Default true. */
   quiet?: boolean;
+  /** When true, ignore YT_DLP_NO_WARNINGS: the metadata run reads the warnings (rethrowRefusalWarning). */
+  keepWarnings?: boolean;
 };
 
 // Exported for testing.
@@ -1550,7 +1526,7 @@ export function appendYtDlpEnvArgs(
     out.push('--no-progress', '--quiet');
   }
 
-  if (process.env.YT_DLP_NO_WARNINGS === '1') {
+  if (process.env.YT_DLP_NO_WARNINGS === '1' && !opts?.keepWarnings) {
     out.push('--no-warnings');
   }
 
@@ -1846,11 +1822,12 @@ export async function fetchYtDlpJson(
   if (process.env.YT_DLP_IGNORE_NO_FORMATS !== '0') {
     optionalArgs.push('--ignore-no-formats-error');
   }
-  appendYtDlpEnvArgs(optionalArgs, {
-    jsRuntimes,
-    remoteComponents,
-    cookiesFilePathFromEnv: cookiesPathToUse,
-  });
+  // With --ignore-no-formats-error a refusal is only a warning, so --no-warnings would hide it.
+  appendYtDlpEnvArgs(
+    optionalArgs,
+    { jsRuntimes, remoteComponents, cookiesFilePathFromEnv: cookiesPathToUse },
+    { keepWarnings: true }
+  );
   const args = [...baseArgs, ...optionalArgs, url];
 
   try {

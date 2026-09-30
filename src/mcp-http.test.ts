@@ -38,9 +38,10 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import * as Sentry from '@sentry/node';
 import type { FastifyBaseLogger } from 'fastify';
 import pino from 'pino';
-import { UNEXPECTED_ERROR_MESSAGE } from './errors.js';
+import { UNEXPECTED_ERROR_MESSAGE, YtDlpError } from './errors.js';
 import { buildMcpHttpApp } from './mcp-http.js';
 import { createLoggerWithSentryBreadcrumbs } from './logger-sentry-breadcrumbs.js';
+import * as whisperJobs from './whisper-jobs.js';
 
 const MCP_ACCEPT = 'application/json, text/event-stream';
 
@@ -198,6 +199,49 @@ describe('tools/call', () => {
       .map((call) => call[1] as string[])
       .find((args) => args.includes('--sub-lang'));
     expect(subArgs?.[subArgs.indexOf('--sub-lang') + 1]).toBe('en_US');
+  });
+
+  it('does not start speech-to-text for get_transcript without lang when YT_DLP_NO_WARNINGS=1 hides a bot check', async () => {
+    process.env.YT_DLP_NO_WARNINGS = '1';
+    process.env.WHISPER_MODE = 'local';
+    const whisperSpy = jest
+      .spyOn(whisperJobs, 'startOrReuseWhisperJob')
+      .mockResolvedValue(null as never);
+    const execFileMock = execFile as unknown as jest.Mock;
+    execFileMock.mockReset();
+    // Like yt-dlp with --ignore-no-formats-error: exit 0, a stub without formats, and the
+    // refusal only in a WARNING line, which --no-warnings drops.
+    execFileMock.mockImplementation(
+      (_file: string, args: string[], _options: unknown, callback: (e: null, r: object) => void) =>
+        callback(null, {
+          stdout: JSON.stringify({ id: 'x', title: 'youtube video #x', formats: [] }),
+          stderr: args.includes('--no-warnings')
+            ? ''
+            : "WARNING: [youtube] x: Sign in to confirm you're not a bot\nWARNING: No video formats found!",
+        })
+    );
+
+    try {
+      const response = await postMcp({
+        jsonrpc: '2.0',
+        id: 6,
+        method: 'tools/call',
+        params: {
+          name: 'get_transcript',
+          arguments: { url: 'https://www.youtube.com/watch?v=noWarnBot01' },
+        },
+      });
+
+      const body = await readMcpBody(response);
+      expect(body.result?.isError).toBe(true);
+      expect(body.result?.content?.[0]?.text).toBe(new YtDlpError('bot_check').message);
+      expect(whisperSpy).not.toHaveBeenCalled();
+      expect(execFileMock).toHaveBeenCalledTimes(1);
+    } finally {
+      delete process.env.YT_DLP_NO_WARNINGS;
+      delete process.env.WHISPER_MODE;
+      whisperSpy.mockRestore();
+    }
   });
 });
 

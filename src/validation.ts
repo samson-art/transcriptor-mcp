@@ -679,7 +679,7 @@ async function throwNoSubtitlesError(opts: {
       if (err instanceof YtDlpError) throw err;
       return undefined;
     }));
-  if (whisperTried) recordSubtitlesFailure(opts.url, 'no_subtitles');
+  if (whisperTried) recordSubtitlesFailure('no_subtitles');
 
   const base = opts.asked
     ? `No ${opts.asked.type} subtitles could be downloaded for language "${opts.asked.lang}".` +
@@ -810,7 +810,7 @@ async function handleExplicitRequestFlow(
   request: GetSubtitlesRequest,
   url: string,
   logger?: FastifyBaseLogger,
-  skipCache = false
+  { skipCache = false, skipWhisper = false } = {}
 ): Promise<SubtitleResult> {
   const type = request.type ?? 'auto';
   const format = request.format as SubtitleFormat | undefined;
@@ -847,16 +847,19 @@ async function handleExplicitRequestFlow(
         (await loadVideoJson(url, logger))?.info.videoId)) ??
     'unknown';
 
+  // The canary skips speech-to-text: its answer would pass the probe while captions fail (#59).
+  const whisperConfig = getWhisperConfig();
+  const transcribe = !skipWhisper && whisperConfig.mode !== 'off';
   if (!subtitlesContent) {
-    const whisperConfig = getWhisperConfig();
-    if (whisperConfig.mode !== 'off') {
+    if (transcribe) {
       logger?.info({ lang: sanitizedLang }, 'Trying Whisper fallback');
       const job = startOrReuseWhisperJob(url, sanitizedLang, 'srt', logger);
       const outcome = await raceWhisperJob(job, whisperConfig.timeout);
 
       if (outcome.kind === 'timeout') {
         void job.then(async (text) => {
-          if (!text?.trim()) {
+          // A call that skips the cache does not fill it later either (#59).
+          if (skipCache || !text?.trim()) {
             return;
           }
           const vid = await videoIdFor();
@@ -882,7 +885,7 @@ async function handleExplicitRequestFlow(
       // A lang without a type means the server substituted the type, and the caller cannot
       // see that unless the text says so.
       asked: { type, lang: sanitizedLang, defaulted: request.type === undefined },
-      whisperTried: getWhisperConfig().mode !== 'off',
+      whisperTried: transcribe,
       logger,
     });
   }
@@ -910,7 +913,8 @@ async function handleExplicitRequestFlow(
 export async function validateAndDownloadSubtitles(
   request: GetSubtitlesRequest,
   logger?: FastifyBaseLogger,
-  opts?: { skipCache?: boolean }
+  /** The canary's options. They apply only to a request that names lang. */
+  opts?: { skipCache?: boolean; skipWhisper?: boolean }
 ): Promise<SubtitleResult> {
   const validated = validateVideoRequest(request.url);
   const { url } = validated;
@@ -919,9 +923,9 @@ export async function validateAndDownloadSubtitles(
     if (request.lang === undefined) {
       return await handleAutoDiscoverFlow(request, url, logger);
     }
-    return await handleExplicitRequestFlow(request, url, logger, opts?.skipCache);
+    return await handleExplicitRequestFlow(request, url, logger, opts);
   } catch (err) {
-    if (err instanceof YtDlpError) recordSubtitlesFailure(url, err.reason);
+    if (err instanceof YtDlpError) recordSubtitlesFailure(err.reason);
     throw err;
   }
 }

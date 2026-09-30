@@ -1,6 +1,7 @@
 import Fastify, { type preHandlerAsyncHookHandler } from 'fastify';
 import cors from '@fastify/cors';
 import rateLimit from '@fastify/rate-limit';
+import { parse as parseDuration } from '@lukeed/ms';
 import swagger from '@fastify/swagger';
 import swaggerUi from '@fastify/swagger-ui';
 import { TypeBoxTypeProvider } from '@fastify/type-provider-typebox';
@@ -23,7 +24,7 @@ import { checkYtDlpAtStartup } from './yt-dlp-check.js';
 import { close as closeCache, ping as cachePing } from './cache.js';
 import { setupLifecycle } from './lifecycle.js';
 import * as Sentry from '@sentry/node';
-import { recordRequest, renderPrometheus, getFailedSubtitlesUrls } from './metrics.js';
+import { recordRequest, renderPrometheus } from './metrics.js';
 import { createLoggerWithSentryBreadcrumbs } from './logger-sentry-breadcrumbs.js';
 import { readChangelog } from './changelog.js';
 import { parseIntEnv } from './env.js';
@@ -111,17 +112,25 @@ fastify.register(cors, {
   origin: corsAllowedOrigins && corsAllowedOrigins.length > 0 ? corsAllowedOrigins : true,
 });
 
-// Register rate limiting
-fastify.register(rateLimit, {
-  max: parseIntEnv('RATE_LIMIT_MAX', 100), // maximum number of requests
-  timeWindow: process.env.RATE_LIMIT_TIME_WINDOW || '1 minute', // time window
-});
+// Read with the plugin's own parser, so that the start fails here. Given a value it cannot read
+// ("1 minute" with the quotes, which `docker run --env-file` keeps), the plugin answered 500 to
+// every limited request. Below 1 ms the plugin truncates the window to 0, and 0 resets the counter
+// on every request. Keep @lukeed/ms on the major that @fastify/rate-limit uses.
+const rawTimeWindow = process.env.RATE_LIMIT_TIME_WINDOW || '1 minute';
+const timeWindow = parseDuration(rawTimeWindow) ?? 0;
+if (timeWindow < 1) {
+  throw new Error(
+    `RATE_LIMIT_TIME_WINDOW=${JSON.stringify(rawTimeWindow)} is not a time window. ` +
+      'Set a number of milliseconds or a duration such as 1 minute, without quotes.'
+  );
+}
+fastify.register(rateLimit, { max: parseIntEnv('RATE_LIMIT_MAX', 100), timeWindow });
 
 // The rate-limit plugin loads after this synchronous code; routes declared before that miss its
 // onRoute hook and were never limited (2026-09-25). after() declares them once it has loaded.
 // Not a top-level await: ts-jest compiles to CJS, and index.test.ts imports this module.
 fastify.after(() => {
-  // Probes and scrapers must never be refused, and a probe every few seconds must not fill the log.
+  // Probes must never be refused, and a probe every few seconds must not fill the log.
   const unlimited = { logLevel: 'warn', config: { rateLimit: false } } as const;
   fastify.get('/health', unlimited, () => ({ status: 'ok' }));
   fastify.get('/health/ready', unlimited, async (_request, reply) => {
@@ -130,8 +139,13 @@ fastify.after(() => {
     }
     return { status: 'ready' };
   });
-  fastify.get('/metrics', unlimited, () => renderPrometheus());
-  fastify.get('/failures', () => getFailedSubtitlesUrls());
+  // Each call serializes the whole registry. A scrape every 15 s is 4 a minute. A route config
+  // gets its own counter, so the other routes cannot use up the scraper's limit.
+  fastify.get(
+    '/metrics',
+    { logLevel: 'warn', config: { rateLimit: { max: 60, timeWindow: 60_000 } } },
+    () => renderPrometheus()
+  );
   fastify.get('/changelogs', async (_request, reply) =>
     reply.header('Content-Type', 'text/markdown; charset=utf-8').send(await readChangelog())
   );

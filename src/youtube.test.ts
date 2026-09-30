@@ -1849,6 +1849,35 @@ today to pay our respects to MCP, which
       }
     });
 
+    it('should reject a bot check that yt-dlp reports as a warning when YT_DLP_NO_WARNINGS is 1', async () => {
+      process.env.YT_DLP_NO_WARNINGS = '1';
+      // Like yt-dlp: --no-warnings drops the WARNING lines, and the refusal is only there.
+      execFileMock.mockImplementation(
+        (
+          _file: string,
+          args: string[],
+          _options: unknown,
+          callback: (error: Error | null, result?: { stdout: string; stderr: string }) => void
+        ) => {
+          callback(null, {
+            stdout: JSON.stringify({ id: 'x', title: 'youtube video #x', formats: [] }),
+            stderr: args.includes('--no-warnings')
+              ? ''
+              : "WARNING: [youtube] x: Sign in to confirm you're not a bot\nWARNING: No video formats found!",
+          });
+        }
+      );
+      try {
+        await expect(fetchYtDlpJson('https://www.youtube.com/watch?v=x')).rejects.toMatchObject({
+          name: 'YtDlpError',
+          reason: 'bot_check',
+          statusCode: 502,
+        });
+      } finally {
+        delete process.env.YT_DLP_NO_WARNINGS;
+      }
+    });
+
     it('should keep a video whose formats failed but whose subtitle tracks are listed', async () => {
       execFileMock.mockImplementation(
         (
