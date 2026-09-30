@@ -5,7 +5,8 @@
  * so the failure shows up as a metric and one alert instead of user reports.
  *
  * The probe bypasses the response cache: a cached fixture would prove Redis works,
- * not that yt-dlp still reaches YouTube.
+ * not that yt-dlp still reaches YouTube. It also skips speech-to-text: an empty track is a
+ * failed probe, because a transcription says nothing about the caption path (#59).
  */
 import * as Sentry from '@sentry/node';
 import type { FastifyBaseLogger } from 'fastify';
@@ -64,6 +65,7 @@ export async function runCanary(log: FastifyBaseLogger): Promise<void> {
     // front of it (the YouTube URL already carries the id); auto-discovery would add one.
     await validateAndDownloadSubtitles({ url, type: 'official', lang: 'en' }, log, {
       skipCache: true,
+      skipWhisper: true,
     });
     // ponytail: a real track that lands while a probe runs to success is taken for the
     // probe's own, so the next tick may probe once more than it had to; a per-call origin

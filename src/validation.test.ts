@@ -669,6 +669,50 @@ describe('validation', () => {
       });
     });
 
+    it('does not write a late speech-to-text answer to the cache when skipCache is set', async () => {
+      (cacheSet as jest.Mock).mockClear();
+      jest.spyOn(youtube, 'downloadSubtitles').mockResolvedValue(null);
+      (whisper.getWhisperConfig as jest.Mock).mockReturnValue({ mode: 'local', timeout: 1 });
+      let lateResolve!: (v: string | null) => void;
+      (whisperJobs.startOrReuseWhisperJob as jest.Mock).mockReturnValue(
+        new Promise<string | null>((resolve) => {
+          lateResolve = resolve;
+        })
+      );
+
+      await expect(
+        validateAndDownloadSubtitles(
+          { url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ', type: 'auto', lang: 'en' } as any,
+          undefined,
+          { skipCache: true }
+        )
+      ).rejects.toThrow(NotFoundError);
+      lateResolve('1\n00:00:00,000 --> 00:00:01,000\nLate probe');
+      await new Promise<void>((resolve) => setImmediate(resolve));
+
+      expect(cacheSet).not.toHaveBeenCalled();
+    });
+
+    it('does not start speech-to-text for a probe whose track is empty', async () => {
+      // The canary's options: an answer from speech-to-text would pass the probe while captions fail.
+      const probe = { skipCache: true, skipWhisper: true };
+      jest.spyOn(youtube, 'downloadSubtitles').mockResolvedValue(null);
+      (whisper.getWhisperConfig as jest.Mock).mockReturnValue({ mode: 'local', timeout: 600_000 });
+      (whisperJobs.startOrReuseWhisperJob as jest.Mock)
+        .mockClear()
+        .mockResolvedValue('1\n00:00:00,000 --> 00:00:01,000\nWhisper transcript');
+
+      const err = await validateAndDownloadSubtitles(
+        { url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ', type: 'official', lang: 'en' } as any,
+        undefined,
+        probe
+      ).catch((e: unknown) => e);
+
+      expect(err).toBeInstanceOf(NotFoundError);
+      expect((err as Error).message).not.toMatch(/speech-to-text/i);
+      expect(whisperJobs.startOrReuseWhisperJob).not.toHaveBeenCalled();
+    });
+
     it('should throw NotFoundError when Whisper fallback is enabled but returns null', async () => {
       jest.spyOn(youtube, 'downloadSubtitles').mockResolvedValue(null);
       jest.spyOn(youtube, 'fetchYtDlpJson').mockResolvedValue({
