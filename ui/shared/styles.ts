@@ -255,6 +255,17 @@ export const styles: Record<string, CSSProperties> = {
     fontSize: '12px',
     cursor: 'pointer',
   },
+  failure: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '6px',
+    fontSize: '12px',
+  },
+  failureText: {
+    margin: 0,
+    fontSize: '13px',
+    lineHeight: 1.45,
+  },
   trackPicker: {
     display: 'flex',
     flexDirection: 'column',

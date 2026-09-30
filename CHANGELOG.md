@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.19] - 2026-09-30
+
+### Fixed
+
+- The `get_transcript` widget showed an empty card for every error. It now shows the error text. For an answer that lists the video's tracks, the widget also shows those tracks under official and auto. An example is the track list that a call without `lang` can get since 1.5.13. If the answer cuts a list, the widget shows how many tracks it left out. The widget has no track picker (#62).
+
 ## [1.5.18] - 2026-09-30
 
 ### Fixed

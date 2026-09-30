@@ -407,7 +407,8 @@ const TRACK_HINT_LIMIT = 15;
  * The codes the caller can actually ask for, appended to a "no subtitles" answer: `-orig`
  * first, then the language of the track that just came back without text, then English.
  * That track itself goes last, under both of its names (`en` and `en-orig`): asking for it
- * again gets the same nothing.
+ * again gets the same nothing. The transcript widget reads this sentence back
+ * (parseToolError in ui/shared/subtitleTracks.ts): if you change one, change the other.
  */
 function trackHint(details?: NotFoundDetails): string {
   const official = details?.official ?? [];
