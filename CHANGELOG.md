@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.14] - 2026-09-30
+
 ### Security
 
 - `GET /failures` is gone from the REST API. It showed any caller the video URLs of the last 100 failed subtitle requests of all callers, links to unlisted videos included (#56). The server no longer keeps that list. `subtitles_extraction_failures_total{reason}` still counts the failures. `GET /failures` now answers 404 like any path with no route.

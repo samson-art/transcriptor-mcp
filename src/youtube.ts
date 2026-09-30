@@ -314,11 +314,6 @@ export type VideoInfo = {
   thumbnails: Array<{ url: string; width?: number; height?: number; id?: string }> | null;
 };
 
-export type AvailableSubtitles = {
-  official: string[];
-  auto: string[];
-};
-
 /**
  * Extracts YouTube video ID from a URL.
  * Used as a fallback for display/logging when yt-dlp does not return an id.
@@ -861,27 +856,6 @@ export async function fetchVideoChapters(
         title: ch.title,
       })
     );
-}
-
-export async function fetchAvailableSubtitles(
-  url: string,
-  logger?: FastifyBaseLogger
-): Promise<AvailableSubtitles | null> {
-  const data = await fetchYtDlpJson(url, logger);
-  if (!data) {
-    return null;
-  }
-
-  const official = data.subtitles ? Object.keys(data.subtitles) : [];
-  const auto = data.automatic_captions ? Object.keys(data.automatic_captions) : [];
-
-  const sortedOfficial = [...official].sort((a, b) => a.localeCompare(b));
-  const sortedAuto = [...auto].sort((a, b) => a.localeCompare(b));
-
-  return {
-    official: sortedOfficial,
-    auto: sortedAuto,
-  };
 }
 
 /**
