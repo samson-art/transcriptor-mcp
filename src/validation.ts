@@ -647,7 +647,7 @@ async function throwNoSubtitlesError(opts: {
       if (err instanceof YtDlpError) throw err;
       return undefined;
     }));
-  if (whisperTried) recordSubtitlesFailure(opts.url, 'no_subtitles');
+  if (whisperTried) recordSubtitlesFailure('no_subtitles');
 
   const base = opts.asked
     ? `No ${opts.asked.type} subtitles could be downloaded for language "${opts.asked.lang}".` +
@@ -883,7 +883,7 @@ export async function validateAndDownloadSubtitles(
     }
     return await handleExplicitRequestFlow(request, url, logger, opts);
   } catch (err) {
-    if (err instanceof YtDlpError) recordSubtitlesFailure(url, err.reason);
+    if (err instanceof YtDlpError) recordSubtitlesFailure(err.reason);
     throw err;
   }
 }

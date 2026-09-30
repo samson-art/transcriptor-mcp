@@ -7,10 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.17] - 2026-09-30
+
 ### Fixed
 
 - With speech-to-text on, the canary counted an empty caption track as a working path when speech-to-text answered the probe. It set `transcriptor_canary_ok` to 1 and could end a failure streak while captions failed. The probe now never falls back to speech-to-text. An empty track is a failed probe: the gauge goes to 0 and the streak goes on. The probe also no longer costs a transcription. Its empty track does not count in `subtitles_extraction_failures_total{reason="no_subtitles"}`, which counts a failure only when speech-to-text ran.
 - A speech-to-text answer that came after `WHISPER_TIMEOUT` went into the cache, also for a call that skips the cache. The canary probe skips the cache, so a late answer to it could be stored as the official English track of the canary video. Calls that asked for that track by name (`type: "official"`, `lang: "en"`) then got speech-to-text text instead of captions until the entry expired (`CACHE_TTL_SUBTITLES_SECONDS`, 7 days by default). A call that skips the cache now stores no transcript, also late.
+
+## [1.5.16] - 2026-09-30
+
+### Fixed
+
+- `YT_DLP_NO_WARNINGS=1` no longer applies to metadata runs (video info, chapters, subtitle lists). With `YT_DLP_IGNORE_NO_FORMATS` at its default, the metadata run on a private, removed or bot-checked video exits 0 and names the refusal only in a warning. With `YT_DLP_NO_WARNINGS=1`, the server did not see that warning. `get_video_info` then returned a stub (`youtube video #<id>`) instead of an error, and `get_transcript` without `lang` could start speech-to-text instead of answering 502 `bot_check`. Other yt-dlp runs still get `--no-warnings` when it is 1. Nothing changes when it is not set, and no yt-dlp run is added.
+
+## [1.5.15] - 2026-09-30
+
+### Fixed
+
+- A caption hold no longer sends one Sentry event per call. During a hold ([ADR 002](docs/adr/002-caption-rate-limit-hold.md)), the server answers each call that misses the cache with a 502 and sends no request to the platform. Each of these answers sent an error event, so 50 calls during one hold sent 50 events. A burst of such calls can use up the Sentry quota. Now these answers send no event. The 429 of a platform run that starts a hold still sends one event. Callers get the same 502 and text, and the metrics and the "MCP tool call" log line do not change.
+- A REST 5xx event in Sentry now has the `route` tag and the video URL (`requestUrl` in the `request` context). Sentry's Fastify integration comes with tracing, which is on by default (`SENTRY_TRACES_SAMPLE_RATE=0.1`). It sent the error first, marked unhandled, before the REST error handler ran. Sentry then dropped the report of the error handler as a duplicate, and with it the tag and the context. The integration now only traces, and the error handler sends the one event. The MCP HTTP server works the same way for a 5xx outside a tool call. These events are now marked handled, so a Sentry filter on unhandled errors no longer shows them.
+
+## [1.5.14] - 2026-09-30
+
+### Security
+
+- `GET /failures` is gone from the REST API. It showed any caller the video URLs of the last 100 failed subtitle requests of all callers, links to unlisted videos included (#56). The server no longer keeps that list. `subtitles_extraction_failures_total{reason}` still counts the failures. `GET /failures` now answers 404 like any path with no route.
+- `GET /metrics` on the REST API has a limit of 60 requests a minute for each client address. It had no limit, and each call serializes all metrics. A Prometheus scrape every 15 s sends 4 requests a minute. This limit counts apart from `RATE_LIMIT_MAX`, so other requests from the address of the scraper do not use it up. `GET /health` and `GET /health/ready` stay unlimited. The `/metrics` of the MCP HTTP server did not change. Limit it at the edge ([ADR 001](docs/adr/001-stateless-streamable-http.md)).
+
+### Changed
+
+- The REST metrics `http_requests_total` and `http_request_duration_seconds` put every request to a path with no route under `route="unmatched"`. Before, each path was a `route` value of its own. Each new path added about 14 series, and they stayed until a restart. A dashboard or an alert that selects such a path by its `route` value now finds nothing. Select `route="unmatched"` instead.
+
+### Fixed
+
+- The REST API does not start when it cannot read `RATE_LIMIT_TIME_WINDOW`, and it prints why. Before, it started, and every rate-limited request answered 500. For example, `docker run --env-file` keeps the quotes of `RATE_LIMIT_TIME_WINDOW="1 minute"`. Use a number of milliseconds or a duration such as `1 minute`, without quotes. A value below 1 millisecond is refused too. Before, zero also answered 500 on every rate-limited request, and a negative value or a value between 0 and 1 millisecond turned the limit off.
 
 ## [1.5.13] - 2026-09-26
 

@@ -182,11 +182,6 @@ export const subtitleRateLimitStrikes = new Gauge({
   registers: [register],
 });
 
-// Bounded ring buffer for failed subtitles URLs (max 100)
-const FAILURES_BUFFER_SIZE = 100;
-const failuresBuffer: Array<{ url: string; timestamp: string }> = [];
-let failuresTotalCount = 0;
-
 export function recordRequest(
   method: string,
   route: string,
@@ -216,14 +211,8 @@ export function recordCacheMiss(kind: CacheKeyType): void {
   cacheMissesTotal.inc({ kind });
 }
 
-export function recordSubtitlesFailure(url: string, reason: string): void {
+export function recordSubtitlesFailure(reason: string): void {
   subtitlesExtractionFailuresTotal.inc({ reason });
-  failuresTotalCount += 1;
-  const entry = { url, timestamp: new Date().toISOString() };
-  if (failuresBuffer.length >= FAILURES_BUFFER_SIZE) {
-    failuresBuffer.shift();
-  }
-  failuresBuffer.push(entry);
 }
 
 export function recordUntriedTracks(platform: string, count: number): void {
@@ -263,16 +252,6 @@ export function recordWhisperRequest(mode: 'local' | 'api'): void {
 
 export function setWhisperBackgroundJobsActive(count: number): void {
   whisperBackgroundJobsActive.set(count);
-}
-
-export function getFailedSubtitlesUrls(): {
-  failures: Array<{ url: string; timestamp: string }>;
-  total: number;
-} {
-  return {
-    failures: [...failuresBuffer],
-    total: failuresTotalCount,
-  };
 }
 
 export function setYtDlpVersionInfo(installed: string | null, outdated: boolean): void {
