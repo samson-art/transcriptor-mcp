@@ -17,11 +17,24 @@ Sentry.init({
     ? Number(process.env.SENTRY_TRACES_SAMPLE_RATE)
     : 0.1,
   sendDefaultPii: process.env.SENTRY_SEND_DEFAULT_PII === 'true',
+  integrations: [
+    // With tracing on, this integration sends a route's error before the app's error handler
+    // runs, without the handler's `route` tag and `requestUrl`. The handler's own capture of
+    // the same error is then dropped as a duplicate. The REST and MCP HTTP error handlers
+    // capture every 5xx themselves, so the integration only traces.
+    Sentry.fastifyIntegration({ shouldHandleError: () => false }),
+  ],
   beforeSend(event, hint) {
     const ex = hint.originalException;
     // 4xx means "this request/video", not "this server": noise, not a fault.
     // Load shedding is expected under a burst; the metrics show it.
-    if ((ex instanceof HttpError && ex.statusCode < 500) || ex instanceof ServerBusyError) {
+    // A caption hold answers without a run, and the 429 that started it was already sent:
+    // 50 calls during one hold sent 50 events and can use up the quota.
+    if (
+      (ex instanceof HttpError && ex.statusCode < 500) ||
+      ex instanceof ServerBusyError ||
+      (ex instanceof YtDlpError && ex.held)
+    ) {
       return null;
     }
     // One issue per failure class, whichever tool or call site raised it.

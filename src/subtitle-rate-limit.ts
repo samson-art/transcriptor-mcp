@@ -40,7 +40,7 @@ function holdMs(strikes: number): number {
 /** Throws while this platform's caption path is held back. Call before asking it again. */
 export function assertSubtitlesNotRateLimited(url: string): void {
   const hold = holds.get(extractPlatformFromUrl(url));
-  if (hold && Date.now() < hold.until) throw new YtDlpError('rate_limited');
+  if (hold && Date.now() < hold.until) throw new YtDlpError('rate_limited', { held: true });
 }
 
 /** Whether this platform answered 429 since its last track. Only a track clears a hold. */
