@@ -556,6 +556,49 @@ describe('mcp-core tools', () => {
       expect(metrics).toMatch(/mcp_tool_calls_total\{[^}]*tool="get_video_info"[^}]*\} [1-9]/);
     });
 
+    it('should name the kind of "no subtitles" answer in the log line, and only there (#64)', async () => {
+      const logger = {
+        error: jest.fn(),
+        info: jest.fn(),
+        debug: jest.fn(),
+        warn: jest.fn(),
+        child: jest.fn(),
+      };
+      logger.child.mockReturnValue(logger);
+      const server = createMcpServer({ logger: logger as any }) as any;
+      const handler = getTool(server, 'get_transcript');
+      normalizeVideoInputMock.mockReturnValue(testUrl);
+      const lineOf = (calls: Array<[Record<string, unknown>, string]>) =>
+        calls.filter((c) => c[1] === 'MCP tool call').map((c) => c[0]);
+
+      validateAndDownloadSubtitlesMock.mockRejectedValue(
+        new NotFoundError('No subtitles.', 'Subtitles not found', undefined, 'list')
+      );
+      await handler({ url: testUrl }, {});
+      validateAndDownloadSubtitlesMock.mockRejectedValue(
+        new NotFoundError(UNKNOWN_FAILURE_MESSAGE, 'Video not found')
+      );
+      await handler({ url: testUrl }, {});
+      expect(lineOf(logger.warn.mock.calls)).toEqual([
+        expect.objectContaining({ outcome: 'error', reason: 'not_found', answer: 'list' }),
+        expect.not.objectContaining({ answer: expect.anything() }),
+      ]);
+      expect(Object.keys(lineOf(logger.warn.mock.calls)[1])).not.toContain('answer');
+
+      validateAndDownloadSubtitlesMock.mockResolvedValue({
+        videoId: 'vid1',
+        type: 'auto',
+        lang: 'en',
+        subtitlesContent: '1\n00:00:00,000 --> 00:00:05,000\nHi',
+        source: 'youtube',
+      });
+      parseSubtitlesMock.mockReturnValue('Hi');
+      await handler({ url: testUrl }, {});
+      const ok = lineOf(logger.info.mock.calls);
+      expect(ok).toHaveLength(1);
+      expect(Object.keys(ok[0])).not.toContain('answer');
+    });
+
     it('should answer a busy server with a retry line and no error log', async () => {
       const logger = {
         error: jest.fn(),

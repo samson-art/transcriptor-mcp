@@ -1555,6 +1555,44 @@ describe('the answer when no subtitles came back', () => {
     expect(empty).not.toContain('could not be read');
   });
 
+  describe('names the kind of answer for the per-call log line (#64)', () => {
+    it('answer=list when auto-discovery answers with the track list', async () => {
+      withTracks(['en'], ['en', 'en-orig']);
+      expect(await failureOf({ url })).toMatchObject({ answer: 'list' });
+    });
+
+    it('answer=list when a request by name misses and the video lists other tracks', async () => {
+      withTracks(['en'], ['ru']);
+      expect(await failureOf({ url, type: 'official', lang: 'de' })).toMatchObject({
+        answer: 'list',
+      });
+    });
+
+    it('answer=none when the video lists no tracks and speech-to-text did not run', async () => {
+      withTracks([], []);
+      expect(await failureOf({ url })).toMatchObject({ answer: 'none' });
+    });
+
+    it('answer=stt_failed when speech-to-text ran and produced nothing, even beside a list', async () => {
+      (whisper.getWhisperConfig as jest.Mock).mockReturnValue({ mode: 'local', timeout: 600_000 });
+      withTracks([], []);
+      expect(await failureOf({ url })).toMatchObject({ answer: 'stt_failed' });
+
+      withTracks(['en'], ['ru']);
+      expect(await failureOf({ url, type: 'official', lang: 'de' })).toMatchObject({
+        answer: 'stt_failed',
+      });
+    });
+
+    it('answer=unread when the track list could not be read', async () => {
+      jest.spyOn(youtube, 'downloadSubtitles').mockResolvedValue(null);
+      jest.spyOn(youtube, 'fetchYtDlpJson').mockResolvedValue(null);
+      expect(await failureOf({ url, type: 'official', lang: 'en' })).toMatchObject({
+        answer: 'unread',
+      });
+    });
+  });
+
   it('hands the track lists and the language just tried to the caller', async () => {
     withTracks(['en'], ['ru']);
 

@@ -33,14 +33,27 @@ export type NotFoundDetails = {
   tried?: { type: 'official' | 'auto'; lang: string };
 };
 
+/**
+ * Which "no subtitles" answer a call got, for the per-call log line only (#64): the track list
+ * to choose from, no tracks at all, a failed speech-to-text run, or a list that could not be read.
+ */
+export type NoSubtitlesAnswer = 'list' | 'none' | 'stt_failed' | 'unread';
+
 /** 404 Not Found – resource or subtitles not found */
 export class NotFoundError extends HttpError {
   readonly details?: NotFoundDetails;
+  readonly answer?: NoSubtitlesAnswer;
 
-  constructor(message: string, errorLabel = 'Not found', details?: NotFoundDetails) {
+  constructor(
+    message: string,
+    errorLabel = 'Not found',
+    details?: NotFoundDetails,
+    answer?: NoSubtitlesAnswer
+  ) {
     super(404, message, errorLabel);
     this.name = 'NotFoundError';
     this.details = details;
+    this.answer = answer;
     Object.setPrototypeOf(this, new.target.prototype);
   }
 }

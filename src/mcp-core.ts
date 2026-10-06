@@ -30,6 +30,7 @@ import {
   INVALID_VIDEO_URL_MESSAGE,
   LIST_ANSWER_STEP,
   NotFoundError,
+  type NoSubtitlesAnswer,
   type NotFoundDetails,
   ServerBusyError,
   UNEXPECTED_ERROR_MESSAGE,
@@ -518,12 +519,14 @@ async function withToolErrorHandling(
   const start = performance.now();
   recordMcpToolCall(toolName);
   let reason: string | undefined;
+  let answer: NoSubtitlesAnswer | undefined;
   try {
     return await fn();
   } catch (err) {
     reason = errorReason(err);
     recordMcpToolError(toolName, reason);
     if (err instanceof NotFoundError) {
+      answer = err.answer;
       return toolError(err.message + trackHint(err.details));
     }
     return toolError(errorText(err, log, { tool: toolName }));
@@ -537,6 +540,8 @@ async function withToolErrorHandling(
       reason,
       ms: Math.round(seconds * 1000),
       ...toolCallLogFields(call),
+      // Only on a "no subtitles" answer: which of them it was (#64).
+      ...(answer ? { answer } : {}),
     };
     if (outcome === 'ok') log.info(line, 'MCP tool call');
     else log.warn(line, 'MCP tool call');
