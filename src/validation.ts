@@ -754,7 +754,8 @@ async function throwNoSubtitlesError(opts: {
           auto: available.auto,
           ...(tried ? { tried } : {}),
         }
-      : undefined
+      : undefined,
+    whisperTried ? 'stt_failed' : available === undefined ? 'unread' : listsNone ? 'none' : 'list'
   );
 }
 
