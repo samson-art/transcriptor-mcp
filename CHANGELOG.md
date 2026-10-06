@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.21] - 2026-10-06
+
 ### Added
 
 - The "MCP tool call" log line has a new field, `answer`, on a "no subtitles" failure of `get_transcript` and `get_raw_subtitles` (#64). It says which answer the caller got: `list` (the video lists tracks, and the caller got the list to choose from), `none` (the video lists no tracks, and speech-to-text did not run), `stt_failed` (speech-to-text ran and produced nothing) or `unread` (the list of tracks could not be read). If more than one is true, the first in this order wins: `stt_failed`, `unread`, `list`, `none`. Other calls have no `answer` field. The other fields, the metrics and the caller texts do not change. `get_playlist_transcripts` answers an empty selection as a success, so it never has this field.
