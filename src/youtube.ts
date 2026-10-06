@@ -908,8 +908,11 @@ export async function downloadAudio(
     cookiesCleanup = resolved.cleanup;
   }
 
+  // TikTok has no audio-only format: every format holds video and sound, so without the
+  // last fallback yt-dlp stops with "Requested format is not available" (#63).
   const audioFormat =
-    (process.env.YT_DLP_AUDIO_FORMAT ?? '').trim() || 'bestaudio[abr<=192]/bestaudio';
+    (process.env.YT_DLP_AUDIO_FORMAT ?? '').trim() ||
+    'bestaudio[abr<=192]/bestaudio/best*[acodec!=none]';
   const audioQualityNum = parseIntEnv('YT_DLP_AUDIO_QUALITY', 5);
   const audioQuality = audioQualityNum < 0 || audioQualityNum > 9 ? '5' : String(audioQualityNum);
 

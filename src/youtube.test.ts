@@ -683,7 +683,7 @@ today to pay our respects to MCP, which
 
       expect(execFileMock).toHaveBeenCalled();
       expect(capturedArgs).toContain('-f');
-      expect(capturedArgs).toContain('bestaudio[abr<=192]/bestaudio');
+      expect(capturedArgs).toContain('bestaudio[abr<=192]/bestaudio/best*[acodec!=none]');
       expect(capturedArgs).toContain('--audio-quality');
       expect(capturedArgs).toContain('5');
       expect(capturedArgs).toContain('--extract-audio');
@@ -693,6 +693,26 @@ today to pay our respects to MCP, which
 
       await unlink(audioFilePath).catch(() => {});
       dateSpy.mockRestore();
+    });
+
+    it('falls back to a format with sound when the platform has no audio-only format (#63)', async () => {
+      let capturedArgs: string[] = [];
+      execFileMock.mockImplementation(
+        (
+          _file: string,
+          args: string[],
+          _options: unknown,
+          callback: (error: Error | null, result: { stdout: string; stderr: string }) => void
+        ) => {
+          capturedArgs = args;
+          callback(null, { stdout: '', stderr: '' });
+        }
+      );
+
+      await downloadAudio(url);
+
+      const formatIdx = capturedArgs.indexOf('-f');
+      expect(capturedArgs[formatIdx + 1]).toBe('bestaudio[abr<=192]/bestaudio/best*[acodec!=none]');
     });
 
     it('should use YT_DLP_AUDIO_FORMAT and YT_DLP_AUDIO_QUALITY when set', async () => {
