@@ -7,9 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.20] - 2026-10-06
+
 ### Fixed
 
-- Speech-to-text could not get audio from TikTok (#63). TikTok has no audio-only format: each format holds both video and sound. The audio download asked only for audio-only formats, so yt-dlp stopped with `Requested format is not available`, and the caller got "no subtitles". Since 1.5.13 this was the usual answer for TikTok without `lang`. The default of `YT_DLP_AUDIO_FORMAT` is now `bestaudio[abr<=192]/bestaudio/best*[acodec!=none]`. When a platform has no audio-only format, the server takes the best format that has sound and extracts the audio from it. YouTube and other platforms with audio-only formats get the same format as before. The download is still one run. If you set `YT_DLP_AUDIO_FORMAT` to the old default, remove it or add `/best*[acodec!=none]`: your value overrides the new default.
+- Speech-to-text could not get audio from TikTok (#63). TikTok has no audio-only format: each format holds both video and sound. The audio download asked only for audio-only formats, so yt-dlp stopped with `Requested format is not available`, and the caller got "no subtitles". Since 1.5.13 this was the usual answer for TikTok without `lang`: in the week to 2026-10-06, 41 `get_transcript` calls on 30 TikTok videos failed this way. The default of `YT_DLP_AUDIO_FORMAT` is now `bestaudio[abr<=192]/bestaudio/best*[acodec!=none]`. When a platform has no audio-only format, the server takes the best format that has sound and extracts the audio from it. YouTube and other platforms with audio-only formats get the same format as before. The download is still one run. If you set `YT_DLP_AUDIO_FORMAT` to the old default, remove it or add `/best*[acodec!=none]`: your value overrides the new default.
 
 ## [1.5.19] - 2026-09-30
 
