@@ -49,8 +49,6 @@ Then run `/mcp` and approve the sign-in in the browser. After this, `claude mcp 
 | **ChatGPT** | Open [Transcriptor in the ChatGPT plugin directory](https://chatgpt.com/plugins/plugin_asdk_app_6a92e6e7ec10819189c404c0721c3207) and select **Install plugin**; sign in when asked. Or in ChatGPT open **Plugins**, search **Transcriptor**, select **Install plugin**. Then mention `@Transcriptor` in a chat. |
 | **Codex** | Same directory, one install: ChatGPT and Codex share it. In a Codex task open **Sources** → **Use plugins** → **Transcriptor**; in the CLI, `/plugins`. |
 
-> **Note:** a new directory listing can take up to 6 hours to appear in Codex ([Plugins in ChatGPT and Codex](https://help.openai.com/en/articles/20001256-plugins-in-chatgpt-and-codex)).
-
 ### 🧩 Any other MCP client
 
 If your client is not in the list above, add the server with this configuration:

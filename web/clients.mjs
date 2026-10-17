@@ -59,7 +59,6 @@ export const clients = [
       `Install <a href="${CHATGPT_LISTING}">Transcriptor from the plugin directory</a> — ChatGPT and Codex share it, one install covers both`,
       'In a Codex task: <b>Sources</b> → <b>Use plugins</b> → <b>Transcriptor</b>; in the CLI, <code>/plugins</code>',
     ],
-    after: 'A new directory listing can take up to 6 hours to appear in Codex.',
     llms: `install Transcriptor from the ChatGPT plugin directory (${CHATGPT_LISTING}), shared with Codex; then Sources -> Use plugins -> Transcriptor, or /plugins in the CLI`,
   },
   {
