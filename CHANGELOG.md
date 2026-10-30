@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- A long `get_playlist_transcripts` call took longer than a proxy in front of the server waits (#89). Common proxies close a response after 100 s with no data. The caller then got a gateway error, and the server finished later and sent the result to nobody. In the week to 2026-10-29, 8 of 300 playlist calls took longer than 100 s, the longest 127 s. The playlist run had `YT_DLP_TIMEOUT` or 120 s, whichever was longer, and that time started only when the run got a process slot. Now the run stops 90 s after the call starts, and the wait for a process slot counts toward these 90 s. `YT_DLP_TIMEOUT` no longer changes this limit. When the time runs out, the call returns the transcripts that it downloaded by then. A call that downloaded nothing answers as before: with the `timeout` text, or with the cause that yt-dlp reported, such as a rate limit. If the time runs out while the call waits for a slot, the run does not start, and the call answers with the `timeout` text. With `YT_DLP_VERBOSE_ON_ERROR=1`, the diagnostic replay gets what is left of the same 90 s. A self-hosted server with no proxy in front now gives a long playlist a partial result after 90 s, not after 120 s.
+
 ## [1.5.21] - 2026-10-06
 
 ### Added
