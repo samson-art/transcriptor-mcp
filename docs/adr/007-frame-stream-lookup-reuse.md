@@ -2,7 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-10-30
-- Sources: issue #87 and the pull request that closes it
+- Sources: issue #87, PR #96
 
 ## Context
 
@@ -25,7 +25,8 @@ In `src/youtube.ts`, `captureVideoFrame` gets its lookup from `lookupStreamInfo`
 - A failed lookup leaves the map at once.
 - `captureVideoFrame` drops the lookup when none of its streams gave a frame, or when it had no stream. Then the call takes the section download as before, with no second lookup.
 - A drop removes a lookup only while the map still holds that lookup (`dropStreamLookup`). So a late failure of an old lookup does not remove a newer one.
-- `cache_hits_total{kind="stream"}` counts a reused lookup. `cache_misses_total{kind="stream"}` counts a lookup run.
+- `captureVideoFrame` and `downloadVideoSection` add a random part to the names of the frame file and the clip. Calls that wait on one lookup resume together. With names from the URL and the millisecond alone, two calls got one file.
+- `cache_hits_total{kind="stream"}` counts a reused lookup. `cache_misses_total{kind="stream"}` counts a lookup that the server starts, or tries to start. A lookup that the server refuses with 503 `busy`, or that runs out of time before it starts, also counts as a miss.
 - A restart empties the map.
 
 ## Alternatives
@@ -39,14 +40,14 @@ In `src/youtube.ts`, `captureVideoFrame` gets its lookup from `lookupStreamInfo`
 ## Consequences
 
 - A run of frames from one video sends one lookup to the platform every 5 minutes for each width. The direct read still goes to the media servers of the platform for every frame.
-- TikTok and Bilibili answer a direct read with 403. So their lookup is dropped after each call, and each call still runs a lookup, as before.
-- A shared lookup runs with the budget, the cookies copy and the logger of the call that started it. Its failure reaches every call that waits on it. A waiting call does not wait longer than its own budget, because the first call started earlier.
+- TikTok and Bilibili answer a direct read with 403. So the first call that reads drops their lookup, and the next call runs a new lookup. Calls that wait on one lookup take the section download together. Each call has its own frame file and clip, so these calls never share a file.
+- A shared lookup runs with the budget, the cookies copy and the logger of the call that started it. Its failure reaches every call that waits on it. A waiting call does not wait longer than with a lookup of its own. The shared lookup has an earlier place in the process queue, and its budget ends earlier. The wait for a place in the queue has no timer, so a call can wait past its own budget, as before this change.
 - A reused lookup ran with the cookies copy of an earlier call. The call that started the lookup waits for it before it deletes its copy. No run gets the original file, so ADR 004 holds.
 - A frame call can still get a frame for up to 5 minutes after a video becomes private or is removed. This needs stream URLs that still work.
 - This is not the caption path. The goal is the same as in [ADR 003](003-caption-request-budget.md): fewer requests from one address. ADR 002, 003, 005 and 006 do not change.
 - A sum of `cache_hits_total` or `cache_misses_total` over all kinds now includes `stream`. To keep the old total, leave out `kind="stream"`.
 - The usual in-flight map is cleared in `finally`. This map keeps a successful lookup for 5 minutes on purpose. A failure leaves at once.
-- The map has no size cap. It holds the URL and width pairs of the last 5 minutes. Expired entries leave the map at the next lookup that runs.
+- The map has no size cap. It holds the URL and width pairs of the last 5 minutes. Expired entries leave the map at the next miss.
 
 ## Do not
 
@@ -56,6 +57,7 @@ In `src/youtube.ts`, `captureVideoFrame` gets its lookup from `lookupStreamInfo`
 - Do not add a second lookup inside the call. The section download is the fallback.
 - Do not drop a lookup by its key alone. Then a late failure of an old lookup removes the newer lookup, and the next call runs one more lookup.
 - Do not clear a successful lookup in `finally`. The reuse is the point of the map.
+- Do not name the frame file or the clip by the URL and the millisecond alone. Calls that share a lookup take the section download in the same millisecond.
 - Guarded by the `stream lookup reuse` tests in `src/youtube.test.ts`:
   - runs one lookup for frames of one video and width, and counts a miss, then hits
   - lets frames that run at the same time wait for one lookup
@@ -64,3 +66,4 @@ In `src/youtube.ts`, `captureVideoFrame` gets its lookup from `lookupStreamInfo`
   - keeps no failed or empty lookup
   - drops a reused lookup whose stream gives no frame, and takes the section download without a new lookup
   - does not let a late read failure drop a newer lookup
+  - gives each call its own frame and clip files when calls that share a lookup fall back together

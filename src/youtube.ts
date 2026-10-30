@@ -1116,6 +1116,11 @@ const STREAM_LOOKUP_TTL_MS = 5 * 60_000;
  * Stream lookups by format selector and URL. Calls that come while a lookup runs share it.
  * They live in process memory only: the stream URLs are signed for the address of this
  * server, so they never go to Redis.
+ *
+ * ponytail: the map has no size cap and no timer. An expired entry leaves at the next miss.
+ * The ceiling is the lookups of the last 5 minutes. With the default cap of 4 processes and
+ * about 2.9 s for each lookup, that is at most about 400 entries. Add a size cap if memory
+ * use shows a need.
  */
 const streamLookups = new Map<string, { expires: number; info: Promise<VideoStreamInfo | null> }>();
 
@@ -1209,7 +1214,15 @@ async function downloadVideoSection(
   logger?: FastifyBaseLogger
 ): Promise<string | null> {
   const tempDir = tmpdir();
-  const outputBase = join(tempDir, urlToSafeBase(url, 'frame_clip'));
+  // Calls that wait on one stream lookup resume together. If their direct reads fail, they can
+  // start this download in the same millisecond. On TikTok and Bilibili, each direct read fails
+  // with 403 (605 frame calls in the week to 2026-10-29). With a name from the URL and the
+  // millisecond alone, one call can read the clip of another timestamp, or lose its clip to the
+  // cleanup of another call. So each call adds a random part, as copyCookiesFile does.
+  const outputBase = join(
+    tempDir,
+    `${urlToSafeBase(url, 'frame_clip')}_${Math.random().toString(36).slice(2)}`
+  );
   const args = [
     '-f',
     formatSelector,
@@ -1267,9 +1280,12 @@ export async function captureVideoFrame(
   const width = options.width ?? 1280;
   const quality = options.quality ?? 4;
   const mimeType = format === 'png' ? 'image/png' : 'image/jpeg';
+  // Two calls that start in the same millisecond got one frame file. With a shared stream
+  // lookup, they also read at the same moment. So each call adds a random part, as in
+  // downloadVideoSection.
   const outputPath = join(
     tmpdir(),
-    `${urlToSafeBase(url, 'frame')}.${format === 'png' ? 'png' : 'jpg'}`
+    `${urlToSafeBase(url, 'frame')}_${Math.random().toString(36).slice(2)}.${format === 'png' ? 'png' : 'jpg'}`
   );
   const formatSelector = buildFrameFormatSelector(width);
   const lookupKey = JSON.stringify([formatSelector, url]);

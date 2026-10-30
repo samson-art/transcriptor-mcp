@@ -2234,9 +2234,6 @@ today to pay our respects to MCP, which
     });
 
     it('should capture frame via direct stream URL with -ss seek', async () => {
-      const timestamp = 1700000001000;
-      const dateSpy = jest.spyOn(Date, 'now').mockReturnValue(timestamp);
-      const outputPath = join(tmpdir(), `${urlToSafeBase(url, 'frame')}.jpg`);
       const frameBytes = Buffer.from('fake-jpeg-bytes');
       const ffmpegCalls: string[][] = [];
 
@@ -2250,7 +2247,7 @@ today to pay our respects to MCP, which
             return;
           }
           ffmpegCalls.push(args);
-          void writeFile(outputPath, frameBytes).then(() =>
+          void writeFile(args[args.length - 1], frameBytes).then(() =>
             callback(null, { stdout: '', stderr: '' })
           );
         }
@@ -2274,9 +2271,10 @@ today to pay our respects to MCP, which
       expect(args[args.indexOf('-i') + 1]).toBe('https://cdn.example/stream.mp4');
       expect(args[args.indexOf('-q:v') + 1]).toBe('4');
       expect(args).toContain('scale=min(iw\\,1280):-2');
+      const outputPath = args[args.length - 1];
+      expect(outputPath).toMatch(/\.jpg$/);
       // output file is consumed and removed
       await expect(access(outputPath, constants.F_OK)).rejects.toThrow();
-      dateSpy.mockRestore();
     });
 
     it('should return timestamp_beyond_duration without running ffmpeg', async () => {
@@ -2301,19 +2299,18 @@ today to pay our respects to MCP, which
     });
 
     it('should fall back to section download when direct capture fails', async () => {
-      const timestamp = 1700000002000;
-      const dateSpy = jest.spyOn(Date, 'now').mockReturnValue(timestamp);
-      const outputPath = join(tmpdir(), `${urlToSafeBase(url, 'frame')}.png`);
-      const clipPath = join(tmpdir(), `${urlToSafeBase(url, 'frame_clip')}.mp4`);
       const frameBytes = Buffer.from('fake-png-bytes');
       let ffmpegCallCount = 0;
       let sectionArgs: string[] = [];
+      let clipPath = '';
+      let outputPath = '';
 
       execFileMock.mockImplementation(
         (file: string, args: string[], _options: unknown, callback: ExecCallback) => {
           if (file === 'yt-dlp') {
             if (args.includes('--download-sections')) {
               sectionArgs = args;
+              clipPath = args[args.indexOf('--output') + 1].replace('%(ext)s', 'mp4');
               void writeFile(clipPath, 'fake clip').then(() =>
                 callback(null, { stdout: '', stderr: '' })
               );
@@ -2330,6 +2327,7 @@ today to pay our respects to MCP, which
             callback(new Error('ffmpeg: connection refused'));
             return;
           }
+          outputPath = args[args.length - 1];
           void writeFile(outputPath, frameBytes).then(() =>
             callback(null, { stdout: '', stderr: '' })
           );
@@ -2349,9 +2347,9 @@ today to pay our respects to MCP, which
         'ffmpeg_i:-rw_timeout 15000000'
       );
       expect(sectionArgs[sectionArgs.indexOf('--download-sections') + 1]).toBe('*10-12');
+      expect(outputPath).toMatch(/\.png$/);
       // clip is cleaned up
       await expect(access(clipPath, constants.F_OK)).rejects.toThrow();
-      dateSpy.mockRestore();
     });
 
     it('should spend one budget across every stage and kill ffmpeg outright', async () => {
@@ -2399,11 +2397,11 @@ today to pay our respects to MCP, which
       process.env.YT_DLP_FRAME_TIMEOUT = '1000';
       let now = 1700000005000;
       const dateSpy = jest.spyOn(Date, 'now').mockImplementation(() => now);
-      const clipPath = join(tmpdir(), `${urlToSafeBase(url, 'frame_clip')}.mp4`);
       let ffmpegCalls = 0;
       execFileMock.mockImplementation(
         (file: string, args: string[], _options: unknown, callback: ExecCallback) => {
           if (file === 'yt-dlp' && args.includes('--download-sections')) {
+            const clipPath = args[args.indexOf('--output') + 1].replace('%(ext)s', 'mp4');
             void writeFile(clipPath, 'fake clip').then(() =>
               callback(null, { stdout: '', stderr: '' })
             );
@@ -2432,28 +2430,22 @@ today to pay our respects to MCP, which
 
     it('should set no timeout at all when the frame budget is 0', async () => {
       process.env.YT_DLP_FRAME_TIMEOUT = '0';
-      const dateSpy = jest.spyOn(Date, 'now').mockReturnValue(1700000006000);
-      const outputPath = join(tmpdir(), `${urlToSafeBase(url, 'frame')}.jpg`);
       const timeouts: unknown[] = [];
       execFileMock.mockImplementation(
-        (file: string, _args: string[], options: { timeout?: number }, callback: ExecCallback) => {
+        (file: string, args: string[], options: { timeout?: number }, callback: ExecCallback) => {
           timeouts.push(options.timeout);
           if (file === 'yt-dlp') {
             callback(null, { stdout: 'vid123\n212\nhttps://cdn.example/stream.mp4\n', stderr: '' });
             return;
           }
-          void writeFile(outputPath, Buffer.from('jpeg')).then(() =>
+          void writeFile(args[args.length - 1], Buffer.from('jpeg')).then(() =>
             callback(null, { stdout: '', stderr: '' })
           );
         }
       );
 
-      try {
-        await expect(captureVideoFrame(url, 10)).resolves.toMatchObject({ ok: true });
-        expect(timeouts).toEqual([undefined, undefined]);
-      } finally {
-        dateSpy.mockRestore();
-      }
+      await expect(captureVideoFrame(url, 10)).resolves.toMatchObject({ ok: true });
+      expect(timeouts).toEqual([undefined, undefined]);
     });
 
     it('should return capture_failed when all attempts fail', async () => {
@@ -2549,10 +2541,6 @@ today to pay our respects to MCP, which
       });
 
       it('lets frames that run at the same time wait for one lookup', async () => {
-        // The frame file is named by URL and millisecond. Frames that start in the same
-        // millisecond write one file, so each frame gets a millisecond of its own.
-        let now = 1_700_000_100_000;
-        const dateSpy = jest.spyOn(Date, 'now').mockImplementation(() => (now += 1));
         const held: ExecCallback[] = [];
         execFileMock.mockImplementation(
           (file: string, args: string[], _options: unknown, callback: ExecCallback) => {
@@ -2574,7 +2562,6 @@ today to pay our respects to MCP, which
           // Answer every held lookup also when the test fails, so that no process slot stays taken.
           for (const callback of held.splice(0)) callback(null, lookupOut);
           await frames;
-          dateSpy.mockRestore();
         }
         for (const outcome of await frames) {
           expect(outcome).toMatchObject({ status: 'fulfilled', value: { ok: true } });
@@ -2651,9 +2638,6 @@ today to pay our respects to MCP, which
       });
 
       it('does not let a late read failure drop a newer lookup', async () => {
-        // Frames that start together need a millisecond each, as above.
-        let now = 1_700_000_300_000;
-        const dateSpy = jest.spyOn(Date, 'now').mockImplementation(() => (now += 1));
         const reads: Array<(fail: boolean) => void> = [];
         mockRuns((answer) => {
           reads.push(answer);
@@ -2680,6 +2664,39 @@ today to pay our respects to MCP, which
         } finally {
           while (reads.length > 0) reads.shift()?.(false);
           await Promise.allSettled(frames);
+        }
+      });
+
+      it('gives each call its own frame and clip files when calls that share a lookup fall back together', async () => {
+        // Calls that wait on one lookup resume together. If their direct reads fail, as each read
+        // on TikTok and Bilibili does, they start the section download in the same millisecond.
+        // Names from the URL and the millisecond alone gave them one clip file.
+        let now = 1_700_000_400_000;
+        const dateSpy = jest.spyOn(Date, 'now').mockImplementation(() => now);
+        mockRuns((answer) => answer(true));
+        const argsOf = (file: string) =>
+          execFileMock.mock.calls.filter(([f]) => f === file).map(([, args]) => args as string[]);
+        try {
+          const first = captureVideoFrame(url, 10);
+          now += 1;
+          // These two also start in the same millisecond.
+          const outcomes = await Promise.allSettled([
+            first,
+            captureVideoFrame(url, 20),
+            captureVideoFrame(url, 30),
+          ]);
+
+          expect(lookups()).toBe(1);
+          const clips = argsOf('yt-dlp')
+            .filter((args) => args.includes('--download-sections'))
+            .map((args) => args[args.indexOf('--output') + 1]);
+          expect(new Set(clips).size).toBe(3);
+          const frameFiles = argsOf('ffmpeg').map((args) => args[args.length - 1]);
+          expect(new Set(frameFiles).size).toBe(3);
+          for (const outcome of outcomes) {
+            expect(outcome).toMatchObject({ status: 'fulfilled', value: { ok: true } });
+          }
+        } finally {
           dateSpy.mockRestore();
         }
       });
