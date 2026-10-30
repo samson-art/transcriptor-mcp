@@ -32,6 +32,9 @@ jest.mock('@modelcontextprotocol/ext-apps/server', () => ({
 
 jest.mock('@modelcontextprotocol/sdk/server/mcp.js', () => {
   class FakeMcpServer {
+    // createMcpServer wraps the tools/list handler of the SDK server here (#80). This fake
+    // has no handlers, so the wrap does nothing.
+    server = {};
     tools = new Map<string, (args: any, extra: any) => any>();
     resources = new Map<string, (...args: any[]) => any>();
 

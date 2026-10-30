@@ -135,6 +135,18 @@ describe('POST /mcp', () => {
     );
   });
 
+  it('labels every input and output schema JSON Schema 2020-12 (#80)', async () => {
+    const body = await readMcpBody(await postMcp({ jsonrpc: '2.0', id: 4, method: 'tools/list' }));
+    const labels = (body.result?.tools ?? []).flatMap(
+      (tool: { inputSchema: { $schema?: string }; outputSchema?: { $schema?: string } }) => [
+        tool.inputSchema.$schema,
+        tool.outputSchema?.$schema,
+      ]
+    );
+
+    expect(labels).toEqual(Array(16).fill('https://json-schema.org/draft/2020-12/schema'));
+  });
+
   it('handles consecutive requests, each with a fresh transport', async () => {
     // A hoisted/reused stateless transport makes the SDK throw on the second request.
     const first = await postMcp(initializeBody(10));
