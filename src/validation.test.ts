@@ -1054,6 +1054,8 @@ describe('validation', () => {
     it('should return available subtitles data on success', async () => {
       jest.spyOn(youtube, 'fetchYtDlpJson').mockResolvedValue({
         id: 'dQw4w9WgXcQ',
+        // The list keeps the length for the speech-to-text ceiling (#88). The output must not show it.
+        duration: 7200,
         subtitles: { en: [], ru: [] },
         automatic_captions: { en: [] },
       });
@@ -1502,11 +1504,12 @@ describe('validation', () => {
 
 const tracks = (langs: string[]) =>
   Object.fromEntries(langs.map((lang) => [lang, [{ ext: 'vtt', url: 'u' }]]));
-/** The metadata run's answer: the track lists and the language the platform reports. */
-const listing = (official: string[], auto: string[] = [], language?: string) =>
+/** The metadata run's answer: the track lists, the language the platform reports and the length. */
+const listing = (official: string[], auto: string[] = [], language?: string, duration?: number) =>
   jest.spyOn(youtube, 'fetchYtDlpJson').mockResolvedValue({
     id: 'dQw4w9WgXcQ',
     language,
+    duration,
     subtitles: tracks(official),
     automatic_captions: tracks(auto),
   } as never);
@@ -2104,5 +2107,176 @@ describe('an omitted lang means the original language', () => {
 
     await expect(validateAndDownloadSubtitles({ url })).rejects.toThrow(NotFoundError);
     expect(await untried()).toBe(before + 3);
+  });
+
+  describe('a video over the speech-to-text length ceiling (#88)', () => {
+    const availKey = buildCacheKey('avail', url);
+    const hits = () => counter('cache_hits_total{kind="avail"');
+    const misses = () => counter('cache_misses_total{kind="avail"');
+    const availReads = () =>
+      (cacheGet as jest.Mock).mock.calls.filter(([key]) => key === availKey).length;
+    /** The caller-text rules of src/errors.test.ts. The text also must not say that speech-to-text ran. */
+    const NOT_FOR_CALLERS =
+      /\bGET \/|\bPOST \/|WHISPER_|YT_DLP_|CACHE_|yt-dlp|ffmpeg|Whisper|Redis|speech-to-text/i;
+    const setCeiling = (seconds: string | undefined): void => {
+      if (seconds === undefined) delete process.env.WHISPER_MAX_DURATION_SECONDS;
+      else process.env.WHISPER_MAX_DURATION_SECONDS = seconds;
+    };
+    /**
+     * A request by name whose track brings no text, with this track list in the cache. The mocked
+     * metadata run gives a length over the ceiling, and the request by name must not use it.
+     */
+    const byNameWithCached = (cached?: object) => {
+      listing([], ['en'], undefined, 7200);
+      jest.spyOn(youtube, 'downloadSubtitles').mockResolvedValue('');
+      (cacheGet as jest.Mock).mockImplementation((key: string) =>
+        Promise.resolve(
+          key === availKey && cached
+            ? JSON.stringify({ videoId: id, official: [], auto: ['en'], ...cached })
+            : undefined
+        )
+      );
+      return failureOf({ url, type: 'auto', lang: 'en' });
+    };
+
+    beforeEach(() => {
+      (whisper.getWhisperConfig as jest.Mock).mockReturnValue({ mode: 'local', timeout: 600_000 });
+      setCeiling('600');
+    });
+
+    afterEach(() => {
+      setCeiling(undefined);
+      resetSubtitleRateLimitsForTests();
+    });
+
+    it('answers too_long without an audio run when auto-discovery knows the video is longer', async () => {
+      const metadata = listing([], [], undefined, 601);
+      const download = jest.spyOn(youtube, 'downloadSubtitles').mockResolvedValue(null);
+      const failuresBefore = await failures();
+
+      const error = await failureOf({ url });
+
+      // The audio run is the first step of the speech-to-text job, so no job means no audio run.
+      expect(whisperJobs.startOrReuseWhisperJob).not.toHaveBeenCalled();
+      expect(metadata).toHaveBeenCalledTimes(1);
+      expect(download).not.toHaveBeenCalled();
+      expect(error).toMatchObject({ name: 'NotFoundError', statusCode: 404, answer: 'too_long' });
+      expect(error.message).toBe(
+        'No subtitles could be downloaded for this video. This server transcribes only videos up to 600 seconds long, and this video is longer. The platform lists no subtitle tracks for this video, so no type or lang will work. Do not repeat the same call.'
+      );
+      expect(error.message).not.toMatch(NOT_FOR_CALLERS);
+      expect((error as NotFoundError).details).toEqual({ official: [], auto: [] });
+      // Speech-to-text did not run, so this is no "no subtitles" failure.
+      expect(await failures()).toBe(failuresBefore);
+    });
+
+    it('answers too_long without an audio run for a request by name when the cache holds a longer length', async () => {
+      memoryCache();
+      const metadata = listing(['de'], ['en'], undefined, 7200);
+      // Another tool read this video first, and its metadata went into the cache.
+      await validateAndFetchVideoInfo({ url });
+      metadata.mockClear();
+      const download = jest.spyOn(youtube, 'downloadSubtitles').mockResolvedValue('');
+      const hitsBefore = await hits();
+      const missesBefore = await misses();
+      const failuresBefore = await failures();
+
+      const error = await failureOf({ url, type: 'auto', lang: 'en' });
+
+      expect(whisperJobs.startOrReuseWhisperJob).not.toHaveBeenCalled();
+      // The call still makes its one track request (ADR 006), and it makes no run to learn the length.
+      expect(download).toHaveBeenCalledTimes(1);
+      expect(metadata).not.toHaveBeenCalled();
+      expect(error).toMatchObject({ name: 'NotFoundError', statusCode: 404, answer: 'too_long' });
+      expect(error.message).toBe(
+        'No auto subtitles could be downloaded for language "en". This server transcribes only videos up to 600 seconds long, and this video is longer. Pass a type and lang the video actually has.'
+      );
+      expect(error.message).not.toMatch(NOT_FOR_CALLERS);
+      // The length stays in the server: the 404 body has the tracks only.
+      expect((error as NotFoundError).details).toEqual({
+        official: ['de'],
+        auto: ['en'],
+        tried: { type: 'auto', lang: 'en' },
+      });
+      // The cache counts skip the lookup for the length. The one hit is the read for the hint, as before.
+      expect(await hits()).toBe(hitsBefore + 1);
+      expect(await misses()).toBe(missesBefore);
+      expect(await failures()).toBe(failuresBefore);
+    });
+
+    it('answers too_long during a caption hold, because nothing leaves the server', async () => {
+      (cacheGet as jest.Mock).mockImplementation((key: string) =>
+        Promise.resolve(
+          key === availKey
+            ? JSON.stringify({ videoId: id, official: [], auto: [], duration: 7200 })
+            : undefined
+        )
+      );
+      noteSubtitlesRateLimited(url);
+
+      expect(await failureOf({ url })).toMatchObject({ name: 'NotFoundError', answer: 'too_long' });
+      expect(whisperJobs.startOrReuseWhisperJob).not.toHaveBeenCalled();
+      expect(youtube.fetchYtDlpJson).not.toHaveBeenCalled();
+    });
+
+    it('ranks too_long above unread when the hint cannot read the track list', async () => {
+      // The entry expires, or the cache fails, after the lookup for the length and before the hint.
+      let availReadsLeft = 1;
+      (cacheGet as jest.Mock).mockImplementation((key: string) =>
+        Promise.resolve(
+          key === availKey && availReadsLeft-- > 0
+            ? JSON.stringify({ videoId: id, official: [], auto: ['en'], duration: 7200 })
+            : undefined
+        )
+      );
+      jest.spyOn(youtube, 'fetchYtDlpJson').mockResolvedValue(null);
+      jest.spyOn(youtube, 'downloadSubtitles').mockResolvedValue('');
+
+      const error = await failureOf({ url, type: 'auto', lang: 'en' });
+
+      expect(error.message).toContain('could not be read');
+      expect(error).toMatchObject({ answer: 'too_long' });
+    });
+
+    it.each([
+      { when: 'the platform reports no length', duration: undefined, ceiling: '600' },
+      { when: 'the video is as long as the ceiling', duration: 600, ceiling: '600' },
+      { when: 'the ceiling is 0', duration: 7200, ceiling: '0' },
+      { when: 'the ceiling is unset', duration: 7200, ceiling: undefined },
+    ])('still starts the audio run when $when', async ({ duration, ceiling }) => {
+      setCeiling(ceiling);
+      listing([], [], undefined, duration);
+
+      expect(await failureOf({ url })).toMatchObject({ answer: 'stt_failed' });
+      expect(whisperJobs.startOrReuseWhisperJob).toHaveBeenCalledTimes(1);
+    });
+
+    it.each([
+      { when: 'nothing is cached', cached: undefined, ceiling: '600' },
+      { when: 'the cached track list has no length', cached: {}, ceiling: '600' },
+      { when: 'the cached length is the ceiling', cached: { duration: 600 }, ceiling: '600' },
+      { when: 'the ceiling is 0', cached: { duration: 7200 }, ceiling: '0' },
+      { when: 'the ceiling is unset', cached: { duration: 7200 }, ceiling: undefined },
+    ])(
+      'still starts the audio run for a request by name when $when',
+      async ({ cached, ceiling }) => {
+        setCeiling(ceiling);
+
+        expect(await byNameWithCached(cached)).toMatchObject({ answer: 'stt_failed' });
+        expect(whisperJobs.startOrReuseWhisperJob).toHaveBeenCalledTimes(1);
+      }
+    );
+
+    it.each(['0', undefined])(
+      'reads the cache for the length of a request by name only with a ceiling (ceiling %s)',
+      async (ceiling) => {
+        setCeiling(ceiling);
+
+        await byNameWithCached({ duration: 7200 });
+
+        // The hint reads the entry once, as before. Without a ceiling, nothing else reads it.
+        expect(availReads()).toBe(1);
+      }
+    );
   });
 });
