@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- The stdio command wrote the npm script banner to stdout before the first MCP message (#81). `npm run start:mcp` is the stdio command of the Docker package in `server.json` and of the README. In a local run of 1.5.21 on 2026-10-07, npm printed four lines before the server started. They were a blank line, `> transcriptor-mcp@1.5.21 start:mcp`, the command, and one more blank line. The MCP stdio transport allows only MCP messages on stdout. The TypeScript SDK 1.x client reported a parse error for each of these lines, and a stricter client can stop at the first one. The MCP image now sets `NPM_CONFIG_LOGLEVEL=silent`. npm then writes nothing of its own, and the first stdout line is the answer of the server. The setting also applies to the default HTTP command of the image. Its container log no longer shows the npm banner, or the npm error lines when the server exits with an error. The log lines of the server do not change. To get the npm lines back, run the image with `-e NPM_CONFIG_LOGLEVEL=notice`. The REST API image does not change. For a local stdio server, the README now runs `npm run --silent start:mcp`. The stdio step of the MCP smoke test now fails when the first stdout line is not JSON.
+
 ## [1.5.21] - 2026-10-06
 
 ### Added
