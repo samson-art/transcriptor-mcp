@@ -14,7 +14,13 @@ import {
   YtDlpError,
   type YtDlpFailureReason,
 } from './errors.js';
-import { primeSubtitleRequests, recordSubtitleRequest, setYtDlpProcessGauges } from './metrics.js';
+import {
+  primeSubtitleRequests,
+  recordCacheHit,
+  recordCacheMiss,
+  recordSubtitleRequest,
+  setYtDlpProcessGauges,
+} from './metrics.js';
 import { extractPlatformFromUrl } from './platform.js';
 import {
   assertSubtitlesNotRateLimited,
@@ -1100,6 +1106,51 @@ async function fetchVideoStreamInfo(
   }
 }
 
+// In the week to 2026-10-29, 87% of about 7,800 frame calls were for a video that the server
+// looked up in the previous 10 minutes. Eight videos got 42% of the frame calls. For seven of
+// them, the median gap between two frames was 0.4 to 0.7 s. A lookup is one yt-dlp run of
+// about 2.9 s, and its stream URLs stay valid for hours. See ADR 007.
+const STREAM_LOOKUP_TTL_MS = 5 * 60_000;
+
+/**
+ * Stream lookups by format selector and URL. Calls that come while a lookup runs share it.
+ * They live in process memory only: the stream URLs are signed for the address of this
+ * server, so they never go to Redis.
+ */
+const streamLookups = new Map<string, { expires: number; info: Promise<VideoStreamInfo | null> }>();
+
+/** Drops a lookup only while the map still holds it, so a late failure never drops a newer one. */
+function dropStreamLookup(key: string, info: Promise<VideoStreamInfo | null>): void {
+  if (streamLookups.get(key)?.info === info) streamLookups.delete(key);
+}
+
+/** Gives the lookup of the key from the last 5 minutes, or runs a new one. */
+function lookupStreamInfo(
+  key: string,
+  run: () => Promise<VideoStreamInfo | null>
+): Promise<VideoStreamInfo | null> {
+  const now = Date.now();
+  const kept = streamLookups.get(key);
+  if (kept && now < kept.expires) {
+    recordCacheHit('stream');
+    return kept.info;
+  }
+  recordCacheMiss('stream');
+  for (const [k, entry] of streamLookups) {
+    if (entry.expires <= now) streamLookups.delete(k);
+  }
+  const info = run();
+  streamLookups.set(key, { expires: now + STREAM_LOOKUP_TTL_MS, info });
+  // The map keeps no failed lookup. captureVideoFrame drops a lookup that gave no frame.
+  void info.catch(() => dropStreamLookup(key, info));
+  return info;
+}
+
+/** Empties the stream lookups. Exported for tests. */
+export function resetStreamLookupsForTests(): void {
+  streamLookups.clear();
+}
+
 async function runFfmpegFrameCapture(opts: {
   input: string;
   /** Seek position in the input; omit to take the first frame */
@@ -1202,6 +1253,7 @@ async function downloadVideoSection(
  * Captures a single frame from a video at the given timestamp.
  * Fast path: yt-dlp resolves a direct stream URL and ffmpeg seeks over HTTP.
  * Fallback: yt-dlp downloads a ~2s section and ffmpeg takes its first frame.
+ * A call reuses the lookup of the same URL and width for 5 minutes (lookupStreamInfo).
  * @param url - Video URL (any supported platform)
  * @param timestampSeconds - Frame position from the start of the video
  */
@@ -1220,6 +1272,7 @@ export async function captureVideoFrame(
     `${urlToSafeBase(url, 'frame')}.${format === 'png' ? 'png' : 'jpg'}`
   );
   const formatSelector = buildFrameFormatSelector(width);
+  const lookupKey = JSON.stringify([formatSelector, url]);
   // One budget for the whole call, not one per process: the lookup, the direct reads, the
   // section download and the clip read each used to get all of it. 0 means no limit.
   const budget = getFrameCaptureTimeout();
@@ -1246,7 +1299,10 @@ export async function captureVideoFrame(
     await logCookiesFileStatus(logger, cookiesFilePathFromEnv);
     logger?.info({ timestampSeconds, format, width }, 'Capturing video frame');
 
-    const streamInfo = await fetchVideoStreamInfo(url, formatSelector, envArgs, deadline, logger);
+    const lookup = lookupStreamInfo(lookupKey, () =>
+      fetchVideoStreamInfo(url, formatSelector, envArgs, deadline, logger)
+    );
+    const streamInfo = await lookup;
     const videoId = streamInfo?.videoId ?? extractYouTubeVideoId(url) ?? 'unknown';
 
     if (
@@ -1290,6 +1346,10 @@ export async function captureVideoFrame(
       }
     }
 
+    // No stream of this lookup gave a frame, or it had none. A reused lookup can hold URLs
+    // that stopped working, so the next call looks the video up again. This call takes the
+    // section download as before and runs no second lookup.
+    dropStreamLookup(lookupKey, lookup);
     clipPath = await downloadVideoSection(
       url,
       timestampSeconds,

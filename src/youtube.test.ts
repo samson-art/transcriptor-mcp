@@ -38,13 +38,16 @@ const {
   classifyYtDlpFailure,
   captureVideoFrame,
   getImageWidth,
+  resetStreamLookupsForTests,
 } = youtube;
 
 describe('youtube', () => {
-  // The hold lives in a module-level map: a case that sets one would silently refuse
-  // every later download in this file.
+  // The caption hold and the frame stream lookups live in module-level maps. A hold that
+  // one case leaves refuses every later download in this file, and a lookup that one case
+  // leaves answers a later frame.
   beforeEach(() => {
     resetSubtitleRateLimitsForTests();
+    resetStreamLookupsForTests();
   });
 
   /** yt-dlp exits non-zero with this on stderr. `promisify` drops everything after the error. */
@@ -2476,6 +2479,210 @@ today to pay our respects to MCP, which
       } else {
         throw new Error(`Expected capture_failed outcome, got ${JSON.stringify(outcome)}`);
       }
+    });
+
+    describe('stream lookup reuse', () => {
+      const lookupOut = { stdout: 'vid123\n212\nhttps://cdn.example/stream.mp4\n', stderr: '' };
+      const tick = () => new Promise((resolve) => setImmediate(resolve));
+      const isLookup = ([file, args]: unknown[]) =>
+        file === 'yt-dlp' && !(args as string[]).includes('--download-sections');
+      const lookups = () => execFileMock.mock.calls.filter(isLookup).length;
+      const sections = () =>
+        execFileMock.mock.calls.filter(([, args]) =>
+          (args as string[]).includes('--download-sections')
+        ).length;
+
+      async function streamCount(metric: string): Promise<number> {
+        const line = (await renderPrometheus())
+          .split('\n')
+          .find((l) => l.startsWith(`${metric}{kind="stream"`));
+        return line ? Number(line.split(' ').pop()) : 0;
+      }
+
+      /**
+       * A lookup answers at once, a section download writes its clip, and ffmpeg writes the
+       * frame to the output path that it was given. A read of a stream URL answers through
+       * `directRead`, which answers at once with a frame by default.
+       */
+      function mockRuns(
+        directRead: (answer: (fail: boolean) => void) => void = (answer) => answer(false)
+      ) {
+        execFileMock.mockImplementation(
+          (file: string, args: string[], _options: unknown, callback: ExecCallback) => {
+            const done = () => callback(null, { stdout: '', stderr: '' });
+            const writeFrame = () => void writeFile(args[args.length - 1], 'jpeg').then(done);
+            if (file === 'yt-dlp' && args.includes('--download-sections')) {
+              const clip = args[args.indexOf('--output') + 1].replace('%(ext)s', 'mp4');
+              void writeFile(clip, 'fake clip').then(done);
+            } else if (file === 'yt-dlp') {
+              callback(null, lookupOut);
+            } else if (args[args.indexOf('-i') + 1].startsWith('https://')) {
+              directRead((fail) =>
+                fail
+                  ? callback(Object.assign(new Error('Server returned 403 Forbidden'), { code: 1 }))
+                  : writeFrame()
+              );
+            } else {
+              writeFrame();
+            }
+          }
+        );
+      }
+
+      it('runs one lookup for frames of one video and width, and counts a miss, then hits', async () => {
+        mockRuns();
+        const misses = await streamCount('cache_misses_total');
+        const hits = await streamCount('cache_hits_total');
+
+        await expect(captureVideoFrame(url, 10)).resolves.toMatchObject({ ok: true });
+        await expect(captureVideoFrame(url, 20)).resolves.toMatchObject({ ok: true });
+        // A timestamp past the end gets the same answer from the reused lookup.
+        await expect(captureVideoFrame(url, 500)).resolves.toMatchObject({
+          ok: false,
+          reason: 'timestamp_beyond_duration',
+          durationSeconds: 212,
+        });
+
+        expect(lookups()).toBe(1);
+        expect(await streamCount('cache_misses_total')).toBe(misses + 1);
+        expect(await streamCount('cache_hits_total')).toBe(hits + 2);
+      });
+
+      it('lets frames that run at the same time wait for one lookup', async () => {
+        // The frame file is named by URL and millisecond. Frames that start in the same
+        // millisecond write one file, so each frame gets a millisecond of its own.
+        let now = 1_700_000_100_000;
+        const dateSpy = jest.spyOn(Date, 'now').mockImplementation(() => (now += 1));
+        const held: ExecCallback[] = [];
+        execFileMock.mockImplementation(
+          (file: string, args: string[], _options: unknown, callback: ExecCallback) => {
+            if (file === 'yt-dlp') {
+              held.push(callback);
+              return;
+            }
+            void writeFile(args[args.length - 1], 'jpeg').then(() =>
+              callback(null, { stdout: '', stderr: '' })
+            );
+          }
+        );
+
+        const frames = Promise.allSettled([10, 20, 30].map((t) => captureVideoFrame(url, t)));
+        try {
+          await tick();
+          expect(lookups()).toBe(1);
+        } finally {
+          // Answer every held lookup also when the test fails, so that no process slot stays taken.
+          for (const callback of held.splice(0)) callback(null, lookupOut);
+          await frames;
+          dateSpy.mockRestore();
+        }
+        for (const outcome of await frames) {
+          expect(outcome).toMatchObject({ status: 'fulfilled', value: { ok: true } });
+        }
+      });
+
+      it('runs a new lookup 5 minutes after the last one started', async () => {
+        let now = 1_700_000_200_000;
+        const dateSpy = jest.spyOn(Date, 'now').mockImplementation(() => now);
+        mockRuns();
+        try {
+          await expect(captureVideoFrame(url, 10)).resolves.toMatchObject({ ok: true });
+          now += 5 * 60_000 - 1;
+          await expect(captureVideoFrame(url, 20)).resolves.toMatchObject({ ok: true });
+          expect(lookups()).toBe(1);
+          now += 2;
+          await expect(captureVideoFrame(url, 30)).resolves.toMatchObject({ ok: true });
+          expect(lookups()).toBe(2);
+        } finally {
+          dateSpy.mockRestore();
+        }
+      });
+
+      it('runs a lookup of its own for another width', async () => {
+        mockRuns();
+
+        for (const [timestamp, width] of [
+          [10, 1280],
+          [20, 1280],
+          [30, 640],
+        ]) {
+          await expect(captureVideoFrame(url, timestamp, { width })).resolves.toMatchObject({
+            ok: true,
+          });
+        }
+
+        const selectors = execFileMock.mock.calls
+          .filter(isLookup)
+          .map(([, args]) => (args as string[])[(args as string[]).indexOf('-f') + 1]);
+        expect(selectors).toEqual([
+          expect.stringContaining('width<=?1280'),
+          expect.stringContaining('width<=?640'),
+        ]);
+      });
+
+      it('keeps no failed or empty lookup', async () => {
+        mockExecFileFailure('ERROR: [youtube] x: Private video');
+        await expect(captureVideoFrame(url, 10)).rejects.toMatchObject({ reason: 'private' });
+        // A failure of no known class gives no stream info, so the lookup is empty.
+        mockExecFileFailure('ERROR: something we have never seen');
+        await expect(captureVideoFrame(url, 10)).resolves.toMatchObject({
+          ok: false,
+          reason: 'capture_failed',
+        });
+        mockRuns();
+        await expect(captureVideoFrame(url, 10)).resolves.toMatchObject({ ok: true });
+        await expect(captureVideoFrame(url, 20)).resolves.toMatchObject({ ok: true });
+
+        expect(lookups()).toBe(3);
+      });
+
+      it('drops a reused lookup whose stream gives no frame, and takes the section download without a new lookup', async () => {
+        let failing = false;
+        mockRuns((answer) => answer(failing));
+
+        await expect(captureVideoFrame(url, 10)).resolves.toMatchObject({ ok: true });
+        failing = true;
+        await expect(captureVideoFrame(url, 20)).resolves.toMatchObject({ ok: true });
+        expect(lookups()).toBe(1);
+        expect(sections()).toBe(1);
+        failing = false;
+        await expect(captureVideoFrame(url, 30)).resolves.toMatchObject({ ok: true });
+        expect(lookups()).toBe(2);
+      });
+
+      it('does not let a late read failure drop a newer lookup', async () => {
+        // Frames that start together need a millisecond each, as above.
+        let now = 1_700_000_300_000;
+        const dateSpy = jest.spyOn(Date, 'now').mockImplementation(() => (now += 1));
+        const reads: Array<(fail: boolean) => void> = [];
+        mockRuns((answer) => {
+          reads.push(answer);
+        });
+
+        const frames: Array<Promise<unknown>> = [];
+        try {
+          // A and B share the first lookup, and both reads wait.
+          frames.push(captureVideoFrame(url, 10), captureVideoFrame(url, 20));
+          await tick();
+          // The read of A fails: A drops the first lookup and takes the section download.
+          reads.shift()?.(true);
+          await expect(frames[0]).resolves.toMatchObject({ ok: true });
+          // C runs the second lookup, and its read waits.
+          frames.push(captureVideoFrame(url, 30));
+          await tick();
+          // The read of B, from the first lookup, fails late. The second lookup must stay.
+          reads.shift()?.(true);
+          await expect(frames[1]).resolves.toMatchObject({ ok: true });
+          frames.push(captureVideoFrame(url, 40));
+          await tick();
+
+          expect(lookups()).toBe(2);
+        } finally {
+          while (reads.length > 0) reads.shift()?.(false);
+          await Promise.allSettled(frames);
+          dateSpy.mockRestore();
+        }
+      });
     });
   });
 
