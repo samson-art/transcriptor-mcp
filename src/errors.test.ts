@@ -5,6 +5,7 @@ import {
   INVALID_LANGUAGE_MESSAGE,
   INVALID_VIDEO_URL_MESSAGE,
   NotFoundError,
+  ORIGIN_NOT_ALLOWED_MESSAGE,
   ServerBusyError,
   UNEXPECTED_ERROR_MESSAGE,
   UNKNOWN_FAILURE_MESSAGE,
@@ -72,13 +73,14 @@ describe('caller-facing texts', () => {
     UNEXPECTED_ERROR_MESSAGE,
     INVALID_VIDEO_URL_MESSAGE,
     INVALID_LANGUAGE_MESSAGE,
+    ORIGIN_NOT_ALLOWED_MESSAGE,
   ];
 
   it.each(texts)('names no route, env var or internal component: %s', (text) => {
     // These strings go to the MCP caller and to REST verbatim. A route name is wrong on
     // one of the two surfaces by construction, and an env var is for the operator.
     expect(text).not.toMatch(/\bGET \/|\bPOST \//);
-    expect(text).not.toMatch(/WHISPER_|YT_DLP_|CACHE_/);
+    expect(text).not.toMatch(/WHISPER_|YT_DLP_|CACHE_|MCP_/);
     expect(text).not.toMatch(/yt-dlp|ffmpeg|Whisper|Redis/);
   });
 

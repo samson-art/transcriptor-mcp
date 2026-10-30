@@ -8,11 +8,13 @@
 import Fastify, {
   type FastifyError,
   type FastifyInstance,
+  type FastifyReply,
+  type FastifyRequest,
   type FastifyServerOptions,
 } from 'fastify';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import * as Sentry from '@sentry/node';
-import { httpErrorAnswer, UNEXPECTED_ERROR_MESSAGE } from './errors.js';
+import { httpErrorAnswer, ORIGIN_NOT_ALLOWED_MESSAGE, UNEXPECTED_ERROR_MESSAGE } from './errors.js';
 import { createMcpServer } from './mcp-core.js';
 import { createLoggerWithSentryBreadcrumbs } from './logger-sentry-breadcrumbs.js';
 import { renderPrometheus } from './metrics.js';
@@ -49,6 +51,60 @@ type JsonRpcErrorBody = {
  */
 function jsonRpcError(code: number, message: string): JsonRpcErrorBody {
   return { jsonrpc: '2.0', error: { code, message }, id: null };
+}
+
+/** A DNS rebinding page never has a loopback origin, so these pass when no list is set. */
+const LOOPBACK_HOSTNAMES = new Set(['localhost', '127.0.0.1', '[::1]']);
+
+/** Null for `Origin: null` (a sandboxed page, a file, a no-referrer page) and other non-URLs. */
+function parseOrigin(origin: string): URL | null {
+  try {
+    return new URL(origin);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Read on each request. Full origins, comma separated, matched exactly, the way the REST API
+ * reads CORS_ALLOWED_ORIGINS. A list replaces the loopback default, and `*` allows all origins.
+ */
+function isAllowedOrigin(origin: string): boolean {
+  const allowed = (process.env.MCP_ALLOWED_ORIGINS ?? '')
+    .split(',')
+    .map((o) => o.trim())
+    .filter(Boolean);
+  if (allowed.length > 0) return allowed.includes('*') || allowed.includes(origin);
+  const url = parseOrigin(origin);
+  return (
+    url !== null &&
+    (url.protocol === 'http:' || url.protocol === 'https:') &&
+    LOOPBACK_HOSTNAMES.has(url.hostname)
+  );
+}
+
+/**
+ * The Origin rule of the MCP spec (#82, ADR 001). On 2026-10-07 a local 1.5.21 build answered
+ * tools/list with `Origin: https://example.com` with 200. A browser sends Origin with every
+ * POST. So a page that points its own domain name at this listener (DNS rebinding) gets 403
+ * here, before a server or a transport exists. Clients outside a browser send no Origin and
+ * pass. This is a route hook and not the SDK option: SDK 1.30 marks that option deprecated,
+ * and SDK 2.x does not have it.
+ *
+ * ponytail: only POST, GET and DELETE carry the hook (HEAD copies it from GET). PUT, PATCH and
+ * OPTIONS on /mcp keep the 404 of the not-found handler for every Origin, and no tool runs
+ * there. Give them the hook if a client ever needs a 403 for them.
+ */
+async function refuseForeignOrigin(request: FastifyRequest, reply: FastifyReply) {
+  const { origin } = request.headers;
+  // Empty counts as absent: a browser never sends it, and the deprecated SDK rule skips it too.
+  if (!origin || isAllowedOrigin(origin)) return;
+  // `originHost` and not `hostname`: pino already puts the machine name in that field.
+  request.log.warn(
+    { originHost: parseOrigin(origin)?.hostname ?? null },
+    'Refused a request to /mcp with an Origin that MCP_ALLOWED_ORIGINS does not allow'
+  );
+  return reply.code(403).send(jsonRpcError(JSONRPC_SERVER_ERROR, ORIGIN_NOT_ALLOWED_MESSAGE));
 }
 
 export type BuildMcpHttpAppOptions = {
@@ -101,7 +157,7 @@ export function buildMcpHttpApp(opts?: BuildMcpHttpAppOptions): FastifyInstance 
     return reply.header('Content-Type', 'text/plain; charset=utf-8').send(metrics);
   });
 
-  app.post(MCP_PATH, async (request, reply) => {
+  app.post(MCP_PATH, { onRequest: refuseForeignOrigin }, async (request, reply) => {
     // The transport writes status, headers and body straight to the raw response
     // (including SSE frames), so Fastify must stop managing this reply.
     reply.hijack();
@@ -148,6 +204,7 @@ export function buildMcpHttpApp(opts?: BuildMcpHttpAppOptions): FastifyInstance 
     method: ['GET', 'DELETE'],
     url: MCP_PATH,
     logLevel: 'warn',
+    onRequest: refuseForeignOrigin,
     handler: async (_request, reply) => {
       return reply
         .code(405)
