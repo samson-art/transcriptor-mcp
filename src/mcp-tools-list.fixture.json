@@ -1,0 +1,971 @@
+{
+  "tools": [
+    {
+      "name": "get_transcript",
+      "title": "Get video transcript",
+      "description": "Fetch cleaned subtitles as plain text for a video (YouTube, Twitter/X, Instagram, TikTok, Twitch, Vimeo, Facebook, Bilibili, VK, Dailymotion, Reddit). Without lang, returns the video's original language, or the list of tracks when the server cannot tell which one that is. Optional: type, lang, response_limit (when omitted returns full transcript), next_cursor for pagination.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Video URL (supported: YouTube, Twitter/X, Instagram, TikTok, Twitch, Vimeo, Facebook, Bilibili, VK, Dailymotion, Reddit) or YouTube video ID"
+          },
+          "format": {
+            "type": "string",
+            "enum": [
+              "srt",
+              "vtt",
+              "ass",
+              "lrc"
+            ],
+            "description": "Subtitle format (default from YT_DLP_SUB_FORMAT or srt)"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "official",
+              "auto"
+            ],
+            "description": "Subtitle track type: official or auto-generated. Without lang, the server picks a track of this type"
+          },
+          "lang": {
+            "type": "string",
+            "description": "Language code or track name as get_available_subtitles lists it (e.g. en, es, en_US). Omit to get the video's original language; when the server cannot tell which track that is, it answers with the list of tracks"
+          },
+          "response_limit": {
+            "type": "integer",
+            "minimum": 1000,
+            "description": "Max characters per response. When omitted, returns full content. When set: min 1000"
+          },
+          "next_cursor": {
+            "type": "string",
+            "description": "Opaque cursor from previous response for pagination"
+          }
+        },
+        "required": [
+          "url"
+        ],
+        "additionalProperties": false,
+        "$schema": "https://json-schema.org/draft/2020-12/schema"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "idempotentHint": true,
+        "openWorldHint": true,
+        "destructiveHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      },
+      "_meta": {
+        "ui": {
+          "resourceUri": "ui://get-transcript/app.html"
+        },
+        "openai/outputTemplate": "ui://get-transcript/app.html",
+        "openai/toolInvocation/invoking": "Fetching transcript…",
+        "openai/toolInvocation/invoked": "Transcript ready"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "videoId": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "official",
+              "auto"
+            ]
+          },
+          "lang": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          },
+          "next_cursor": {
+            "type": "string"
+          },
+          "is_truncated": {
+            "type": "boolean"
+          },
+          "total_length": {
+            "type": "number"
+          },
+          "start_offset": {
+            "type": "number"
+          },
+          "end_offset": {
+            "type": "number"
+          },
+          "source": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "videoId",
+          "type",
+          "lang",
+          "text",
+          "is_truncated",
+          "total_length",
+          "start_offset",
+          "end_offset"
+        ],
+        "additionalProperties": false,
+        "$schema": "https://json-schema.org/draft/2020-12/schema"
+      }
+    },
+    {
+      "name": "get_raw_subtitles",
+      "title": "Get raw video subtitles",
+      "description": "Fetch raw SRT/VTT subtitles for a video (supported platforms). Without lang, the video's original language, as in get_transcript. Optional: type, lang, response_limit (when omitted returns full content), next_cursor for pagination.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Video URL (supported: YouTube, Twitter/X, Instagram, TikTok, Twitch, Vimeo, Facebook, Bilibili, VK, Dailymotion, Reddit) or YouTube video ID"
+          },
+          "format": {
+            "type": "string",
+            "enum": [
+              "srt",
+              "vtt",
+              "ass",
+              "lrc"
+            ],
+            "description": "Subtitle format (default from YT_DLP_SUB_FORMAT or srt)"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "official",
+              "auto"
+            ],
+            "description": "Subtitle track type: official or auto-generated. Without lang, the server picks a track of this type"
+          },
+          "lang": {
+            "type": "string",
+            "description": "Language code or track name as get_available_subtitles lists it (e.g. en, es, en_US). Omit to get the video's original language; when the server cannot tell which track that is, it answers with the list of tracks"
+          },
+          "response_limit": {
+            "type": "integer",
+            "minimum": 1000,
+            "description": "Max characters per response. When omitted, returns full content. When set: min 1000"
+          },
+          "next_cursor": {
+            "type": "string",
+            "description": "Opaque cursor from previous response for pagination"
+          }
+        },
+        "required": [
+          "url"
+        ],
+        "additionalProperties": false,
+        "$schema": "https://json-schema.org/draft/2020-12/schema"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "idempotentHint": true,
+        "openWorldHint": true,
+        "destructiveHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "videoId": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "official",
+              "auto"
+            ]
+          },
+          "lang": {
+            "type": "string"
+          },
+          "format": {
+            "type": "string",
+            "enum": [
+              "srt",
+              "vtt",
+              "ass",
+              "lrc"
+            ]
+          },
+          "content": {
+            "type": "string"
+          },
+          "next_cursor": {
+            "type": "string"
+          },
+          "is_truncated": {
+            "type": "boolean"
+          },
+          "total_length": {
+            "type": "number"
+          },
+          "start_offset": {
+            "type": "number"
+          },
+          "end_offset": {
+            "type": "number"
+          },
+          "source": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "videoId",
+          "type",
+          "lang",
+          "format",
+          "content",
+          "is_truncated",
+          "total_length",
+          "start_offset",
+          "end_offset"
+        ],
+        "additionalProperties": false,
+        "$schema": "https://json-schema.org/draft/2020-12/schema"
+      }
+    },
+    {
+      "name": "get_available_subtitles",
+      "title": "Get available subtitle languages",
+      "description": "List available official and auto-generated subtitle languages.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Video URL (supported: YouTube, Twitter/X, Instagram, TikTok, Twitch, Vimeo, Facebook, Bilibili, VK, Dailymotion, Reddit) or YouTube video ID"
+          },
+          "format": {
+            "type": "string",
+            "enum": [
+              "srt",
+              "vtt",
+              "ass",
+              "lrc"
+            ],
+            "description": "Subtitle format (default from YT_DLP_SUB_FORMAT or srt)"
+          }
+        },
+        "required": [
+          "url"
+        ],
+        "additionalProperties": false,
+        "$schema": "https://json-schema.org/draft/2020-12/schema"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "idempotentHint": true,
+        "openWorldHint": true,
+        "destructiveHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "videoId": {
+            "type": "string"
+          },
+          "official": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "auto": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "videoId",
+          "official",
+          "auto"
+        ],
+        "additionalProperties": false,
+        "$schema": "https://json-schema.org/draft/2020-12/schema"
+      }
+    },
+    {
+      "name": "get_video_info",
+      "title": "Get video info",
+      "description": "Fetch extended metadata for a video (title, channel, duration, tags, thumbnails, etc.).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Video URL (supported: YouTube, Twitter/X, Instagram, TikTok, Twitch, Vimeo, Facebook, Bilibili, VK, Dailymotion, Reddit) or YouTube video ID"
+          },
+          "format": {
+            "type": "string",
+            "enum": [
+              "srt",
+              "vtt",
+              "ass",
+              "lrc"
+            ],
+            "description": "Subtitle format (default from YT_DLP_SUB_FORMAT or srt)"
+          }
+        },
+        "required": [
+          "url"
+        ],
+        "additionalProperties": false,
+        "$schema": "https://json-schema.org/draft/2020-12/schema"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "idempotentHint": true,
+        "openWorldHint": true,
+        "destructiveHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      },
+      "_meta": {
+        "ui": {
+          "resourceUri": "ui://get-video-info/app.html"
+        },
+        "openai/outputTemplate": "ui://get-video-info/app.html",
+        "openai/toolInvocation/invoking": "Fetching video info…",
+        "openai/toolInvocation/invoked": "Video info ready"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "videoId": {
+            "type": "string"
+          },
+          "title": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "uploader": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "uploaderId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "channel": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "channelId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "channelUrl": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "duration": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "uploadDate": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "webpageUrl": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "viewCount": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "likeCount": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "commentCount": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "tags": {
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "categories": {
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "liveStatus": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "isLive": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "wasLive": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "availability": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "thumbnail": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "thumbnails": {
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "url": {
+                      "type": "string"
+                    },
+                    "width": {
+                      "type": "number"
+                    },
+                    "height": {
+                      "type": "number"
+                    },
+                    "id": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "url"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "videoId",
+          "title",
+          "uploader",
+          "uploaderId",
+          "channel",
+          "channelId",
+          "channelUrl",
+          "duration",
+          "description",
+          "uploadDate",
+          "webpageUrl",
+          "viewCount",
+          "likeCount",
+          "commentCount",
+          "tags",
+          "categories",
+          "liveStatus",
+          "isLive",
+          "wasLive",
+          "availability",
+          "thumbnail",
+          "thumbnails"
+        ],
+        "additionalProperties": false,
+        "$schema": "https://json-schema.org/draft/2020-12/schema"
+      }
+    },
+    {
+      "name": "get_video_chapters",
+      "title": "Get video chapters",
+      "description": "Fetch chapter markers (start/end time, title) for a video.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Video URL (supported: YouTube, Twitter/X, Instagram, TikTok, Twitch, Vimeo, Facebook, Bilibili, VK, Dailymotion, Reddit) or YouTube video ID"
+          },
+          "format": {
+            "type": "string",
+            "enum": [
+              "srt",
+              "vtt",
+              "ass",
+              "lrc"
+            ],
+            "description": "Subtitle format (default from YT_DLP_SUB_FORMAT or srt)"
+          }
+        },
+        "required": [
+          "url"
+        ],
+        "additionalProperties": false,
+        "$schema": "https://json-schema.org/draft/2020-12/schema"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "idempotentHint": true,
+        "openWorldHint": true,
+        "destructiveHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "videoId": {
+            "type": "string"
+          },
+          "chapters": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "startTime": {
+                  "type": "number"
+                },
+                "endTime": {
+                  "type": "number"
+                },
+                "title": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "startTime",
+                "endTime",
+                "title"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "videoId",
+          "chapters"
+        ],
+        "additionalProperties": false,
+        "$schema": "https://json-schema.org/draft/2020-12/schema"
+      }
+    },
+    {
+      "name": "get_video_frame",
+      "title": "Get video frame",
+      "description": "Capture a single frame from a video at the given timestamp. Provide timecode (\"01:23\", \"00:01:23.500\") or seconds; defaults to the first frame. Optional: format (png|jpeg), width (max 1920), quality (jpeg, 2-31). Returns the image plus metadata.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Video URL (supported: YouTube, Twitter/X, Instagram, TikTok, Twitch, Vimeo, Facebook, Bilibili, VK, Dailymotion, Reddit) or YouTube video ID"
+          },
+          "timecode": {
+            "type": "string",
+            "description": "Timestamp as \"MM:SS\" or \"HH:MM:SS(.mmm)\", e.g. \"01:23\" or \"00:01:23.500\""
+          },
+          "seconds": {
+            "type": "number",
+            "minimum": 0,
+            "description": "Timestamp in seconds (alternative to timecode). Default: 0 (first frame)"
+          },
+          "format": {
+            "type": "string",
+            "enum": [
+              "png",
+              "jpeg"
+            ],
+            "description": "Image format (default: jpeg)"
+          },
+          "width": {
+            "type": "integer",
+            "minimum": 64,
+            "maximum": 1920,
+            "description": "Output image width in pixels (default: 1280, max: 1920). Never upscales."
+          },
+          "quality": {
+            "type": "integer",
+            "minimum": 2,
+            "maximum": 31,
+            "description": "JPEG quality (ffmpeg -q:v): 2 (best) to 31 (worst). Default: 4. Ignored for png."
+          }
+        },
+        "required": [
+          "url"
+        ],
+        "additionalProperties": false,
+        "$schema": "https://json-schema.org/draft/2020-12/schema"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "idempotentHint": true,
+        "openWorldHint": true,
+        "destructiveHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      },
+      "_meta": {
+        "ui": {
+          "resourceUri": "ui://get-video-frame/app.html"
+        },
+        "openai/outputTemplate": "ui://get-video-frame/app.html",
+        "openai/toolInvocation/invoking": "Capturing frame…",
+        "openai/toolInvocation/invoked": "Frame captured"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "videoId": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          },
+          "timestampSeconds": {
+            "type": "number"
+          },
+          "timestamp": {
+            "type": "string"
+          },
+          "mimeType": {
+            "type": "string"
+          },
+          "sizeBytes": {
+            "type": "number"
+          },
+          "width": {
+            "type": [
+              "number",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "videoId",
+          "timestampSeconds",
+          "timestamp",
+          "mimeType",
+          "sizeBytes",
+          "width"
+        ],
+        "additionalProperties": false,
+        "$schema": "https://json-schema.org/draft/2020-12/schema"
+      }
+    },
+    {
+      "name": "get_playlist_transcripts",
+      "title": "Get playlist transcripts",
+      "description": "Fetch cleaned subtitles (plain text) for multiple videos from a playlist. Use playlistItems (e.g. \"1:5\") to select specific items, maxItems to limit count.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Playlist URL (e.g. youtube.com/playlist?list=XXX) or watch URL with list= parameter"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "official",
+              "auto"
+            ],
+            "description": "Subtitle track type: official or auto-generated (default: auto)"
+          },
+          "lang": {
+            "type": "string",
+            "description": "Language code (e.g. en, ru). Required: the original language is picked only for one video at a time (get_transcript)"
+          },
+          "format": {
+            "type": "string",
+            "enum": [
+              "srt",
+              "vtt",
+              "ass",
+              "lrc"
+            ],
+            "description": "Subtitle format (default from YT_DLP_SUB_FORMAT or srt)"
+          },
+          "playlistItems": {
+            "type": "string",
+            "description": "yt-dlp -I spec: \"1:5\", \"1,3,7\", \"-1\" for last, \"1:10:2\" for every 2nd"
+          },
+          "maxItems": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Max number of videos to fetch (yt-dlp --max-downloads)"
+          }
+        },
+        "required": [
+          "url"
+        ],
+        "additionalProperties": false,
+        "$schema": "https://json-schema.org/draft/2020-12/schema"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "idempotentHint": true,
+        "openWorldHint": true,
+        "destructiveHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "results": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "videoId": {
+                  "type": "string"
+                },
+                "text": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "videoId",
+                "text"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "results"
+        ],
+        "additionalProperties": false,
+        "$schema": "https://json-schema.org/draft/2020-12/schema"
+      }
+    },
+    {
+      "name": "search_videos",
+      "title": "Search videos",
+      "description": "Search videos on YouTube via yt-dlp (ytsearch). Returns list of matching videos with metadata. Optional: limit, offset (pagination), uploadDateFilter (hour|today|week|month|year), dateBefore, date, matchFilter (e.g. \"!is_live\"), response_format (json|markdown).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Search query"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 50,
+            "description": "Max results (default 10)"
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Skip first N results (pagination)"
+          },
+          "uploadDateFilter": {
+            "type": "string",
+            "enum": [
+              "hour",
+              "today",
+              "week",
+              "month",
+              "year"
+            ],
+            "description": "Filter by upload date (relative to now)"
+          },
+          "dateBefore": {
+            "type": "string",
+            "description": "yt-dlp --datebefore, e.g. \"now-1year\" or \"20241201\""
+          },
+          "date": {
+            "type": "string",
+            "description": "yt-dlp --date, exact date e.g. \"20231215\" or \"today-2weeks\""
+          },
+          "matchFilter": {
+            "type": "string",
+            "description": "yt-dlp --match-filter, e.g. \"!is_live\" or \"duration < 3600 & like_count > 100\""
+          },
+          "response_format": {
+            "type": "string",
+            "enum": [
+              "json",
+              "markdown"
+            ],
+            "description": "Format of the human-readable content: json (default) or markdown"
+          }
+        },
+        "additionalProperties": false,
+        "$schema": "https://json-schema.org/draft/2020-12/schema"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true,
+        "destructiveHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      },
+      "_meta": {
+        "ui": {
+          "resourceUri": "ui://search-videos/app.html"
+        },
+        "openai/outputTemplate": "ui://search-videos/app.html",
+        "openai/toolInvocation/invoking": "Searching videos…",
+        "openai/toolInvocation/invoked": "Videos found"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "results": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "videoId": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "url": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "duration": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "uploader": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "viewCount": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "thumbnail": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "videoId",
+                "title",
+                "url",
+                "duration",
+                "uploader",
+                "viewCount",
+                "thumbnail"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "results"
+        ],
+        "additionalProperties": false,
+        "$schema": "https://json-schema.org/draft/2020-12/schema"
+      }
+    }
+  ]
+}
