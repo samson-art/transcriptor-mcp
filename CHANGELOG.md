@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- A video longer than `WHISPER_MAX_DURATION_SECONDS` still cost one yt-dlp run, and the answer said that speech-to-text ran (#88). Speech-to-text starts with an audio download. For such a video, yt-dlp skips the download and returns no file. In the week from 2026-10-23 to 2026-10-29, the audio download started 638 times, and 247 of these runs (39%) ended in this skip. Now, if the server knows that the length of the video is over the ceiling, it starts no audio download. The caller gets a 404 with the text "This server transcribes only videos up to N seconds long, and this video is longer." and one next step.
+  - Without `lang`, the length comes with the track list that the call reads, from its metadata run or from the cache. With `lang`, it comes only from a track list in the Redis cache, and the server makes no run to learn it. Without Redis caching, such a call keeps the current path.
+  - During a caption hold, a call without `lang` whose track list is in the cache now gets this 404, not the `rate_limited` 502. This answer sends no request to the platform.
+  - The "MCP tool call" log line of such a call has a new `answer` value, `too_long`. If more than one value is true, the first in this order wins: `stt_failed`, `too_long`, `unread`, `list`, `none`.
+  - `subtitles_extraction_failures_total{reason="no_subtitles"}` no longer counts these calls, because speech-to-text did not run.
+  - Nothing changes for a video of unknown length, for a video at or under the ceiling, or when the ceiling is 0 or unset. The track list in the tool output and in the REST body does not change.
+  - With Redis caching, track lists cached before this release have no length until they expire (`CACHE_TTL_METADATA_SECONDS`, 1 hour by default). Calls on these videos keep the current path until then.
+
 ## [1.5.21] - 2026-10-06
 
 ### Added
