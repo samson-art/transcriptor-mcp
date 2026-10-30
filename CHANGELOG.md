@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- The MCP HTTP server refuses a request to `/mcp` from a web origin that the operator did not allow (#82). An origin is the scheme, host and port of a web page. A browser sends it in the `Origin` header. The MCP spec requires this rule against DNS rebinding. In this attack, a hostile web page points its own domain name at your server, and the browser sends the requests of the page there. On 2026-10-07, a local 1.5.21 build answered `POST /mcp` with `Origin: https://example.com` with HTTP 200 and the tool list. Now a `POST`, `GET` or `DELETE` request to `/mcp` with an `Origin` that is not allowed gets HTTP 403. The body is a JSON-RPC error with code -32000, and no tool runs. The server writes one warning with the hostname of the origin and sends nothing to Sentry. A request without `Origin` works as before. Most MCP clients run outside a browser and send no `Origin`. `/health`, `/metrics`, stdio and the REST API do not change.
+- The new variable `MCP_ALLOWED_ORIGINS` lists the allowed origins, comma separated, such as `https://app.example.com`. List each origin as a browser sends it, with no path and no trailing slash. Each origin must match exactly. If the variable is not set, only loopback origins pass: `localhost`, `127.0.0.1` and `[::1]`, on any port, over http or https. A value replaces this default. `*` turns the rule off. If your proxy or gateway forwards the `Origin` header of a browser client to `/mcp`, set `MCP_ALLOWED_ORIGINS` before you upgrade. Otherwise those requests get 403. Before 1.0.0, the server read a variable with this name for the legacy SSE endpoint, but it never enforced the list. If an old configuration still sets it, the value now applies to `/mcp` and replaces the loopback default. Make sure that the value is correct, or remove it, before you upgrade.
+
 ## [1.5.21] - 2026-10-06
 
 ### Added

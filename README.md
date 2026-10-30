@@ -236,6 +236,7 @@ The server starts with no environment variables. Each variable below is optional
 | Variable | Default | Function |
 | --- | --- | --- |
 | `MCP_PORT` and `MCP_HOST` | `4200` and `0.0.0.0` | The HTTP listener |
+| `MCP_ALLOWED_ORIGINS` | `localhost`, `127.0.0.1` and `[::1]`, any port | The web origins that can send requests to `/mcp`, comma separated, such as `https://app.example.com`. Each origin must match exactly. A request with another `Origin` header gets `403`. A request without `Origin` always passes. A value replaces the default. `*` turns the rule off |
 | `COOKIES_FILE_PATH` | — | A Netscape cookies file for videos that need an account. See [cookies.example.txt](cookies.example.txt) |
 | `WHISPER_MODE` | `off` | Set `local` or `api` to transcribe the audio when a video has no subtitles. Then set `WHISPER_BASE_URL` or `WHISPER_API_KEY`. `WHISPER_MAX_DURATION_SECONDS` skips longer videos and live streams; a video whose length the platform does not report is measured with `ffprobe` after the audio download |
 | `CACHE_MODE` | `off` | Set `redis` and `CACHE_REDIS_URL` to cache subtitles and metadata |
@@ -249,7 +250,7 @@ The same port serves `GET /health` and `GET /metrics`. The metrics are in Promet
 <details>
 <summary><b>Transport, REST API, and development</b></summary>
 
-**Transport.** The server accepts `POST /mcp` only. `GET` and `DELETE` return `405`. The server is stateless and sends no `Mcp-Session-Id`.
+**Transport.** The server accepts `POST /mcp` only. `GET` and `DELETE` return `405`. The server is stateless and sends no `Mcp-Session-Id`. If a `POST`, `GET` or `DELETE` request to `/mcp` has an `Origin` header that `MCP_ALLOWED_ORIGINS` does not allow, the server answers `403`. A browser sends this header with every `POST`. This stops DNS rebinding, in which a hostile web page points its own domain name at your server. Most MCP clients run outside a browser and send no `Origin`, so their requests pass.
 
 The Node process does not check bearer tokens. Put a reverse proxy or a gateway in front of it for authentication and TLS. The hosted endpoint works this way.
 
