@@ -601,11 +601,6 @@ async function collectSubtitleResults(
   return results;
 }
 
-function getExtendedTimeout(): number {
-  const timeout = parseIntEnv('YT_DLP_TIMEOUT', 60000);
-  return Math.max(timeout, 120000);
-}
-
 function execDetailsToLogFields(d: ExecFileErrorDetails): Record<string, unknown> {
   const out: Record<string, unknown> = { error: d.message };
   if (d.reason) out.reason = d.reason;
@@ -619,17 +614,16 @@ function execDetailsToLogFields(d: ExecFileErrorDetails): Record<string, unknown
 
 async function runPlaylistVerboseReplay(
   buildFullArgs: (quiet: boolean, verbose: boolean) => string[],
+  deadline: number,
   logger?: FastifyBaseLogger
 ): Promise<void> {
-  if (process.env.YT_DLP_VERBOSE_ON_ERROR !== '1') {
+  // With no time left, the replay can only wait for a slot and then log its own refusal.
+  if (process.env.YT_DLP_VERBOSE_ON_ERROR !== '1' || Date.now() >= deadline) {
     return;
   }
   try {
     const verboseArgs = buildFullArgs(false, true);
-    await execFileAsync('yt-dlp', verboseArgs, {
-      maxBuffer: 50 * 1024 * 1024,
-      timeout: getExtendedTimeout(),
-    });
+    await execFileAsync('yt-dlp', verboseArgs, { maxBuffer: 50 * 1024 * 1024, deadline });
   } catch (replayErr: unknown) {
     const replayDetails = collectExecFileErrorDetails(replayErr);
     logger?.error(execDetailsToLogFields(replayDetails), 'yt-dlp playlist verbose replay stderr');
@@ -640,6 +634,7 @@ async function handlePlaylistDownloadError(
   error: unknown,
   readResults: () => Promise<PlaylistSubtitlesResult[]>,
   buildFullArgs: (quiet: boolean, verbose: boolean) => string[],
+  deadline: number,
   tempDir: string,
   logger?: FastifyBaseLogger
 ): Promise<PlaylistSubtitlesResult[]> {
@@ -668,8 +663,14 @@ async function handlePlaylistDownloadError(
     return partial;
   }
 
-  await runPlaylistVerboseReplay(buildFullArgs, logger);
-  throw new YtDlpError(details.reason ?? 'unknown');
+  await runPlaylistVerboseReplay(buildFullArgs, deadline, logger);
+  const reason = details.reason ?? 'unknown';
+  const killed = details.signal === 'SIGTERM' || details.signal === 'SIGKILL';
+  // A run that the deadline killed wrote nothing because time ran out (#89). With
+  // --ignore-errors, stderr can still name an error on one item, such as a private video,
+  // and that error is not the cause. A server-side cause, such as a 429 (ADR 002) or a bot
+  // check, stays the answer.
+  throw new YtDlpError(killed && !YT_DLP_INFRA_REASONS.has(reason) ? 'timeout' : reason);
 }
 
 /**
@@ -686,6 +687,15 @@ export async function downloadPlaylistSubtitles(
   logger?: FastifyBaseLogger
 ): Promise<PlaylistSubtitlesResult[]> {
   const { type = 'auto', lang, format, playlistItems, maxItems } = options;
+  // One limit for the whole call, and the wait for a process slot counts toward it.
+  // Common proxies close a response after 100 s with no data. The caller then gets a
+  // gateway error, and the result goes to nobody. In the week to 2026-10-29, 8 of 300
+  // playlist calls took longer than 100 s (#89). When the deadline stops the run, the call
+  // still returns what the run wrote. YT_DLP_TIMEOUT does not change this limit.
+  // ponytail: the deadline does not cut a wait in the queue. If every slot stays busy past
+  // it, the call answers `timeout` only when a slot frees. Give queued waiters a timer if
+  // that happens.
+  const deadline = Date.now() + 90_000;
   const subFormat = resolveSubtitleFormat(format);
   // One playlist run asks for as many tracks as it has items: the heaviest caller of the
   // caption endpoint must be the first to stop while the platform is refusing.
@@ -761,10 +771,7 @@ export async function downloadPlaylistSubtitles(
         'Downloading playlist subtitles via yt-dlp'
       );
 
-      await execFileAsync('yt-dlp', args, {
-        maxBuffer: 50 * 1024 * 1024,
-        timeout: getExtendedTimeout(),
-      });
+      await execFileAsync('yt-dlp', args, { maxBuffer: 50 * 1024 * 1024, deadline });
       logger?.debug({ tempDir }, 'yt-dlp playlist subtitles completed');
 
       const results = await readPlaylistSubtitleResults();
@@ -777,6 +784,7 @@ export async function downloadPlaylistSubtitles(
         error,
         readPlaylistSubtitleResults,
         buildFullArgs,
+        deadline,
         tempDir,
         logger
       );
