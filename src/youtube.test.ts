@@ -2308,12 +2308,26 @@ today to pay our respects to MCP, which
     });
 
     /** execFile reports a run that it killed at its timeout like this: a signal, no exit code. */
-    const killedAtDeadline = () =>
+    const killedAtDeadline = (stderr?: string) =>
       Object.assign(new Error('Command failed: yt-dlp'), {
         code: null,
         killed: true,
         signal: 'SIGTERM',
+        stderr,
       });
+
+    /** The deadline kills the run before it writes a file. */
+    const failAtDeadline = (stderr?: string) =>
+      execFileMock.mockImplementation(
+        (
+          _file: string,
+          _args: string[],
+          _options: unknown,
+          callback: (error: Error | null) => void
+        ) => {
+          setImmediate(() => callback(killedAtDeadline(stderr)));
+        }
+      );
 
     it('returns what the run wrote before the deadline stopped it', async () => {
       execFileMock.mockImplementation(
@@ -2339,6 +2353,41 @@ today to pay our respects to MCP, which
     });
 
     it('answers timeout when the deadline stopped the run before it wrote anything', async () => {
+      failAtDeadline();
+
+      await expect(
+        downloadPlaylistSubtitles('https://www.youtube.com/playlist?list=PLxxx', { lang: 'en' })
+      ).rejects.toMatchObject({ name: 'YtDlpError', reason: 'timeout', statusCode: 502 });
+    });
+
+    it('answers timeout, not the error on one item, when the deadline stopped a run that wrote nothing', async () => {
+      // --ignore-errors keeps going after a private item and leaves its error in stderr. The
+      // run wrote nothing because the 90 s ran out, not because of that item (#89).
+      failAtDeadline('ERROR: [youtube] abc: Private video');
+
+      await expect(
+        downloadPlaylistSubtitles('https://www.youtube.com/playlist?list=PLxxx', { lang: 'en' })
+      ).rejects.toMatchObject({ name: 'YtDlpError', reason: 'timeout', statusCode: 502 });
+    });
+
+    it('keeps a rate limit as the answer when the deadline stopped a run that wrote nothing', async () => {
+      // yt-dlp retried a 429 until the deadline. The caller needs to hear about the limit
+      // (ADR 002).
+      failAtDeadline(
+        'ERROR: Unable to download video subtitles: HTTP Error 429: Too Many Requests'
+      );
+
+      await expect(
+        downloadPlaylistSubtitles('https://www.youtube.com/playlist?list=PLxxx', { lang: 'en' })
+      ).rejects.toMatchObject({ name: 'YtDlpError', reason: 'rate_limited', statusCode: 502 });
+    });
+
+    it('starts no verbose replay when the deadline stopped the run', async () => {
+      // No time is left. Without a guard, the replay waits for a slot and then logs its own
+      // refusal as if it were the stderr of a run.
+      process.env.YT_DLP_VERBOSE_ON_ERROR = '1';
+      let now = 1700000013000;
+      const dateSpy = jest.spyOn(Date, 'now').mockImplementation(() => now);
       execFileMock.mockImplementation(
         (
           _file: string,
@@ -2346,13 +2395,27 @@ today to pay our respects to MCP, which
           _options: unknown,
           callback: (error: Error | null) => void
         ) => {
+          now += 90_000;
           setImmediate(() => callback(killedAtDeadline()));
         }
       );
-
-      await expect(
-        downloadPlaylistSubtitles('https://www.youtube.com/playlist?list=PLxxx', { lang: 'en' })
-      ).rejects.toMatchObject({ name: 'YtDlpError', reason: 'timeout', statusCode: 502 });
+      const logger = { info: jest.fn(), error: jest.fn(), warn: jest.fn(), debug: jest.fn() };
+      try {
+        await expect(
+          downloadPlaylistSubtitles(
+            'https://www.youtube.com/playlist?list=PLxxx',
+            { lang: 'en' },
+            logger as any
+          )
+        ).rejects.toMatchObject({ name: 'YtDlpError', reason: 'timeout', statusCode: 502 });
+        expect(logger.error).not.toHaveBeenCalledWith(
+          expect.anything(),
+          'yt-dlp playlist verbose replay stderr'
+        );
+      } finally {
+        dateSpy.mockRestore();
+        delete process.env.YT_DLP_VERBOSE_ON_ERROR;
+      }
     });
   });
 

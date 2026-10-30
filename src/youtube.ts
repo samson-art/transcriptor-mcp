@@ -617,7 +617,8 @@ async function runPlaylistVerboseReplay(
   deadline: number,
   logger?: FastifyBaseLogger
 ): Promise<void> {
-  if (process.env.YT_DLP_VERBOSE_ON_ERROR !== '1') {
+  // With no time left, the replay can only wait for a slot and then log its own refusal.
+  if (process.env.YT_DLP_VERBOSE_ON_ERROR !== '1' || Date.now() >= deadline) {
     return;
   }
   try {
@@ -663,7 +664,13 @@ async function handlePlaylistDownloadError(
   }
 
   await runPlaylistVerboseReplay(buildFullArgs, deadline, logger);
-  throw new YtDlpError(details.reason ?? 'unknown');
+  const reason = details.reason ?? 'unknown';
+  const killed = details.signal === 'SIGTERM' || details.signal === 'SIGKILL';
+  // A run that the deadline killed wrote nothing because time ran out (#89). With
+  // --ignore-errors, stderr can still name an error on one item, such as a private video,
+  // and that error is not the cause. A server-side cause, such as a 429 (ADR 002) or a bot
+  // check, stays the answer.
+  throw new YtDlpError(killed && !YT_DLP_INFRA_REASONS.has(reason) ? 'timeout' : reason);
 }
 
 /**
