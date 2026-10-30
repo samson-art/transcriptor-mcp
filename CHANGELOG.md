@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `tools/list` gave all 16 input and output schemas of the 8 tools the JSON Schema draft-07 label, `"$schema": "http://json-schema.org/draft-07/schema#"` (#80). The MCP SDK adds this label, and it has no option to change it. Some Claude apps refuse each call to a tool with a draft-07 output schema, before the call reaches the server. Public reports name Cowork, desktop chats that are linked to a computer, and Claude Code builds from about 2.1.229 to 2.1.240. Nobody reproduced the failure with this server yet. Each schema now has `"$schema": "https://json-schema.org/draft/2020-12/schema"`, over HTTP and over stdio. Since revision 2025-11-25, the MCP spec makes 2020-12 the default version of JSON Schema. The schemas use only keywords that mean the same in both versions, so nothing else in `tools/list` changes. The REST API does not change. If you publish this server as a ChatGPT app, OpenAI can hold its tools for review until you approve the 16 changed schemas.
+
 ## [1.5.21] - 2026-10-06
 
 ### Added

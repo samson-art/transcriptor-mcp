@@ -4,6 +4,7 @@ import {
   RESOURCE_MIME_TYPE,
 } from '@modelcontextprotocol/ext-apps/server';
 import { McpServer, ResourceTemplate } from '@modelcontextprotocol/sdk/server/mcp.js';
+import type { ListToolsResult } from '@modelcontextprotocol/sdk/types.js';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -546,6 +547,40 @@ async function withToolErrorHandling(
     if (outcome === 'ok') log.info(line, 'MCP tool call');
     else log.warn(line, 'MCP tool call');
   }
+}
+
+const DRAFT_07_SCHEMA_URI = 'http://json-schema.org/draft-07/schema#';
+const DRAFT_2020_12_SCHEMA_URI = 'https://json-schema.org/draft/2020-12/schema';
+
+/**
+ * Gives each tool schema in tools/list the JSON Schema 2020-12 label instead of draft-07 (#80).
+ * The SDK converts our zod/v3 schemas with zod-to-json-schema, which writes the draft-07 label,
+ * and no SDK option changes it. A listing of the 1.5.21 build on 2026-10-07 showed the label on
+ * all 16 schemas, and SDK 1.32.1 (2026-10-05) still writes it. Some Claude apps refuse each call
+ * to a tool with a draft-07 output schema, before the call reaches this server. Since revision
+ * 2025-11-25, the MCP spec makes 2020-12 the default. Our schemas use only keywords that mean the
+ * same in both versions, so only the label changes.
+ * ponytail: this reads the private SDK field _requestHandlers. The new label keeps the meaning
+ * only while the schemas use no $ref and no tuple items. If the field goes away, this function
+ * does nothing, and the tools/list fixture test fails. The move to SDK 2.x (#83) removes it.
+ */
+function relabelToolSchemas(server: McpServer): void {
+  const handlers = (
+    server.server as unknown as {
+      _requestHandlers?: Map<string, (request: unknown, extra: unknown) => Promise<unknown>>;
+    }
+  )._requestHandlers;
+  const listTools = handlers?.get('tools/list');
+  if (!handlers || !listTools) return;
+  handlers.set('tools/list', async (request, extra) => {
+    const result = (await listTools(request, extra)) as ListToolsResult;
+    for (const tool of result.tools) {
+      for (const schema of [tool.inputSchema, tool.outputSchema]) {
+        if (schema?.$schema === DRAFT_07_SCHEMA_URI) schema.$schema = DRAFT_2020_12_SCHEMA_URI;
+      }
+    }
+    return result;
+  });
 }
 
 export type CreateMcpServerOptions = {
@@ -1388,6 +1423,8 @@ export function createMcpServer(opts?: CreateMcpServerOptions) {
     })
   );
 
+  // After the tools: the SDK sets its tools/list handler at the first tool registration.
+  relabelToolSchemas(server);
   return server;
 }
 
