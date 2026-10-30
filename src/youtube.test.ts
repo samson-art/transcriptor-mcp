@@ -2803,6 +2803,8 @@ today to pay our respects to MCP, which
       it('should log that there was no clip, and no URL, when the section download leaves none', async () => {
         const logger = makeLogger();
         mockFrameRuns({
+          // Two stream URLs, so a count that is always 1 for a lookup fails this test.
+          lookup: `vid123\n212\n${formatLine}\n${signedUrl}\n${signedUrl}&n=2\n`,
           // Like a real failed read, the error names the stream URL.
           directRead: (_args, callback) =>
             callback(
@@ -2822,7 +2824,7 @@ today to pay our respects to MCP, which
         const lines = noImageLines(logger.warn);
         expect(lines).toHaveLength(1);
         expect(JSON.stringify(lines[0])).not.toMatch(anyUrl);
-        expect(lines[0][0]).toEqual({ streamFormat: chosenFormat, streamUrlCount: 1, clip: null });
+        expect(lines[0][0]).toEqual({ streamFormat: chosenFormat, streamUrlCount: 2, clip: null });
       });
 
       it('should log no such line when a frame comes', async () => {
@@ -2883,6 +2885,58 @@ today to pay our respects to MCP, which
 
         await expect(captureVideoFrame(url, 10)).resolves.toMatchObject({ ok: true });
         expect(inputs).toEqual(['https://cdn.example/stream.mp4']);
+      });
+
+      it('should log no such line when the call ends in a timeout', async () => {
+        // The line pairs with the 404 answer. A call that answers timeout must not log it.
+        process.env.YT_DLP_FRAME_TIMEOUT = '1000';
+        let now = 1700000005000;
+        const dateSpy = jest.spyOn(Date, 'now').mockImplementation(() => now);
+        const logger = makeLogger();
+        mockFrameRuns({
+          // The clip read uses up the budget and finds no stream.
+          clipRead: (args, callback) => {
+            now += 1000;
+            noStream(args, callback);
+          },
+        });
+
+        try {
+          await expect(captureVideoFrame(url, 10, {}, logger as any)).rejects.toMatchObject({
+            name: 'YtDlpError',
+            reason: 'timeout',
+          });
+          // The clip read ran, so the call came to the deadline check.
+          expect(execFileMock.mock.calls.map(([file]: unknown[]) => file)).toEqual([
+            'yt-dlp',
+            'ffmpeg',
+            'yt-dlp',
+            'ffmpeg',
+          ]);
+          expect(noImageLines(logger.warn)).toHaveLength(0);
+        } finally {
+          dateSpy.mockRestore();
+        }
+      });
+
+      it('should log a null format and a count of 0 when the lookup gives nothing', async () => {
+        // A null format with a count of 0 means that the lookup gave nothing. A null format
+        // with a count above 0 means that the format template does not work.
+        const logger = makeLogger();
+        mockFrameRuns({ lookup: '' });
+
+        await expect(captureVideoFrame(url, 10, {}, logger as any)).resolves.toMatchObject({
+          ok: false,
+          reason: 'capture_failed',
+        });
+
+        const lines = noImageLines(logger.warn);
+        expect(lines).toHaveLength(1);
+        expect(lines[0][0]).toEqual({
+          streamFormat: null,
+          streamUrlCount: 0,
+          clip: { ext: 'mp4', bytes: 9 },
+        });
       });
     });
   });
