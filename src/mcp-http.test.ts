@@ -31,6 +31,8 @@ jest.mock('node:child_process', () => ({
 jest.mock('@sentry/node', () => ({
   ...jest.requireActual<typeof import('@sentry/node')>('@sentry/node'),
   captureException: jest.fn(),
+  captureMessage: jest.fn(),
+  captureEvent: jest.fn(),
 }));
 
 import { execFile } from 'node:child_process';
@@ -484,7 +486,9 @@ describe('Origin rule (#82)', () => {
 
   it('writes one warn line with the hostname of the Origin, and sends nothing to Sentry', async () => {
     const captureException = Sentry.captureException as unknown as jest.Mock;
-    captureException.mockClear();
+    const captureMessage = Sentry.captureMessage as unknown as jest.Mock;
+    const captureEvent = Sentry.captureEvent as unknown as jest.Mock;
+    [captureException, captureMessage, captureEvent].forEach((mock) => mock.mockClear());
     const lines: Array<Record<string, unknown>> = [];
     const local = buildMcpHttpApp({
       loggerInstance: pino(
@@ -508,5 +512,7 @@ describe('Origin rule (#82)', () => {
     expect(response.statusCode).toBe(403);
     expect(lines).toEqual([expect.objectContaining({ level: 40, originHost: 'rebind.example' })]);
     expect(captureException).not.toHaveBeenCalled();
+    expect(captureMessage).not.toHaveBeenCalled();
+    expect(captureEvent).not.toHaveBeenCalled();
   });
 });
