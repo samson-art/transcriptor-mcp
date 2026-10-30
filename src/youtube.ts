@@ -938,6 +938,8 @@ export async function downloadAudio(
     // yt-dlp skips a live stream or a longer video with exit code 0 and no file. `<=?`
     // lets a video of unknown length through (Instagram reels have no duration in the
     // JSON); its real length is measured on the downloaded audio below.
+    // overWhisperCeiling in src/validation.ts makes the same test before this run (#88).
+    // Change both together.
     optionalArgs.push('--match-filter', `!is_live & duration <=? ${maxDuration}`);
   }
   appendYtDlpEnvArgs(optionalArgs, {

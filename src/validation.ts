@@ -715,6 +715,7 @@ async function throwNoSubtitlesError(opts: {
   // step is a different track rather than another wait. The next step below reads it.
   const whisperCeiling = parseIntEnv('WHISPER_MAX_DURATION_SECONDS', 0);
   // Enabled but not run says nothing: speech-to-text neither failed nor is it the way forward.
+  // The exception is a known length over the ceiling (#88), which the caller must hear.
   const verdict =
     getWhisperConfig().mode === 'off'
       ? 'This server does not transcribe audio.'
