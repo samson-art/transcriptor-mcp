@@ -1,5 +1,3 @@
-import { spawn } from 'node:child_process';
-import { createInterface } from 'node:readline';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { setTimeout as sleep } from 'node:timers/promises';
@@ -11,6 +9,7 @@ import {
   getDockerfileRelativePath,
   getShouldBuildDockerImages,
   runCommand,
+  runCommandWithStdin,
 } from './docker-utils.js';
 import { getEnvVar, isFlagSet } from './smoke-env.js';
 
@@ -49,79 +48,6 @@ export function buildMcpImageRef(): string {
   const imageName = getEnvVar('DOCKER_MCP_IMAGE', DEFAULT_MCP_IMAGE_NAME);
   const imageTag = getEnvVar('TAG', 'latest');
   return `${imageName}:${imageTag}`;
-}
-
-function runCommandWithStdin(
-  command: string,
-  args: string[],
-  stdinInput: string,
-  timeoutMs: number
-): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const child = spawn(command, args, {
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
-
-    let resolved = false;
-    const timeout = setTimeout(() => {
-      if (resolved) return;
-      resolved = true;
-      child.kill('SIGKILL');
-      reject(new Error(`Command timed out after ${timeoutMs}ms`));
-    }, timeoutMs);
-
-    const rl = createInterface({ input: child.stdout, crlfDelay: Infinity });
-    rl.on('line', (line: string) => {
-      if (resolved) return;
-      const trimmed = line.trim();
-      if (trimmed.length === 0) return;
-      try {
-        const parsed = JSON.parse(trimmed) as unknown;
-        if (
-          typeof parsed === 'object' &&
-          parsed !== null &&
-          ('result' in parsed || 'error' in parsed)
-        ) {
-          resolved = true;
-          clearTimeout(timeout);
-          child.kill();
-          resolve(trimmed);
-        }
-      } catch {
-        // Not JSON or not a response; skip
-      }
-    });
-
-    rl.on('close', () => {
-      if (!resolved) {
-        resolved = true;
-        clearTimeout(timeout);
-        reject(new Error('No JSON-RPC response line received from MCP stdio'));
-      }
-    });
-
-    child.on('error', (err) => {
-      if (!resolved) {
-        resolved = true;
-        clearTimeout(timeout);
-        reject(err);
-      }
-    });
-
-    child.stderr?.on('data', (data: Buffer | string) => {
-      process.stderr.write(data);
-    });
-
-    child.stdin?.write(stdinInput, (err: Error | null | undefined) => {
-      if (err && !resolved) {
-        resolved = true;
-        clearTimeout(timeout);
-        reject(err);
-        return;
-      }
-      child.stdin?.end();
-    });
-  });
 }
 
 async function waitForMcpReady(baseUrl: string, timeoutMs: number): Promise<void> {
@@ -427,19 +353,12 @@ async function checkMcpStdio(imageRef: string): Promise<void> {
   const timeoutMs = 15000;
 
   // The image defaults to HTTP, so stdio has to be requested explicitly.
-  const line = await runCommandWithStdin(
+  const data = await runCommandWithStdin(
     'docker',
     ['run', '--rm', '-i', imageRef, 'npm', 'run', 'start:mcp'],
     inputLine,
     timeoutMs
   );
-
-  let data: unknown;
-  try {
-    data = JSON.parse(line) as unknown;
-  } catch {
-    throw new Error(`MCP stdio response is not valid JSON: ${line.slice(0, 200)}`);
-  }
 
   if (typeof data !== 'object' || data === null) {
     throw new Error(`MCP stdio response is not an object: ${JSON.stringify(data)}`);
@@ -456,7 +375,7 @@ async function checkMcpStdio(imageRef: string): Promise<void> {
   }
 
   // eslint-disable-next-line no-console
-  console.log('[smoke] MCP stdio OK (initialize response valid)');
+  console.log('[smoke] MCP stdio OK (the first stdout line is the initialize response)');
 }
 
 /**
