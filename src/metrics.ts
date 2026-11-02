@@ -203,11 +203,13 @@ export function recordExpected404(method: string, route: string): void {
   http404ExpectedTotal.inc({ method, route });
 }
 
-export function recordCacheHit(kind: CacheKeyType): void {
+// `stream` is the frame stream lookup. It stays in process memory and is not a Redis key
+// type (ADR 007).
+export function recordCacheHit(kind: CacheKeyType | 'stream'): void {
   cacheHitsTotal.inc({ kind });
 }
 
-export function recordCacheMiss(kind: CacheKeyType): void {
+export function recordCacheMiss(kind: CacheKeyType | 'stream'): void {
   cacheMissesTotal.inc({ kind });
 }
 
