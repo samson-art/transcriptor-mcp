@@ -79,8 +79,10 @@ COPY --from=builder /app/dist ./dist
 
 # npm writes a script banner to stdout before it starts a script: four lines in a local run of
 # 1.5.21 on 2026-10-07. In stdio mode (`npm run start:mcp`, the command in server.json), stdout
-# must carry only MCP messages (#81). The silent log level also removes the npm lines from the log
-# of the default HTTP command. To get them back, run the image with -e NPM_CONFIG_LOGLEVEL=notice.
+# must carry only MCP messages (#81). The silent log level also removes all npm lines from stderr,
+# for every npm command in the image. The log of the default HTTP command loses them. A failure
+# before the server starts, such as a missing script, exits 1 with an empty stderr. To get the npm
+# lines back, run the image with -e NPM_CONFIG_LOGLEVEL=notice.
 # This line comes after `npm ci`, so that the build log keeps the npm output.
 ENV NPM_CONFIG_LOGLEVEL=silent
 

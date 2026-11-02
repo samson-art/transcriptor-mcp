@@ -1,4 +1,3 @@
-import { spawn } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { setTimeout as sleep } from 'node:timers/promises';
@@ -9,8 +8,8 @@ import {
   getDockerBuildContext,
   getDockerfileRelativePath,
   getShouldBuildDockerImages,
-  readFirstLineAsJson,
   runCommand,
+  runCommandWithStdin,
 } from './docker-utils.js';
 import { getEnvVar, isFlagSet } from './smoke-env.js';
 
@@ -49,62 +48,6 @@ export function buildMcpImageRef(): string {
   const imageName = getEnvVar('DOCKER_MCP_IMAGE', DEFAULT_MCP_IMAGE_NAME);
   const imageTag = getEnvVar('TAG', 'latest');
   return `${imageName}:${imageTag}`;
-}
-
-function runCommandWithStdin(
-  command: string,
-  args: string[],
-  stdinInput: string,
-  timeoutMs: number
-): Promise<unknown> {
-  return new Promise((resolve, reject) => {
-    const child = spawn(command, args, {
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
-
-    let resolved = false;
-    const timeout = setTimeout(() => {
-      if (resolved) return;
-      resolved = true;
-      child.kill('SIGKILL');
-      reject(new Error(`Command timed out after ${timeoutMs}ms`));
-    }, timeoutMs);
-
-    const settle = (finish: () => void) => {
-      if (resolved) return;
-      resolved = true;
-      clearTimeout(timeout);
-      child.kill();
-      finish();
-    };
-    // The first stdout line must be the answer. The reader skips nothing (#81).
-    readFirstLineAsJson(child.stdout).then(
-      (data) => settle(() => resolve(data)),
-      (err: Error) => settle(() => reject(err))
-    );
-
-    child.on('error', (err) => {
-      if (!resolved) {
-        resolved = true;
-        clearTimeout(timeout);
-        reject(err);
-      }
-    });
-
-    child.stderr?.on('data', (data: Buffer | string) => {
-      process.stderr.write(data);
-    });
-
-    child.stdin?.write(stdinInput, (err: Error | null | undefined) => {
-      if (err && !resolved) {
-        resolved = true;
-        clearTimeout(timeout);
-        reject(err);
-        return;
-      }
-      child.stdin?.end();
-    });
-  });
 }
 
 async function waitForMcpReady(baseUrl: string, timeoutMs: number): Promise<void> {
