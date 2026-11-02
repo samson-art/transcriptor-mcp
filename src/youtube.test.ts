@@ -39,6 +39,7 @@ const {
   captureVideoFrame,
   getImageWidth,
   resetStreamLookupsForTests,
+  streamLookupCountForTests,
 } = youtube;
 
 describe('youtube', () => {
@@ -2272,6 +2273,7 @@ today to pay our respects to MCP, which
       expect(args[args.indexOf('-q:v') + 1]).toBe('4');
       expect(args).toContain('scale=min(iw\\,1280):-2');
       const outputPath = args[args.length - 1];
+      expect(outputPath.startsWith(join(tmpdir(), 'frame_'))).toBe(true);
       expect(outputPath).toMatch(/\.jpg$/);
       // output file is consumed and removed
       await expect(access(outputPath, constants.F_OK)).rejects.toThrow();
@@ -2347,7 +2349,9 @@ today to pay our respects to MCP, which
         'ffmpeg_i:-rw_timeout 15000000'
       );
       expect(sectionArgs[sectionArgs.indexOf('--download-sections') + 1]).toBe('*10-12');
+      expect(outputPath.startsWith(join(tmpdir(), 'frame_'))).toBe(true);
       expect(outputPath).toMatch(/\.png$/);
+      expect(clipPath.startsWith(join(tmpdir(), 'frame_clip_'))).toBe(true);
       // clip is cleaned up
       await expect(access(clipPath, constants.F_OK)).rejects.toThrow();
     });
@@ -2494,10 +2498,12 @@ today to pay our respects to MCP, which
       /**
        * A lookup answers at once, a section download writes its clip, and ffmpeg writes the
        * frame to the output path that it was given. A read of a stream URL answers through
-       * `directRead`, which answers at once with a frame by default.
+       * `directRead`, which answers at once with a frame by default. A lookup answers through
+       * `lookup`, which answers at once by default.
        */
       function mockRuns(
-        directRead: (answer: (fail: boolean) => void) => void = (answer) => answer(false)
+        directRead: (answer: (fail: boolean) => void) => void = (answer) => answer(false),
+        lookup: (answer: () => void) => void = (answer) => answer()
       ) {
         execFileMock.mockImplementation(
           (file: string, args: string[], _options: unknown, callback: ExecCallback) => {
@@ -2507,7 +2513,7 @@ today to pay our respects to MCP, which
               const clip = args[args.indexOf('--output') + 1].replace('%(ext)s', 'mp4');
               void writeFile(clip, 'fake clip').then(done);
             } else if (file === 'yt-dlp') {
-              callback(null, lookupOut);
+              lookup(() => callback(null, lookupOut));
             } else if (args[args.indexOf('-i') + 1].startsWith('https://')) {
               directRead((fail) =>
                 fail
@@ -2541,18 +2547,8 @@ today to pay our respects to MCP, which
       });
 
       it('lets frames that run at the same time wait for one lookup', async () => {
-        const held: ExecCallback[] = [];
-        execFileMock.mockImplementation(
-          (file: string, args: string[], _options: unknown, callback: ExecCallback) => {
-            if (file === 'yt-dlp') {
-              held.push(callback);
-              return;
-            }
-            void writeFile(args[args.length - 1], 'jpeg').then(() =>
-              callback(null, { stdout: '', stderr: '' })
-            );
-          }
-        );
+        const held: Array<() => void> = [];
+        mockRuns(undefined, (answer) => held.push(answer));
 
         const frames = Promise.allSettled([10, 20, 30].map((t) => captureVideoFrame(url, t)));
         try {
@@ -2560,7 +2556,7 @@ today to pay our respects to MCP, which
           expect(lookups()).toBe(1);
         } finally {
           // Answer every held lookup also when the test fails, so that no process slot stays taken.
-          for (const callback of held.splice(0)) callback(null, lookupOut);
+          for (const answer of held.splice(0)) answer();
           await frames;
         }
         for (const outcome of await frames) {
@@ -2580,6 +2576,51 @@ today to pay our respects to MCP, which
           now += 2;
           await expect(captureVideoFrame(url, 30)).resolves.toMatchObject({ ok: true });
           expect(lookups()).toBe(2);
+        } finally {
+          dateSpy.mockRestore();
+        }
+      });
+
+      it('counts the 5 minutes from the start of a lookup, not from its end', async () => {
+        // The budget would end the call while the clock moves. This test is about the lookup.
+        process.env.YT_DLP_FRAME_TIMEOUT = '0';
+        let now = 1_700_000_500_000;
+        const dateSpy = jest.spyOn(Date, 'now').mockImplementation(() => now);
+        const held: Array<() => void> = [];
+        mockRuns(undefined, (answer) => held.push(answer));
+        try {
+          const first = captureVideoFrame(url, 10);
+          await tick();
+          now += 4 * 60_000;
+          for (const answer of held.splice(0)) answer();
+          await expect(first).resolves.toMatchObject({ ok: true });
+
+          now += 60_000 - 1;
+          await expect(captureVideoFrame(url, 20)).resolves.toMatchObject({ ok: true });
+          expect(lookups()).toBe(1);
+          now += 2;
+          mockRuns();
+          await expect(captureVideoFrame(url, 30)).resolves.toMatchObject({ ok: true });
+          expect(lookups()).toBe(2);
+        } finally {
+          for (const answer of held.splice(0)) answer();
+          dateSpy.mockRestore();
+        }
+      });
+
+      it('removes an expired lookup of another video at the next miss', async () => {
+        let now = 1_700_000_600_000;
+        const dateSpy = jest.spyOn(Date, 'now').mockImplementation(() => now);
+        mockRuns();
+        try {
+          await expect(captureVideoFrame(url, 10)).resolves.toMatchObject({ ok: true });
+          await expect(captureVideoFrame(`${url}other`, 10)).resolves.toMatchObject({ ok: true });
+          expect(streamLookupCountForTests()).toBe(2);
+
+          now += 5 * 60_000;
+          await expect(captureVideoFrame(`${url}third`, 10)).resolves.toMatchObject({ ok: true });
+
+          expect(streamLookupCountForTests()).toBe(1);
         } finally {
           dateSpy.mockRestore();
         }
@@ -2635,6 +2676,149 @@ today to pay our respects to MCP, which
         failing = false;
         await expect(captureVideoFrame(url, 30)).resolves.toMatchObject({ ok: true });
         expect(lookups()).toBe(2);
+      });
+
+      it.each([
+        ['Private video', 'private'],
+        ['Video unavailable', 'unavailable'],
+        ['The uploader has not made this video available in your country', 'geo_blocked'],
+        ['Sign in to confirm your age', 'age_restricted'],
+      ])(
+        'answers the exact class when a reused lookup stopped working and the section download says: %s',
+        async (refusal, reason) => {
+          mockRuns();
+          await expect(captureVideoFrame(url, 10)).resolves.toMatchObject({ ok: true });
+
+          // This call runs no lookup, so only the section download can name the failure.
+          mockExecFileFailure(`ERROR: [youtube] x: ${refusal}`);
+          await expect(captureVideoFrame(url, 20)).rejects.toMatchObject({
+            name: 'YtDlpError',
+            reason,
+          });
+          expect(lookups()).toBe(1);
+          expect(sections()).toBe(1);
+
+          mockRuns();
+          await expect(captureVideoFrame(url, 30)).resolves.toMatchObject({ ok: true });
+          expect(lookups()).toBe(2);
+        }
+      );
+
+      it('uses a clip that exists although the section download failed with a known class', async () => {
+        execFileMock.mockImplementation(
+          (file: string, args: string[], _options: unknown, callback: ExecCallback) => {
+            if (args.includes('--download-sections')) {
+              const clip = args[args.indexOf('--output') + 1].replace('%(ext)s', 'mp4');
+              void writeFile(clip, 'fake clip').then(() =>
+                callback(Object.assign(new Error('ERROR: Video unavailable'), { code: 1 }))
+              );
+            } else if (file === 'yt-dlp') {
+              callback(null, lookupOut);
+            } else if (args[args.indexOf('-i') + 1].startsWith('https://')) {
+              callback(Object.assign(new Error('Server returned 403 Forbidden'), { code: 1 }));
+            } else {
+              void writeFile(args[args.length - 1], 'jpeg').then(() =>
+                callback(null, { stdout: '', stderr: '' })
+              );
+            }
+          }
+        );
+
+        await expect(captureVideoFrame(url, 10)).resolves.toMatchObject({ ok: true });
+      });
+
+      it('keeps a lookup when the server refuses a direct read before ffmpeg starts', async () => {
+        process.env.YT_DLP_MAX_CONCURRENCY = '1';
+        process.env.YT_DLP_MAX_QUEUE = '0';
+        const reads: Array<(fail: boolean) => void> = [];
+        let holdReads = true;
+        mockRuns((answer) => (holdReads ? reads.push(answer) : answer(false)));
+
+        const first = captureVideoFrame(url, 10);
+        try {
+          // The read of the first call holds the only process slot.
+          await tick();
+          await expect(captureVideoFrame(url, 20)).rejects.toMatchObject({
+            name: 'ServerBusyError',
+          });
+        } finally {
+          holdReads = false;
+          for (const answer of reads.splice(0)) answer(false);
+          await first;
+          delete process.env.YT_DLP_MAX_CONCURRENCY;
+          delete process.env.YT_DLP_MAX_QUEUE;
+        }
+
+        await expect(captureVideoFrame(url, 30)).resolves.toMatchObject({ ok: true });
+        expect(lookups()).toBe(1);
+      });
+
+      it('keeps a lookup that answers a timestamp beyond the end of the video', async () => {
+        mockRuns();
+
+        await expect(captureVideoFrame(url, 500)).resolves.toMatchObject({
+          ok: false,
+          reason: 'timestamp_beyond_duration',
+        });
+        await expect(captureVideoFrame(url, 10)).resolves.toMatchObject({ ok: true });
+
+        expect(lookups()).toBe(1);
+      });
+
+      describe('cookies copy', () => {
+        const original = join(tmpdir(), 'cookies_stream_lookup.txt');
+        const cookiesOf = (args: string[]) => args[args.indexOf('--cookies') + 1];
+        const ytDlpRuns = () =>
+          execFileMock.mock.calls
+            .filter(([file]) => file === 'yt-dlp')
+            .map(([, a]) => a as string[]);
+
+        beforeEach(async () => {
+          await writeFile(original, '# Netscape\n');
+          process.env.COOKIES_FILE_PATH = original;
+        });
+
+        afterEach(async () => {
+          delete process.env.COOKIES_FILE_PATH;
+          await unlink(original).catch(() => {});
+        });
+
+        it('makes no copy for a hit whose direct read gives a frame', async () => {
+          mockRuns();
+          await expect(captureVideoFrame(url, 10)).resolves.toMatchObject({ ok: true });
+
+          // A copy of a missing file fails the call, so this call must not try to make one.
+          await unlink(original);
+          await expect(captureVideoFrame(url, 20)).resolves.toMatchObject({ ok: true });
+
+          expect(lookups()).toBe(1);
+        });
+
+        it('makes a copy for a hit that falls back to the section download, and deletes it', async () => {
+          let failing = false;
+          mockRuns((answer) => answer(failing));
+          await expect(captureVideoFrame(url, 10)).resolves.toMatchObject({ ok: true });
+          failing = true;
+          await expect(captureVideoFrame(url, 20)).resolves.toMatchObject({ ok: true });
+
+          const [lookupRun, sectionRun] = ytDlpRuns();
+          expect(sectionRun).toContain('--download-sections');
+          expect(sectionRun).toContain('--cookies');
+          expect(cookiesOf(sectionRun)).not.toBe(original);
+          expect(cookiesOf(sectionRun)).not.toBe(cookiesOf(lookupRun));
+          await expect(access(cookiesOf(sectionRun), constants.F_OK)).rejects.toThrow();
+        });
+
+        it('shares one copy between the lookup and the section download of a call', async () => {
+          mockRuns((answer) => answer(true));
+          await expect(captureVideoFrame(url, 10)).resolves.toMatchObject({ ok: true });
+
+          const [lookupRun, sectionRun] = ytDlpRuns();
+          expect(sectionRun).toContain('--download-sections');
+          expect(cookiesOf(lookupRun)).not.toBe(original);
+          expect(cookiesOf(sectionRun)).toBe(cookiesOf(lookupRun));
+          await expect(access(cookiesOf(lookupRun), constants.F_OK)).rejects.toThrow();
+        });
       });
 
       it('does not let a late read failure drop a newer lookup', async () => {

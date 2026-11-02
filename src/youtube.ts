@@ -1142,8 +1142,8 @@ const STREAM_LOOKUP_TTL_MS = 5 * 60_000;
  *
  * ponytail: the map has no size cap and no timer. An expired entry leaves at the next miss.
  * The ceiling is the lookups of the last 5 minutes. With the default cap of 4 processes and
- * about 2.9 s for each lookup, that is at most about 400 entries. Add a size cap if memory
- * use shows a need.
+ * about 2.9 s for each lookup, that is at most about 400 entries. If memory use shows a
+ * need, add a size cap.
  */
 const streamLookups = new Map<string, { expires: number; info: Promise<VideoStreamInfo | null> }>();
 
@@ -1152,7 +1152,14 @@ function dropStreamLookup(key: string, info: Promise<VideoStreamInfo | null>): v
   if (streamLookups.get(key)?.info === info) streamLookups.delete(key);
 }
 
-/** Gives the lookup of the key from the last 5 minutes, or runs a new one. */
+/**
+ * Gives the lookup of the key from the last 5 minutes, or runs a new one.
+ *
+ * ponytail: a waiting call has no timer of its own. The budget of the call that started the
+ * lookup bounds the wait. With a budget of 0, a stalled lookup holds its waiters until it
+ * ends, and new calls join it for the full 5 minutes. If stalls show up with a budget of 0,
+ * give each waiter its own timer.
+ */
 function lookupStreamInfo(
   key: string,
   run: () => Promise<VideoStreamInfo | null>
@@ -1177,6 +1184,11 @@ function lookupStreamInfo(
 /** Empties the stream lookups. Exported for tests. */
 export function resetStreamLookupsForTests(): void {
   streamLookups.clear();
+}
+
+/** The number of stream lookups in the map. Exported for tests. */
+export function streamLookupCountForTests(): number {
+  return streamLookups.size;
 }
 
 async function runFfmpegFrameCapture(opts: {
@@ -1240,8 +1252,8 @@ async function downloadVideoSection(
   // Calls that wait on one stream lookup resume together. If their direct reads fail, they can
   // start this download in the same millisecond. On TikTok and Bilibili, each direct read fails
   // with 403 (605 frame calls in the week to 2026-10-29). With a name from the URL and the
-  // millisecond alone, one call can read the clip of another timestamp, or lose its clip to the
-  // cleanup of another call. So each call adds a random part, as copyCookiesFile does.
+  // millisecond alone, one call can read the clip of another timestamp. It can also lose its
+  // clip to the cleanup of another call. So each call adds a random part, as copyCookiesFile does.
   const outputBase = join(
     tempDir,
     `${urlToSafeBase(url, 'frame_clip')}_${Math.random().toString(36).slice(2)}`
@@ -1262,6 +1274,7 @@ async function downloadVideoSection(
     ...envArgs,
     url,
   ];
+  let refusal: YtDlpError | undefined;
   try {
     await execFileAsync('yt-dlp', args, {
       maxBuffer: 10 * 1024 * 1024,
@@ -1271,18 +1284,23 @@ async function downloadVideoSection(
     const details = collectExecFileErrorDetails(error);
     logger?.error(execDetailsToLogFields(details), 'Error downloading video section for frame');
     rethrowInfra(error);
+    // A call that reuses a stream lookup runs no lookup of its own. So only this run can say
+    // that the video became private, was removed or is blocked.
+    if (details.reason && details.reason !== 'unknown') refusal = new YtDlpError(details.reason);
     // The clip may still exist despite the error; fall through to the file search.
   }
 
   const { readdir } = await import('node:fs/promises');
   const baseName = outputBase.split(/[/\\]/).pop() ?? '';
+  let clip: string | undefined;
   try {
-    const files = await readdir(tempDir);
-    const clip = files.find((f) => f.startsWith(baseName));
-    return clip ? join(tempDir, clip) : null;
+    clip = (await readdir(tempDir)).find((f) => f.startsWith(baseName));
   } catch {
-    return null;
+    // A failed search is the same as no clip.
   }
+  if (clip) return join(tempDir, clip);
+  if (refusal) throw refusal;
+  return null;
 }
 
 /**
@@ -1318,28 +1336,35 @@ export async function captureVideoFrame(
   const deadline = budget > 0 ? Date.now() + budget : undefined;
 
   const { jsRuntimes, remoteComponents, cookiesFilePathFromEnv, proxyFromEnv } = getYtDlpEnv();
-  let cookiesPathToUse = cookiesFilePathFromEnv;
+  // A lookup hit whose direct read gives a frame runs no yt-dlp, so it makes no cookies copy.
+  // Any other call makes one copy for its yt-dlp runs, and `finally` deletes it (ADR 004).
   let cookiesCleanup: (() => Promise<void>) | undefined;
-  if (cookiesFilePathFromEnv) {
-    const resolved = await copyCookiesFile(cookiesFilePathFromEnv);
-    cookiesPathToUse = resolved.path;
-    cookiesCleanup = resolved.cleanup;
-  }
-  const envArgs: string[] = [];
-  appendYtDlpEnvArgs(envArgs, {
-    jsRuntimes,
-    remoteComponents,
-    cookiesFilePathFromEnv: cookiesPathToUse,
-    proxyFromEnv,
-  });
+  let envArgsReady: Promise<string[]> | undefined;
+  const getEnvArgs = () =>
+    (envArgsReady ??= (async () => {
+      let cookiesPathToUse = cookiesFilePathFromEnv;
+      if (cookiesFilePathFromEnv) {
+        const resolved = await copyCookiesFile(cookiesFilePathFromEnv);
+        cookiesPathToUse = resolved.path;
+        cookiesCleanup = resolved.cleanup;
+      }
+      const envArgs: string[] = [];
+      appendYtDlpEnvArgs(envArgs, {
+        jsRuntimes,
+        remoteComponents,
+        cookiesFilePathFromEnv: cookiesPathToUse,
+        proxyFromEnv,
+      });
+      return envArgs;
+    })());
 
   let clipPath: string | null = null;
   try {
     await logCookiesFileStatus(logger, cookiesFilePathFromEnv);
     logger?.info({ timestampSeconds, format, width }, 'Capturing video frame');
 
-    const lookup = lookupStreamInfo(lookupKey, () =>
-      fetchVideoStreamInfo(url, formatSelector, envArgs, deadline, logger)
+    const lookup = lookupStreamInfo(lookupKey, async () =>
+      fetchVideoStreamInfo(url, formatSelector, await getEnvArgs(), deadline, logger)
     );
     const streamInfo = await lookup;
     const videoId = streamInfo?.videoId ?? extractYouTubeVideoId(url) ?? 'unknown';
@@ -1376,6 +1401,8 @@ export async function captureVideoFrame(
           return { ok: true, videoId, data, mimeType };
         }
       } catch (error: unknown) {
+        // A read refused before ffmpeg starts (busy, or no budget left) says nothing about the
+        // stream URLs, so the lookup stays. The answer "beyond the duration" above keeps it too.
         if (error instanceof HttpError) throw error;
         lastError = error;
         logger?.warn(
@@ -1393,7 +1420,7 @@ export async function captureVideoFrame(
       url,
       timestampSeconds,
       formatSelector,
-      envArgs,
+      await getEnvArgs(),
       deadline,
       logger
     );
