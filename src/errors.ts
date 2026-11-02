@@ -113,6 +113,15 @@ export const UNEXPECTED_ERROR_MESSAGE =
   'Internal server error (a fault in this server, not in your request). Retry once; if it fails again, do not retry — tell the user this cannot be completed right now.';
 
 /**
+ * The 403 of the Origin rule on the MCP HTTP endpoint (#82). It does not repeat the Origin
+ * value and names no variable: the caller cannot change the list, and the operator reads the
+ * warn line. It is here and not in mcp-http.ts, so that errors.test.ts can read it without the
+ * MCP server.
+ */
+export const ORIGIN_NOT_ALLOWED_MESSAGE =
+  'This server does not accept requests from the web origin of this request (the site of the page that sent it). Every request from this origin gets the same answer. Do not retry.';
+
+/**
  * Said by every tool that takes a video URL. Naming the platforms matters: the server
  * also rejects a supported platform's URL when the scheme is missing, and a caller with
  * "Invalid video URL." alone cannot tell which of the two it hit.
