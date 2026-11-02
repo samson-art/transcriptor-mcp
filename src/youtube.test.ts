@@ -2211,7 +2211,14 @@ today to pay our respects to MCP, which
           { lang: 'en' },
           logger as any
         ).catch((err: unknown) => err);
-        while (execFileMock.mock.calls.length === 0) await tick();
+        let settled = false;
+        void playlist.finally(() => {
+          settled = true;
+        });
+        // Stop on settle, and fail here. Without a first run, `other` would take the free slot
+        // and never queue, and the wait below would not end.
+        while (!settled && execFileMock.mock.calls.length === 0) await tick();
+        expect(execFileMock).toHaveBeenCalledTimes(1);
         const other = fetchYtDlpJson(url);
         await waitUntilQueued(other);
 
@@ -2219,10 +2226,6 @@ today to pay our respects to MCP, which
         await tick();
         expect(execFileMock).toHaveBeenCalledTimes(2);
         // The call reads its temp directory after a 200 ms wait, then queues the replay.
-        let settled = false;
-        void playlist.finally(() => {
-          settled = true;
-        });
         while (!settled && (await queueLength()) !== 1) {
           jest.advanceTimersByTime(200);
           await tick();
