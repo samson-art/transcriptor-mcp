@@ -80,7 +80,7 @@ describe('caller-facing texts', () => {
     // These strings go to the MCP caller and to REST verbatim. A route name is wrong on
     // one of the two surfaces by construction, and an env var is for the operator.
     expect(text).not.toMatch(/\bGET \/|\bPOST \//);
-    expect(text).not.toMatch(/WHISPER_|YT_DLP_|CACHE_|MCP_/);
+    expect(text).not.toMatch(/\b[A-Z][A-Z0-9]*_[A-Z0-9_]*/);
     expect(text).not.toMatch(/yt-dlp|ffmpeg|Whisper|Redis/);
   });
 

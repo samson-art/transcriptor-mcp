@@ -14,3 +14,14 @@ export function parseIntFromString(value: string | undefined, defaultValue: numb
 export function parseIntEnv(name: string, defaultValue: number): number {
   return parseIntFromString(process.env[name], defaultValue);
 }
+
+/**
+ * Reads a comma-separated environment variable. Each entry is trimmed, and empty entries
+ * are dropped, so an unset or blank variable gives an empty list.
+ */
+export function parseListEnv(name: string): string[] {
+  return (process.env[name] ?? '')
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+}

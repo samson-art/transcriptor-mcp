@@ -25,7 +25,7 @@ import { recordRequest, renderPrometheus } from './metrics.js';
 import { createLoggerWithSentryBreadcrumbs } from './logger-sentry-breadcrumbs.js';
 import { ping as cachePing } from './cache.js';
 import { readChangelog } from './changelog.js';
-import { parseIntEnv } from './env.js';
+import { parseIntEnv, parseListEnv } from './env.js';
 import { restErrorHandler, routeOf } from './rest-error-handler.js';
 
 // Response schemas for OpenAPI/Swagger
@@ -142,13 +142,9 @@ export function buildRestApp() {
 
   // CORS only for the origins in CORS_ALLOWED_ORIGINS. With every origin allowed, any page a user
   // opened could read the answers of a REST API on localhost, cookies-only videos included (#133).
-  const corsAllowedOrigins = process.env.CORS_ALLOWED_ORIGINS?.trim()
-    ? process.env.CORS_ALLOWED_ORIGINS.split(',')
-        .map((o) => o.trim())
-        .filter(Boolean)
-    : undefined;
+  const corsAllowedOrigins = parseListEnv('CORS_ALLOWED_ORIGINS');
   fastify.register(cors, {
-    origin: corsAllowedOrigins && corsAllowedOrigins.length > 0 ? corsAllowedOrigins : false,
+    origin: corsAllowedOrigins.length > 0 ? corsAllowedOrigins : false,
   });
 
   fastify.register(rateLimit, { max: parseIntEnv('RATE_LIMIT_MAX', 100), timeWindow });
