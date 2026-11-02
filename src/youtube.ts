@@ -2,7 +2,7 @@ import { execFile, type ExecFileException, type ExecFileOptions } from 'node:chi
 import { createHash } from 'node:crypto';
 import { promisify } from 'node:util';
 import { readFile, stat, unlink, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { extname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import type { FastifyBaseLogger } from 'fastify';
 
@@ -623,6 +623,17 @@ function execDetailsToLogFields(d: ExecFileErrorDetails): Record<string, unknown
   return out;
 }
 
+/**
+ * Replaces each URL, and the value after `-http_proxy`, with `<url>`. Use it only for a log line
+ * of an ffmpeg run. Node puts the whole command line into the message and `cmd` of a failed run,
+ * and ffmpeg names its input in stderr. A stream URL holds a signature and the IP address of the
+ * server, and a proxy URL can hold a password. Do not use it for the `cmd` of a yt-dlp failure:
+ * operator tooling reads that field to hash the video address.
+ */
+function maskFfmpegLogText(text: string): string {
+  return text.replace(/(?<=-http_proxy )\S+|[a-z][a-z\d+.-]*:\/\/\S+/gi, '<url>');
+}
+
 async function runPlaylistVerboseReplay(
   buildFullArgs: (quiet: boolean, verbose: boolean) => string[],
   logger?: FastifyBaseLogger
@@ -1035,6 +1046,8 @@ export type CaptureVideoFrameOutcome =
 type VideoStreamInfo = {
   videoId: string | null;
   durationSeconds: number | null;
+  /** format_id, protocol, ext and vcodec of the chosen format, for a log line only (#90). */
+  streamFormat: Record<string, unknown> | null;
   streamUrls: string[];
 };
 
@@ -1053,8 +1066,21 @@ function getFrameCaptureTimeout(): number {
 }
 
 /**
- * Fetches video id, duration and direct stream URLs in one yt-dlp call
- * (--print id --print duration --print urls, in that order).
+ * Reads the format line of the stream lookup (#90). A line that does not parse gives null
+ * and never fails the lookup. yt-dlp prints NA when it knows none of the four fields.
+ */
+function parseStreamFormat(line: string | undefined): Record<string, unknown> | null {
+  try {
+    const { format_id, protocol, ext, vcodec } = JSON.parse(line ?? '') as Record<string, unknown>;
+    return { format_id, protocol, ext, vcodec };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Fetches the video id, the duration, the chosen format and the direct stream URLs in one
+ * yt-dlp call (one --print each, in that order).
  */
 async function fetchVideoStreamInfo(
   url: string,
@@ -1072,6 +1098,11 @@ async function fetchVideoStreamInfo(
     'id',
     '--print',
     'duration',
+    // The chosen format as one JSON line (#90). JSON quotes each value, so no value can break
+    // the line. Keep the braces free of spaces: with a space, yt-dlp 2026.03.13 printed NA
+    // (offline run on a local info file, 2026-10-30).
+    '--print',
+    '%(.{format_id,protocol,ext,vcodec})j',
     '--print',
     'urls',
     ...envArgs,
@@ -1091,12 +1122,15 @@ async function fetchVideoStreamInfo(
     if (lines.length < 2) {
       return null;
     }
-    const [idLine, durationLine, ...urlLines] = lines;
+    const [idLine, durationLine, ...rest] = lines;
     const duration = Number.parseFloat(durationLine);
     return {
       videoId: idLine && idLine !== 'NA' ? idLine : null,
       durationSeconds: Number.isFinite(duration) ? duration : null,
-      streamUrls: urlLines.filter((l) => /^https?:\/\//i.test(l)),
+      // A JSON line never passes the URL filter, and a URL never parses as JSON. So a missing
+      // format line costs only the format, never a stream URL.
+      streamFormat: parseStreamFormat(rest[0]),
+      streamUrls: rest.filter((l) => /^https?:\/\//i.test(l)),
     };
   } catch (error: unknown) {
     const details = collectExecFileErrorDetails(error);
@@ -1383,7 +1417,7 @@ export async function captureVideoFrame(
         if (error instanceof HttpError) throw error;
         lastError = error;
         logger?.warn(
-          { error: error instanceof Error ? error.message : String(error) },
+          { error: maskFfmpegLogText(error instanceof Error ? error.message : String(error)) },
           'Direct stream frame capture failed, trying section download fallback'
         );
       }
@@ -1423,13 +1457,39 @@ export async function captureVideoFrame(
 
     // The clip read has no next stage to notice that the budget ran out while it ran.
     if (deadline !== undefined && Date.now() >= deadline) throw new YtDlpError('timeout');
+    // In the week to 2026-10-29, 240 frame calls on YouTube ended with "Output file #0 does
+    // not contain any stream". No line said which format the server chose (#90).
+    // Never log a stream URL. Log only the number of URLs. A stream URL holds a signature and
+    // the IP address of the server.
+    const clip = clipPath
+      ? {
+          ext: extname(clipPath).slice(1),
+          bytes: (await stat(clipPath).catch(() => null))?.size ?? null,
+        }
+      : null;
+    logger?.warn(
+      {
+        streamFormat: streamInfo?.streamFormat ?? null,
+        streamUrlCount: streamInfo?.streamUrls.length ?? 0,
+        clip,
+      },
+      'Frame capture produced no image'
+    );
     const details = collectExecFileErrorDetails(
       lastError ??
         new Error(
           'No frame produced (timestamp may be beyond the end of the video or the stream is not seekable).'
         )
     );
-    logger?.error(execDetailsToLogFields(details), 'Error capturing video frame');
+    logger?.error(
+      Object.fromEntries(
+        Object.entries(execDetailsToLogFields(details)).map(([key, value]) => [
+          key,
+          typeof value === 'string' ? maskFfmpegLogText(value) : value,
+        ])
+      ),
+      'Error capturing video frame'
+    );
     return { ok: false, reason: 'capture_failed', videoId, details };
   } finally {
     await cookiesCleanup?.();

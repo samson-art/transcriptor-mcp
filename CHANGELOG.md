@@ -7,8 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- A `get_video_frame` capture that ends with the 404 answer "Could not capture a frame" now logs one warn line, "Frame capture produced no image" (#90). In one week of production logs (2026-10-23 to 2026-10-29), 240 frame calls on YouTube ended with the ffmpeg error "Output file #0 does not contain any stream". No log line said which format the server chose. Identical calls that share a capture share the line, so the count of lines can be lower than the count of 404 answers. A call that ends in a timeout, a busy answer or a refusal from the platform logs no such line. The answers of the tool, the "MCP tool call" log line and the metrics do not change.
+- The new line has three fields and holds no URL:
+  - `streamFormat`: the `format_id`, `protocol`, `ext` and `vcodec` of the chosen format.
+  - `streamUrlCount`: the number of stream URLs.
+  - `clip`: the extension and the size in bytes of the clip, or `null` when there was no clip. A clip is a short download of the video.
+- The stream lookup, one yt-dlp run that finds the stream URLs, now also prints the chosen format. It is still one run.
+
 ### Fixed
 
+- The frame log lines "Direct stream frame capture failed, trying section download fallback" and "Error capturing video frame" no longer hold a stream URL or a proxy URL (#90). They show `<url>` in place of each one. A stream URL holds a signature and the IP address of the server, and a proxy URL can hold a password.
 - A run of frames from one video no longer starts a stream lookup for each frame (#87). A lookup is one yt-dlp run of about 2.9 s that reads the length and the stream URLs of the video. In the week to 2026-10-29, 87% of about 7,800 frame calls were for a video that the server looked up in the previous 10 minutes. A frame call now reuses the lookup of an earlier call for the same URL and width for 5 minutes, and calls that come at the same time wait for one lookup. The lookup stays in process memory, because it holds signed stream URLs. Decision: [ADR 007](docs/adr/007-frame-stream-lookup-reuse.md).
 - A lookup that fails with a known reason, such as a private video or a timeout, leaves the map, and the call answers with that reason. If a lookup fails for an unknown reason, has no stream, or no stream gives a frame, the server drops the lookup and the call takes the section download, a yt-dlp download of a short clip at the timestamp. A read that the server refuses before ffmpeg starts (503 `busy`, or no time left) keeps the lookup. The answer that a timestamp is beyond the duration also keeps it.
 - A frame call can still get a frame for up to 5 minutes after a video becomes private or is removed, if its stream URLs still work.
