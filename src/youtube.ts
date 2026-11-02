@@ -623,6 +623,17 @@ function execDetailsToLogFields(d: ExecFileErrorDetails): Record<string, unknown
   return out;
 }
 
+/**
+ * Replaces each URL, and the value after `-http_proxy`, with `<url>`. Use it only for a log line
+ * of an ffmpeg run. Node puts the whole command line into the message and `cmd` of a failed run,
+ * and ffmpeg names its input in stderr. A stream URL holds a signature and the IP address of the
+ * server, and a proxy URL can hold a password. Do not use it for the `cmd` of a yt-dlp failure:
+ * operator tooling reads that field to hash the video address.
+ */
+function maskFfmpegLogText(text: string): string {
+  return text.replace(/(?<=-http_proxy )\S+|[a-z][a-z\d+.-]*:\/\/\S+/gi, '<url>');
+}
+
 async function runPlaylistVerboseReplay(
   buildFullArgs: (quiet: boolean, verbose: boolean) => string[],
   logger?: FastifyBaseLogger
@@ -1406,7 +1417,7 @@ export async function captureVideoFrame(
         if (error instanceof HttpError) throw error;
         lastError = error;
         logger?.warn(
-          { error: error instanceof Error ? error.message : String(error) },
+          { error: maskFfmpegLogText(error instanceof Error ? error.message : String(error)) },
           'Direct stream frame capture failed, trying section download fallback'
         );
       }
@@ -1447,14 +1458,20 @@ export async function captureVideoFrame(
     // The clip read has no next stage to notice that the budget ran out while it ran.
     if (deadline !== undefined && Date.now() >= deadline) throw new YtDlpError('timeout');
     // In the week to 2026-10-29, 240 frame calls on YouTube ended with "Output file #0 does
-    // not contain any stream". No line said which format the server chose (#90). A stream
-    // URL holds a signature and the IP address of the server: count the URLs, never log one.
-    const clipStats = clipPath ? await stat(clipPath).catch(() => null) : null;
+    // not contain any stream". No line said which format the server chose (#90).
+    // Never log a stream URL. Log only the number of URLs. A stream URL holds a signature and
+    // the IP address of the server.
+    const clip = clipPath
+      ? {
+          ext: extname(clipPath).slice(1),
+          bytes: (await stat(clipPath).catch(() => null))?.size ?? null,
+        }
+      : null;
     logger?.warn(
       {
         streamFormat: streamInfo?.streamFormat ?? null,
         streamUrlCount: streamInfo?.streamUrls.length ?? 0,
-        clip: clipPath ? { ext: extname(clipPath).slice(1), bytes: clipStats?.size ?? null } : null,
+        clip,
       },
       'Frame capture produced no image'
     );
@@ -1464,7 +1481,15 @@ export async function captureVideoFrame(
           'No frame produced (timestamp may be beyond the end of the video or the stream is not seekable).'
         )
     );
-    logger?.error(execDetailsToLogFields(details), 'Error capturing video frame');
+    logger?.error(
+      Object.fromEntries(
+        Object.entries(execDetailsToLogFields(details)).map(([key, value]) => [
+          key,
+          typeof value === 'string' ? maskFfmpegLogText(value) : value,
+        ])
+      ),
+      'Error capturing video frame'
+    );
     return { ok: false, reason: 'capture_failed', videoId, details };
   } finally {
     await cookiesCleanup?.();

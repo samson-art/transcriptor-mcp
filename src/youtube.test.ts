@@ -2225,6 +2225,69 @@ today to pay our respects to MCP, which
   describe('captureVideoFrame', () => {
     const url = 'https://www.youtube.com/watch?v=frame123';
     type ExecCallback = (error: Error | null, result?: { stdout: string; stderr: string }) => void;
+    type Run = (args: string[], callback: ExecCallback) => void;
+
+    const isLookup = ([file, args]: unknown[]) =>
+      file === 'yt-dlp' && !(args as string[]).includes('--download-sections');
+    const lookups = () => execFileMock.mock.calls.filter(isLookup).length;
+    const sections = () =>
+      execFileMock.mock.calls.filter(([, args]) =>
+        (args as string[]).includes('--download-sections')
+      ).length;
+    const makeLogger = () => ({
+      info: jest.fn(),
+      error: jest.fn(),
+      warn: jest.fn(),
+      debug: jest.fn(),
+    });
+    const noImageLines = (warn: jest.Mock) =>
+      (warn.mock.calls as Array<[Record<string, unknown>, string]>).filter(
+        ([, msg]) => msg === 'Frame capture produced no image'
+      );
+
+    // yt-dlp prints the format line with the spacing of Python json.dumps.
+    const formatLine =
+      '{"format_id": "18", "protocol": "https", "ext": "mp4", "vcodec": "avc1.42001E"}';
+    // A real stream URL holds a signature and the IP address of the server.
+    const signedUrl = 'https://cdn.example/stream.mp4?ip=203.0.113.9&sig=abc';
+    const exitOk: Run = (_args, callback) => callback(null, { stdout: '', stderr: '' });
+    const writeFrame: Run = (args, callback) =>
+      void writeFile(args[args.length - 1], 'jpeg').then(() => exitOk(args, callback));
+    const writeClip: Run = (args, callback) =>
+      void writeFile(
+        args[args.indexOf('--output') + 1].replace('%(ext)s', 'mp4'),
+        'fake clip'
+      ).then(() => exitOk(args, callback));
+
+    const noStream: Run = (_args, callback) =>
+      callback(
+        Object.assign(new Error('Command failed: ffmpeg'), {
+          code: 1,
+          stderr: 'Output file #0 does not contain any stream',
+        })
+      );
+
+    /**
+     * Sends each run of a frame call to its stage. By default, each stage does what #90 saw in
+     * production. The lookup prints the format and a signed URL. The direct read exits 0 and
+     * writes no frame. The section download writes a clip of 9 bytes. The clip read finds no stream.
+     */
+    function mockFrameRuns({
+      lookup = `vid123\n212\n${formatLine}\n${signedUrl}\n`,
+      directRead = exitOk,
+      section = writeClip,
+      clipRead = noStream,
+    }: { lookup?: string | Run; directRead?: Run; section?: Run; clipRead?: Run } = {}) {
+      execFileMock.mockImplementation(
+        (file: string, args: string[], _options: unknown, callback: ExecCallback) => {
+          if (file === 'yt-dlp' && args.includes('--download-sections')) section(args, callback);
+          else if (file === 'yt-dlp' && typeof lookup !== 'string') lookup(args, callback);
+          else if (file === 'yt-dlp') callback(null, { stdout: lookup as string, stderr: '' });
+          else if (args[args.indexOf('-i') + 1].startsWith('https://')) directRead(args, callback);
+          else clipRead(args, callback);
+        }
+      );
+    }
 
     beforeEach(() => {
       jest.clearAllMocks();
@@ -2397,8 +2460,9 @@ today to pay our respects to MCP, which
       dateSpy.mockRestore();
     });
 
-    it('should answer timeout when the clip read is what used up the budget', async () => {
+    it('should answer timeout, and log no no-image line, when the clip read used up the budget', async () => {
       process.env.YT_DLP_FRAME_TIMEOUT = '1000';
+      const logger = makeLogger();
       let now = 1700000005000;
       const dateSpy = jest.spyOn(Date, 'now').mockImplementation(() => now);
       let ffmpegCalls = 0;
@@ -2422,11 +2486,13 @@ today to pay our respects to MCP, which
       );
 
       try {
-        await expect(captureVideoFrame(url, 10)).rejects.toMatchObject({
+        await expect(captureVideoFrame(url, 10, {}, logger as any)).rejects.toMatchObject({
           name: 'YtDlpError',
           reason: 'timeout',
         });
         expect(ffmpegCalls).toBe(2);
+        // The no-image line pairs with the 404 answer, so a timeout must not log it.
+        expect(noImageLines(logger.warn)).toHaveLength(0);
       } finally {
         dateSpy.mockRestore();
       }
@@ -2480,13 +2546,6 @@ today to pay our respects to MCP, which
     describe('stream lookup reuse', () => {
       const lookupOut = { stdout: 'vid123\n212\nhttps://cdn.example/stream.mp4\n', stderr: '' };
       const tick = () => new Promise((resolve) => setImmediate(resolve));
-      const isLookup = ([file, args]: unknown[]) =>
-        file === 'yt-dlp' && !(args as string[]).includes('--download-sections');
-      const lookups = () => execFileMock.mock.calls.filter(isLookup).length;
-      const sections = () =>
-        execFileMock.mock.calls.filter(([, args]) =>
-          (args as string[]).includes('--download-sections')
-        ).length;
 
       async function streamCount(metric: string): Promise<number> {
         const line = (await renderPrometheus())
@@ -2496,35 +2555,23 @@ today to pay our respects to MCP, which
       }
 
       /**
-       * A lookup answers at once, a section download writes its clip, and ffmpeg writes the
-       * frame to the output path that it was given. A read of a stream URL answers through
-       * `directRead`, which answers at once with a frame by default. A lookup answers through
-       * `lookup`, which answers at once by default.
+       * Every run gives a frame by default. A read of a stream URL answers through `directRead`,
+       * and a lookup answers through `lookup`.
        */
       function mockRuns(
         directRead: (answer: (fail: boolean) => void) => void = (answer) => answer(false),
         lookup: (answer: () => void) => void = (answer) => answer()
       ) {
-        execFileMock.mockImplementation(
-          (file: string, args: string[], _options: unknown, callback: ExecCallback) => {
-            const done = () => callback(null, { stdout: '', stderr: '' });
-            const writeFrame = () => void writeFile(args[args.length - 1], 'jpeg').then(done);
-            if (file === 'yt-dlp' && args.includes('--download-sections')) {
-              const clip = args[args.indexOf('--output') + 1].replace('%(ext)s', 'mp4');
-              void writeFile(clip, 'fake clip').then(done);
-            } else if (file === 'yt-dlp') {
-              lookup(() => callback(null, lookupOut));
-            } else if (args[args.indexOf('-i') + 1].startsWith('https://')) {
-              directRead((fail) =>
-                fail
-                  ? callback(Object.assign(new Error('Server returned 403 Forbidden'), { code: 1 }))
-                  : writeFrame()
-              );
-            } else {
-              writeFrame();
-            }
-          }
-        );
+        mockFrameRuns({
+          lookup: (_args, callback) => lookup(() => callback(null, lookupOut)),
+          directRead: (args, callback) =>
+            directRead((fail) =>
+              fail
+                ? callback(Object.assign(new Error('Server returned 403 Forbidden'), { code: 1 }))
+                : writeFrame(args, callback)
+            ),
+          clipRead: writeFrame,
+        });
       }
 
       it('runs one lookup for frames of one video and width, and counts a miss, then hits', async () => {
@@ -2887,69 +2934,15 @@ today to pay our respects to MCP, which
     });
 
     describe('log line when no frame comes', () => {
-      // yt-dlp prints the format line with the spacing of Python json.dumps.
-      const formatLine =
-        '{"format_id": "18", "protocol": "https", "ext": "mp4", "vcodec": "avc1.42001E"}';
       const chosenFormat = {
         format_id: '18',
         protocol: 'https',
         ext: 'mp4',
         vcodec: 'avc1.42001E',
       };
-      // A real stream URL holds a signature and the IP address of the server.
-      const signedUrl = 'https://cdn.example/stream.mp4?ip=203.0.113.9&sig=abc';
       // Matches a URL, or the host or the IP of the stream. It does not match the text http,
       // because https is a value of the protocol field.
       const anyUrl = /:\/\/|cdn\.example|203\.0\.113/;
-      const makeLogger = () => ({
-        info: jest.fn(),
-        error: jest.fn(),
-        warn: jest.fn(),
-        debug: jest.fn(),
-      });
-      const noImageLines = (warn: jest.Mock) =>
-        (warn.mock.calls as Array<[Record<string, unknown>, string]>).filter(
-          ([, msg]) => msg === 'Frame capture produced no image'
-        );
-
-      type Run = (args: string[], callback: ExecCallback) => void;
-      const exitOk: Run = (_args, callback) => callback(null, { stdout: '', stderr: '' });
-      const writeFrame: Run = (args, callback) =>
-        void writeFile(args[args.length - 1], 'jpeg').then(() => exitOk(args, callback));
-      const writeClip: Run = (args, callback) =>
-        void writeFile(
-          args[args.indexOf('--output') + 1].replace('%(ext)s', 'mp4'),
-          'fake clip'
-        ).then(() => exitOk(args, callback));
-      const noStream: Run = (_args, callback) =>
-        callback(
-          Object.assign(new Error('Command failed: ffmpeg'), {
-            code: 1,
-            stderr: 'Output file #0 does not contain any stream',
-          })
-        );
-
-      /**
-       * By default, each run does what #90 saw in production. The lookup prints the format and
-       * a signed URL. The direct read exits 0 and writes no frame. The section download writes
-       * a clip of 9 bytes, and the clip read finds no stream in it.
-       */
-      function mockFrameRuns({
-        lookup = `vid123\n212\n${formatLine}\n${signedUrl}\n`,
-        directRead = exitOk,
-        section = writeClip,
-        clipRead = noStream,
-      }: { lookup?: string; directRead?: Run; section?: Run; clipRead?: Run } = {}) {
-        execFileMock.mockImplementation(
-          (file: string, args: string[], _options: unknown, callback: ExecCallback) => {
-            if (file === 'yt-dlp' && args.includes('--download-sections')) section(args, callback);
-            else if (file === 'yt-dlp') callback(null, { stdout: lookup, stderr: '' });
-            else if (args.includes('-ss')) directRead(args, callback);
-            else clipRead(args, callback);
-          }
-        );
-      }
-
       it('should log the chosen format and the clip, and no URL, when no frame comes', async () => {
         const logger = makeLogger();
         mockFrameRuns();
@@ -3011,6 +3004,74 @@ today to pay our respects to MCP, which
         expect(lines[0][0]).toEqual({ streamFormat: chosenFormat, streamUrlCount: 2, clip: null });
       });
 
+      it.each([
+        ['a URL', 'http://user:s3cret@proxy.example:8080'],
+        ['a value with no scheme', 'user:s3cret@proxy.example:8080'],
+      ])(
+        'should keep the stream URL and the proxy out of every line of a failed call, with %s as proxy',
+        async (_name, proxy) => {
+          process.env.YT_DLP_PROXY = proxy;
+          const logger = makeLogger();
+          mockFrameRuns({
+            // Like a real failed read: Node puts the command line into `message` and `cmd`, and
+            // ffmpeg names its input in stderr.
+            directRead: (args, callback) => {
+              const cmd = `ffmpeg ${args.join(' ')}`;
+              const stderr = `${args[args.indexOf('-i') + 1]}: Server returned 403 Forbidden`;
+              callback(
+                Object.assign(new Error(`Command failed: ${cmd}\n${stderr}`), {
+                  code: 1,
+                  cmd,
+                  stderr,
+                })
+              );
+            },
+            section: exitOk,
+          });
+
+          await expect(captureVideoFrame(url, 10, {}, logger as any)).resolves.toMatchObject({
+            ok: false,
+            reason: 'capture_failed',
+          });
+
+          const lines = [logger.debug, logger.info, logger.warn, logger.error].flatMap(
+            (log) => log.mock.calls as Array<[Record<string, unknown>, string]>
+          );
+          expect(JSON.stringify(lines)).not.toMatch(anyUrl);
+          expect(JSON.stringify(lines)).not.toMatch(/s3cret/);
+          // The mask keeps the rest of the text, so the lines still say what failed.
+          const fieldsOf = (msg: string) => lines.find(([, m]) => m === msg)?.[0];
+          expect(
+            fieldsOf('Direct stream frame capture failed, trying section download fallback')?.error
+          ).toContain('Server returned 403 Forbidden');
+          const errorLine = fieldsOf('Error capturing video frame');
+          expect(errorLine?.error).toContain('Server returned 403 Forbidden');
+          expect(errorLine?.stderr).toBe('<url> Server returned 403 Forbidden');
+          expect(errorLine?.cmd).toContain('-http_proxy <url> -ss 10 -i <url> ');
+        }
+      );
+
+      it('should keep the page URL in the cmd of a failed yt-dlp run', async () => {
+        // Operator tooling reads this field to hash the video address, so the mask stays away.
+        const logger = makeLogger();
+        mockFrameRuns({
+          section: (args, callback) =>
+            callback(
+              Object.assign(new Error('Command failed: yt-dlp'), {
+                code: 1,
+                cmd: `yt-dlp ${args.join(' ')}`,
+              })
+            ),
+        });
+
+        await captureVideoFrame(url, 10, {}, logger as any);
+
+        expect(logger.error).toHaveBeenCalledWith(
+          expect.objectContaining({ cmd: expect.stringContaining(url) }),
+          'Error downloading video section for frame'
+        );
+      });
+
       it('should log no such line when a frame comes', async () => {
         const logger = makeLogger();
         mockFrameRuns({ directRead: writeFrame });
@@ -3023,10 +3084,7 @@ today to pay our respects to MCP, which
         });
 
         // The second frame came from the clip, the last stage before the line.
-        const sections = execFileMock.mock.calls.filter(([, args]) =>
-          (args as string[]).includes('--download-sections')
-        );
-        expect(sections).toHaveLength(1);
+        expect(sections()).toBe(1);
         expect(noImageLines(logger.warn)).toHaveLength(0);
       });
 
@@ -3047,10 +3105,7 @@ today to pay our respects to MCP, which
           reason: 'capture_failed',
         });
 
-        const lookups = execFileMock.mock.calls.filter(
-          ([file, args]) => file === 'yt-dlp' && !(args as string[]).includes('--download-sections')
-        );
-        expect(lookups).toHaveLength(1);
+        expect(lookups()).toBe(1);
         expect(noImageLines(logger.warn).map(([fields]) => fields.streamFormat)).toEqual([
           chosenFormat,
         ]);
@@ -3069,38 +3124,6 @@ today to pay our respects to MCP, which
 
         await expect(captureVideoFrame(url, 10)).resolves.toMatchObject({ ok: true });
         expect(inputs).toEqual(['https://cdn.example/stream.mp4']);
-      });
-
-      it('should log no such line when the call ends in a timeout', async () => {
-        // The line pairs with the 404 answer. A call that answers timeout must not log it.
-        process.env.YT_DLP_FRAME_TIMEOUT = '1000';
-        let now = 1700000005000;
-        const dateSpy = jest.spyOn(Date, 'now').mockImplementation(() => now);
-        const logger = makeLogger();
-        mockFrameRuns({
-          // The clip read uses up the budget and finds no stream.
-          clipRead: (args, callback) => {
-            now += 1000;
-            noStream(args, callback);
-          },
-        });
-
-        try {
-          await expect(captureVideoFrame(url, 10, {}, logger as any)).rejects.toMatchObject({
-            name: 'YtDlpError',
-            reason: 'timeout',
-          });
-          // The clip read ran, so the call came to the deadline check.
-          expect(execFileMock.mock.calls.map(([file]: unknown[]) => file)).toEqual([
-            'yt-dlp',
-            'ffmpeg',
-            'yt-dlp',
-            'ffmpeg',
-          ]);
-          expect(noImageLines(logger.warn)).toHaveLength(0);
-        } finally {
-          dateSpy.mockRestore();
-        }
       });
 
       it('should log a null format and a count of 0 when the lookup gives nothing', async () => {
