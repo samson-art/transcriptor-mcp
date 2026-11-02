@@ -92,11 +92,12 @@ describe('stdout of the stdio server (#81)', () => {
   it('sets the silent npm log level in the mcp stage, after npm ci', () => {
     const [, afterMcp] = readFileSync('Dockerfile', 'utf-8').split(/^FROM base AS mcp$/m);
     const lines = afterMcp.split('\n');
+    // Match the instruction: the comment above the ENV also names `npm ci`.
+    const npmCi = lines.findIndex((line) => /^RUN .*npm ci/.test(line));
 
     expect(lines).toContain('ENV NPM_CONFIG_LOGLEVEL=silent');
-    expect(lines.indexOf('ENV NPM_CONFIG_LOGLEVEL=silent')).toBeGreaterThan(
-      lines.findIndex((line) => line.includes('npm ci'))
-    );
+    expect(npmCi).toBeGreaterThanOrEqual(0);
+    expect(lines.indexOf('ENV NPM_CONFIG_LOGLEVEL=silent')).toBeGreaterThan(npmCi);
   });
 
   it('keeps make from writing the recipe of docker-run-mcp-stdio to stdout', () => {
