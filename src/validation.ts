@@ -17,6 +17,7 @@ import {
   fetchYtDlpJson,
   captureVideoFrame,
   getImageWidth,
+  whisperMaxDurationSeconds,
   mapVideoInfo,
   resolveSubtitleFormat,
   type SubtitleFormat,
@@ -25,7 +26,6 @@ import {
 import { extractPlatformFromUrl } from './platform.js';
 import { assertSubtitlesNotRateLimited } from './subtitle-rate-limit.js';
 import { getWhisperConfig } from './whisper.js';
-import { parseIntEnv } from './env.js';
 import { startOrReuseWhisperJob } from './whisper-jobs.js';
 import { getCacheConfig, get, set, buildCacheKey } from './cache.js';
 import {
@@ -494,7 +494,7 @@ async function downloadWithAutoDiscover(
             : `The platform does not say which language the video is spoken in, and it lists more than one ${kind}track.`,
       tried: track ?? undefined,
       available,
-      whisperTried: false,
+      canTranscribe: false,
     });
   }
 
@@ -506,9 +506,7 @@ async function downloadWithAutoDiscover(
   const canTranscribe = whisperConfig.mode !== 'off' && !(onlyType && platform !== 'youtube');
   // The track list in hand has the length, so a longer video gets its answer without the audio
   // run (#88). This answer also comes during a hold, because it sends nothing to the platform.
-  const tooLong = canTranscribe && overWhisperCeiling(available.duration);
-  const transcribe = canTranscribe && !tooLong;
-  if (transcribe) {
+  if (canTranscribe && !overWhisperCeiling(available.duration)) {
     // A hold skips speech-to-text as well (ADR 002).
     assertSubtitlesNotRateLimited(url);
     logger?.info('Trying Whisper fallback for auto-discovery');
@@ -533,7 +531,7 @@ async function downloadWithAutoDiscover(
     }
   }
 
-  return throwNoSubtitlesError({ url, available, whisperTried: transcribe, tooLong });
+  return throwNoSubtitlesError({ url, available, canTranscribe });
 }
 
 type AvailableSubtitles = {
@@ -574,7 +572,8 @@ async function buildVideoJson(url: string, logger?: FastifyBaseLogger): Promise<
       // Stored with the list: off YouTube there is no -orig track, and a cached list without
       // it would make auto-discovery answer differently from a fresh one.
       ...(data.language ? { language: data.language } : {}),
-      // A request by name reads the length from here, because it makes no run to learn it (#88).
+      // A request by name reads the length from here, and it makes no run to learn it before the
+      // audio run (#88).
       ...(typeof data.duration === 'number' ? { duration: data.duration } : {}),
     },
     info: { videoId, info: mapVideoInfo(data) },
@@ -602,28 +601,31 @@ export function resetVideoJsonInFlight(): void {
   videoJsonInFlight.clear();
 }
 
-/**
- * The cached track list, counted as a hit or a miss unless `count` is false. A corrupted entry
- * is a miss.
- */
-async function readCachedAvail(
+/** The cached track list, not counted. A corrupted entry reads as no entry. */
+async function peekCachedAvail(
   url: string,
-  logger?: FastifyBaseLogger,
-  count = true
+  logger?: FastifyBaseLogger
 ): Promise<AvailableSubtitles | undefined> {
   const cacheKey = buildCacheKey('avail', url);
   const cached = await get(cacheKey);
-  if (cached !== undefined) {
-    try {
-      const parsed = JSON.parse(cached) as AvailableSubtitles;
-      if (count) recordCacheHit('avail');
-      return parsed;
-    } catch (e) {
-      logger?.warn({ err: e, cacheKey }, 'Corrupted cache entry, treating as miss');
-    }
+  if (cached === undefined) return undefined;
+  try {
+    return JSON.parse(cached) as AvailableSubtitles;
+  } catch (e) {
+    logger?.warn({ err: e, cacheKey }, 'Corrupted cache entry, treating as miss');
+    return undefined;
   }
-  if (count) recordCacheMiss('avail');
-  return undefined;
+}
+
+/** The cached track list, counted as a hit or a miss. */
+async function readCachedAvail(
+  url: string,
+  logger?: FastifyBaseLogger
+): Promise<AvailableSubtitles | undefined> {
+  const list = await peekCachedAvail(url, logger);
+  if (list) recordCacheHit('avail');
+  else recordCacheMiss('avail');
+  return list;
 }
 
 /**
@@ -668,13 +670,14 @@ async function raceWhisperJob<T>(
 }
 
 /**
- * The audio run filters with `duration <=? WHISPER_MAX_DURATION_SECONDS`. For a known length over
- * the ceiling, yt-dlp reads the page, skips the download and exits 0 with no file. From
- * 2026-10-23 to 2026-10-29, 247 of 638 audio runs ended this way (#88). This is the same test,
- * made before the run. An unknown length is not over the ceiling: the run measures the audio.
+ * The audio run in `downloadAudio` (src/youtube.ts) filters with `duration <=?` the ceiling. For
+ * a known length over the ceiling, yt-dlp reads the page, skips the download and exits 0 with no
+ * file. From 2026-10-23 to 2026-10-29, 247 of 638 audio runs ended this way (#88). This is the
+ * same test. Change both together. An unknown length is not over the ceiling: the run measures
+ * the audio.
  */
 function overWhisperCeiling(duration: number | undefined): boolean {
-  const ceiling = parseIntEnv('WHISPER_MAX_DURATION_SECONDS', 0);
+  const ceiling = whisperMaxDurationSeconds();
   return ceiling > 0 && typeof duration === 'number' && duration > ceiling;
 }
 
@@ -688,13 +691,14 @@ async function throwNoSubtitlesError(opts: {
   tried?: Track;
   /** The list the caller already read; without it this costs another yt-dlp run. */
   available?: AvailableSubtitles;
-  /** Speech-to-text ran in this call. Enabled is not enough: auto-discovery skips it when tracks are listed. */
-  whisperTried: boolean;
-  /** Speech-to-text did not start, because the known length is over the ceiling (#88). */
-  tooLong?: boolean;
+  /**
+   * This call could use speech-to-text. Enabled is not enough: auto-discovery skips it when tracks
+   * are listed. Speech-to-text then ran, unless the list gives a length over the ceiling (#88).
+   * In that case it got no audio, whether or not the audio run started.
+   */
+  canTranscribe: boolean;
   logger?: FastifyBaseLogger;
 }): Promise<never> {
-  const { whisperTried } = opts;
   const tried = opts.asked ? { type: opts.asked.type, lang: opts.asked.lang } : opts.tried;
   const available =
     opts.available ??
@@ -704,6 +708,8 @@ async function throwNoSubtitlesError(opts: {
       if (err instanceof YtDlpError) throw err;
       return undefined;
     }));
+  const tooLong = opts.canTranscribe && overWhisperCeiling(available?.duration);
+  const whisperTried = opts.canTranscribe && !tooLong;
   if (whisperTried) recordSubtitlesFailure('no_subtitles');
 
   const base = opts.asked
@@ -713,13 +719,13 @@ async function throwNoSubtitlesError(opts: {
 
   // A length ceiling means the job will never run for this video again, so the useful next
   // step is a different track rather than another wait. The next step below reads it.
-  const whisperCeiling = parseIntEnv('WHISPER_MAX_DURATION_SECONDS', 0);
+  const whisperCeiling = whisperMaxDurationSeconds();
   // Enabled but not run says nothing: speech-to-text neither failed nor is it the way forward.
   // The exception is a known length over the ceiling (#88), which the caller must hear.
   const verdict =
     getWhisperConfig().mode === 'off'
       ? 'This server does not transcribe audio.'
-      : opts.tooLong
+      : tooLong
         ? `This server transcribes only videos up to ${whisperCeiling} seconds long, and this video is longer.`
         : !whisperTried
           ? ''
@@ -785,7 +791,7 @@ async function throwNoSubtitlesError(opts: {
       : undefined,
     whisperTried
       ? 'stt_failed'
-      : opts.tooLong
+      : tooLong
         ? 'too_long'
         : available === undefined
           ? 'unread'
@@ -886,55 +892,54 @@ async function handleExplicitRequestFlow(
 
   // The canary skips speech-to-text: its answer would pass the probe while captions fail (#59).
   const whisperConfig = getWhisperConfig();
-  const canTranscribe = !skipWhisper && whisperConfig.mode !== 'off';
-  // Here only a cached track list can give the length (#88). The cache counts skip this read,
-  // because the hint below reads and counts the same entry, as before. Without a ceiling, there
-  // is no read. ponytail: on a cold cache the audio run still starts, and yt-dlp still skips a
-  // long video. A metadata run in front of it can learn the length, but on YouTube that run adds
-  // a run to every call that speech-to-text answers.
-  const tooLong =
-    canTranscribe &&
-    !subtitlesContent &&
-    parseIntEnv('WHISPER_MAX_DURATION_SECONDS', 0) > 0 &&
-    overWhisperCeiling((await readCachedAvail(url, logger, false))?.duration);
-  const transcribe = canTranscribe && !tooLong;
-  if (!subtitlesContent) {
-    if (transcribe) {
-      logger?.info({ lang: sanitizedLang }, 'Trying Whisper fallback');
-      const job = startOrReuseWhisperJob(url, sanitizedLang, 'srt', logger);
-      const outcome = await raceWhisperJob(job, whisperConfig.timeout);
+  const canTranscribe = !skipWhisper && whisperConfig.mode !== 'off' && !subtitlesContent;
+  // A request by name reads the length only from the cached track list, not from `info:{url}`, so
+  // that the one read also serves the hint below (#88). The read is counted only if the hint uses
+  // it, so the cache counts stay as they were. Without a ceiling, there is no read. ponytail: on a
+  // cold cache the audio run still starts, yt-dlp skips a long video, and the list that the hint
+  // loads then gives the too_long answer. A metadata run in front of the audio run saves that run
+  // where the call pays for the metadata anyway. But on a YouTube watch URL it adds a run to every
+  // call that speech-to-text answers.
+  const cachedList =
+    canTranscribe && whisperMaxDurationSeconds() > 0
+      ? await peekCachedAvail(url, logger)
+      : undefined;
+  if (canTranscribe && !overWhisperCeiling(cachedList?.duration)) {
+    logger?.info({ lang: sanitizedLang }, 'Trying Whisper fallback');
+    const job = startOrReuseWhisperJob(url, sanitizedLang, 'srt', logger);
+    const outcome = await raceWhisperJob(job, whisperConfig.timeout);
 
-      if (outcome.kind === 'timeout') {
-        void job.then(async (text) => {
-          // A call that skips the cache does not fill it later either (#59).
-          if (skipCache || !text?.trim()) {
-            return;
-          }
-          const vid = await videoIdFor();
-          const whisperResult = {
-            videoId: vid,
-            type,
-            lang: sanitizedLang,
-            subtitlesContent: text,
-            source: 'whisper',
-          };
-          await set(cacheKey, JSON.stringify(whisperResult), cacheConfig.ttlSubtitlesSeconds);
-        });
-      } else if (outcome.content) {
-        subtitlesContent = outcome.content;
-        source = 'whisper';
-      }
+    if (outcome.kind === 'timeout') {
+      void job.then(async (text) => {
+        // A call that skips the cache does not fill it later either (#59).
+        if (skipCache || !text?.trim()) {
+          return;
+        }
+        const vid = await videoIdFor();
+        const whisperResult = {
+          videoId: vid,
+          type,
+          lang: sanitizedLang,
+          subtitlesContent: text,
+          source: 'whisper',
+        };
+        await set(cacheKey, JSON.stringify(whisperResult), cacheConfig.ttlSubtitlesSeconds);
+      });
+    } else if (outcome.content) {
+      subtitlesContent = outcome.content;
+      source = 'whisper';
     }
   }
 
   if (!subtitlesContent) {
+    if (cachedList) recordCacheHit('avail');
     await throwNoSubtitlesError({
       url,
       // A lang without a type means the server substituted the type, and the caller cannot
       // see that unless the text says so.
       asked: { type, lang: sanitizedLang, defaulted: request.type === undefined },
-      whisperTried: transcribe,
-      tooLong,
+      available: cachedList && withoutChatReplays(cachedList),
+      canTranscribe,
       logger,
     });
   }

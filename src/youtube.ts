@@ -884,6 +884,11 @@ async function probeDurationSeconds(file: string, logger?: FastifyBaseLogger): P
   }
 }
 
+/** The speech-to-text length ceiling in seconds. 0 means no ceiling. */
+export function whisperMaxDurationSeconds(): number {
+  return parseIntEnv('WHISPER_MAX_DURATION_SECONDS', 0);
+}
+
 /**
  * Downloads audio only for a video (for Whisper transcription).
  * Caller must unlink the returned file path when done.
@@ -933,7 +938,7 @@ export async function downloadAudio(
   if (maxFilesize) {
     optionalArgs.push('--max-filesize', maxFilesize);
   }
-  const maxDuration = parseIntEnv('WHISPER_MAX_DURATION_SECONDS', 0);
+  const maxDuration = whisperMaxDurationSeconds();
   if (maxDuration > 0) {
     // yt-dlp skips a live stream or a longer video with exit code 0 and no file. `<=?`
     // lets a video of unknown length through (Instagram reels have no duration in the
