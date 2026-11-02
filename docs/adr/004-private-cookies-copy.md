@@ -13,7 +13,7 @@ One run was killed during that write, by the 10 MB output cap on the JSON of a v
 ## Decision
 
 - `copyCookiesFile` in `src/youtube.ts` always writes a new temp copy with mode 0600, whether the original is writable or not.
-- Each tool function that passes `--cookies` makes one copy per call and deletes it in `finally`. `get_video_frame` and `get_playlist_transcripts` share their copy between their two yt-dlp runs.
+- Each tool function that passes `--cookies` makes one copy per call and deletes it in `finally`. `get_video_frame` and `get_playlist_transcripts` share their copy between their two yt-dlp runs. A `get_video_frame` call that runs no yt-dlp makes no copy ([ADR 007](007-frame-stream-lookup-reuse.md)).
 - The server never passes the original to yt-dlp. The example compose file mounts `cookies.txt` read-only.
 - `fetchYtDlpJson`'s output cap is 50 MB, and the server logs JSON over 10 MB. `searchVideos` keeps 10 MB.
 
