@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { parseIntEnv, parseIntFromString } from './env.js';
+import { parseIntEnv, parseIntFromString, parseListEnv } from './env.js';
 
 const originalEnv = process.env;
 
@@ -54,6 +54,20 @@ describe('parseIntEnv', () => {
   it('returns defaultValue when env var is invalid (NaN)', () => {
     process.env.TEST_PARSE_INT = 'not-a-number';
     expect(parseIntEnv('TEST_PARSE_INT', 8080)).toBe(8080);
+  });
+});
+
+describe('parseListEnv', () => {
+  it('splits on commas, trims each entry and drops the empty ones', () => {
+    process.env.TEST_PARSE_LIST = ' a, b ,,c,';
+    expect(parseListEnv('TEST_PARSE_LIST')).toEqual(['a', 'b', 'c']);
+  });
+
+  it('returns an empty list when the env var is unset or blank', () => {
+    delete process.env.TEST_PARSE_LIST;
+    expect(parseListEnv('TEST_PARSE_LIST')).toEqual([]);
+    process.env.TEST_PARSE_LIST = ' , ';
+    expect(parseListEnv('TEST_PARSE_LIST')).toEqual([]);
   });
 });
 

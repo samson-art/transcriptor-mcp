@@ -27,7 +27,7 @@ import * as Sentry from '@sentry/node';
 import { recordRequest, renderPrometheus } from './metrics.js';
 import { createLoggerWithSentryBreadcrumbs } from './logger-sentry-breadcrumbs.js';
 import { readChangelog } from './changelog.js';
-import { parseIntEnv } from './env.js';
+import { parseIntEnv, parseListEnv } from './env.js';
 import { restErrorHandler, routeOf } from './rest-error-handler.js';
 
 // Response schemas for OpenAPI/Swagger
@@ -103,13 +103,9 @@ export const fastify = Fastify({
 fastify.setErrorHandler(restErrorHandler);
 
 // Register CORS (optional allowlist via CORS_ALLOWED_ORIGINS comma-separated)
-const corsAllowedOrigins = process.env.CORS_ALLOWED_ORIGINS?.trim()
-  ? process.env.CORS_ALLOWED_ORIGINS.split(',')
-      .map((o) => o.trim())
-      .filter(Boolean)
-  : undefined;
+const corsAllowedOrigins = parseListEnv('CORS_ALLOWED_ORIGINS');
 fastify.register(cors, {
-  origin: corsAllowedOrigins && corsAllowedOrigins.length > 0 ? corsAllowedOrigins : true,
+  origin: corsAllowedOrigins.length > 0 ? corsAllowedOrigins : true,
 });
 
 // Read with the plugin's own parser, so that the start fails here. Given a value it cannot read

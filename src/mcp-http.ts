@@ -6,6 +6,7 @@
  * here — the deployment terminates OAuth at the gateway in front of this listener.
  */
 import Fastify, {
+  type FastifyBaseLogger,
   type FastifyError,
   type FastifyInstance,
   type FastifyReply,
@@ -18,7 +19,7 @@ import { httpErrorAnswer, ORIGIN_NOT_ALLOWED_MESSAGE, UNEXPECTED_ERROR_MESSAGE }
 import { createMcpServer } from './mcp-core.js';
 import { createLoggerWithSentryBreadcrumbs } from './logger-sentry-breadcrumbs.js';
 import { renderPrometheus } from './metrics.js';
-import { parseIntEnv } from './env.js';
+import { parseIntEnv, parseListEnv } from './env.js';
 import { setupLifecycle } from './lifecycle.js';
 import { checkYtDlpAtStartup, checkYtDlpVersion } from './yt-dlp-check.js';
 import { startCanary } from './canary.js';
@@ -65,22 +66,48 @@ function parseOrigin(origin: string): URL | null {
   }
 }
 
+function isHttpUrl(url: URL): boolean {
+  return url.protocol === 'http:' || url.protocol === 'https:';
+}
+
 /**
- * Read on each request. Full origins, comma separated, matched exactly, the way the REST API
- * reads CORS_ALLOWED_ORIGINS. A list replaces the loopback default, and `*` allows all origins.
+ * A list entry in the form that a browser sends, so `https://App.example.com:443/` still matches.
+ * Null if it is not an http or https origin: `null` (a hostile page can send that too), a bare
+ * host, or a value in the quotes that `docker run --env-file` keeps. The host test is here
+ * because URL accepts `https://a.example"` and `https://*.a.example`, and no browser sends them.
  */
-function isAllowedOrigin(origin: string): boolean {
-  const allowed = (process.env.MCP_ALLOWED_ORIGINS ?? '')
-    .split(',')
-    .map((o) => o.trim())
-    .filter(Boolean);
-  if (allowed.length > 0) return allowed.includes('*') || allowed.includes(origin);
-  const url = parseOrigin(origin);
-  return (
-    url !== null &&
-    (url.protocol === 'http:' || url.protocol === 'https:') &&
-    LOOPBACK_HOSTNAMES.has(url.hostname)
-  );
+function listedOrigin(entry: string): string | null {
+  const url = parseOrigin(entry);
+  return url !== null && isHttpUrl(url) && /^[a-z0-9.:_[\]-]+$/.test(url.host) ? url.origin : null;
+}
+
+/** Read on each request. A list replaces the loopback default, and `*` allows all origins. */
+function isAllowedOrigin(url: URL | null): boolean {
+  const entries = parseListEnv('MCP_ALLOWED_ORIGINS');
+  if (entries.includes('*')) return true;
+  if (url === null) return false;
+  if (entries.length > 0) return entries.some((entry) => listedOrigin(entry) === url.origin);
+  return isHttpUrl(url) && LOOPBACK_HOSTNAMES.has(url.hostname);
+}
+
+/**
+ * A bad value must not take the server down at an automatic deploy, so the server drops the
+ * entry and starts. A value with only dropped entries refuses every Origin, because a silent
+ * return to the loopback default would hide the mistake. The line has the position of the entry
+ * and not its value, because a pasted value can be a secret.
+ */
+function warnAboutDroppedOrigins(log: FastifyBaseLogger): void {
+  const entries = parseListEnv('MCP_ALLOWED_ORIGINS');
+  const isKept = (entry: string) => entry === '*' || listedOrigin(entry) !== null;
+  const noneKept = !entries.some(isKept);
+  entries.forEach((entry, index) => {
+    if (isKept(entry)) return;
+    log.warn(
+      { entryPosition: index + 1 },
+      'Dropped an entry of MCP_ALLOWED_ORIGINS that is not an http or https origin (scheme, host, optional port, no quotes)' +
+        (noneKept ? '. No entry is left, so the server refuses every Origin' : '')
+    );
+  });
 }
 
 /**
@@ -98,10 +125,12 @@ function isAllowedOrigin(origin: string): boolean {
 async function refuseForeignOrigin(request: FastifyRequest, reply: FastifyReply) {
   const { origin } = request.headers;
   // Empty counts as absent: a browser never sends it, and the deprecated SDK rule skips it too.
-  if (!origin || isAllowedOrigin(origin)) return;
+  if (!origin) return;
+  const url = parseOrigin(origin);
+  if (isAllowedOrigin(url)) return;
   // `originHost` and not `hostname`: pino already puts the machine name in that field.
   request.log.warn(
-    { originHost: parseOrigin(origin)?.hostname ?? null },
+    { originHost: url?.hostname ?? null },
     'Refused a request to /mcp with an Origin that MCP_ALLOWED_ORIGINS does not allow'
   );
   return reply.code(403).send(jsonRpcError(JSONRPC_SERVER_ERROR, ORIGIN_NOT_ALLOWED_MESSAGE));
@@ -123,6 +152,8 @@ export function buildMcpHttpApp(opts?: BuildMcpHttpAppOptions): FastifyInstance 
     // gateway overwrites the header; never expose this listener publicly.
     requestIdHeader: 'x-request-id',
   });
+
+  warnAboutDroppedOrigins(app.log);
 
   app.setErrorHandler((error: FastifyError, request, reply) => {
     const { statusCode, message } = httpErrorAnswer(error);
