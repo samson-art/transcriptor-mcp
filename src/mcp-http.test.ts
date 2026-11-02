@@ -115,7 +115,7 @@ describe('POST /mcp', () => {
     expect(typeof body.result?.protocolVersion).toBe('string');
   });
 
-  it('serves tools/list on its own request, with no prior initialize', async () => {
+  it('serves tools/list on its own request, with no prior initialize, and labels each schema JSON Schema 2020-12 (#80)', async () => {
     const response = await postMcp({ jsonrpc: '2.0', id: 2, method: 'tools/list' });
 
     expect(response.status).toBe(200);
@@ -133,17 +133,12 @@ describe('POST /mcp', () => {
         'search_videos',
       ])
     );
-  });
-
-  it('labels every input and output schema JSON Schema 2020-12 (#80)', async () => {
-    const body = await readMcpBody(await postMcp({ jsonrpc: '2.0', id: 4, method: 'tools/list' }));
     const labels = (body.result?.tools ?? []).flatMap(
       (tool: { inputSchema: { $schema?: string }; outputSchema?: { $schema?: string } }) => [
         tool.inputSchema.$schema,
         tool.outputSchema?.$schema,
       ]
     );
-
     expect(labels).toEqual(Array(16).fill('https://json-schema.org/draft/2020-12/schema'));
   });
 
