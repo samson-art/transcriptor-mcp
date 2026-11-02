@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - A run of frames from one video no longer starts a stream lookup for each frame (#87). A lookup is one yt-dlp run of about 2.9 s that reads the length and the stream URLs of the video. In the week to 2026-10-29, 87% of about 7,800 frame calls were for a video that the server looked up in the previous 10 minutes. A frame call now reuses the lookup of an earlier call for the same URL and width for 5 minutes, and calls that come at the same time wait for one lookup. The lookup stays in process memory, because it holds signed stream URLs. Decision: [ADR 007](docs/adr/007-frame-stream-lookup-reuse.md).
-- The server drops a lookup whose streams give no frame or that failed, and the call takes the section download, a yt-dlp download of a short clip at the timestamp. A read that the server refuses before ffmpeg starts (503 `busy`, or no time left) keeps the lookup. The answer that a timestamp is beyond the duration also keeps it.
+- A lookup that fails with a known reason, such as a private video or a timeout, leaves the map, and the call answers with that reason. If a lookup fails for an unknown reason, has no stream, or no stream gives a frame, the server drops the lookup and the call takes the section download, a yt-dlp download of a short clip at the timestamp. A read that the server refuses before ffmpeg starts (503 `busy`, or no time left) keeps the lookup. The answer that a timestamp is beyond the duration also keeps it.
 - A frame call can still get a frame for up to 5 minutes after a video becomes private or is removed, if its stream URLs still work.
 - Frame calls of one video that run at the same time no longer share a temporary file.
 
