@@ -1778,6 +1778,40 @@ today to pay our respects to MCP, which
       expect(stderr).toBe('ERROR: socks5://<credentials>@relay.example.com:1080 refused');
     });
 
+    it('masks a password with @ in a URL that differs from the configured value', async () => {
+      mockFailingRuns('ERROR: http://user:p@ss@relay.example.com:1080 refused');
+
+      await captureVideoFrame(pageUrl, 10, { format: 'jpeg' }, logger as any);
+
+      const { stderr } = lineFields(streamLine);
+      expect(stderr).toBe('ERROR: http://<credentials>@relay.example.com:1080 refused');
+    });
+
+    it('masks the proxy on the search failure line', async () => {
+      mockFailingRuns();
+
+      await searchVideos('query', 1, logger as any);
+
+      const fields = lineFields('Error searching videos via yt-dlp');
+      expectMasked(fields);
+      expect(fields.cmd).toContain('--proxy <proxy>');
+    });
+
+    it('leaves an absent stream absent on the audio download line', async () => {
+      execFileMock.mockImplementation(
+        (_file: string, _args: string[], _options: unknown, callback: ExecCallback) => {
+          callback(Object.assign(new Error(`Command failed: ${proxy}`), { code: 1 }));
+        }
+      );
+
+      await downloadAudio(pageUrl, logger as any);
+
+      const fields = lineFields('Error downloading audio via yt-dlp');
+      expect(fields.error).toBe('Command failed: <proxy>');
+      expect(fields.stdout).toBeUndefined();
+      expect(fields.stderr).toBeUndefined();
+    });
+
     it('masks the proxy on the audio download line', async () => {
       mockFailingRuns();
 
@@ -1790,7 +1824,7 @@ today to pay our respects to MCP, which
       }
     });
 
-    it('masks the proxy on the direct stream line', async () => {
+    it('masks the proxy on the direct stream and capture failure lines', async () => {
       execFileMock.mockImplementation(
         (file: string, args: string[], _options: unknown, callback: ExecCallback) => {
           if (file === 'yt-dlp') {
@@ -1808,6 +1842,7 @@ today to pay our respects to MCP, which
       );
       expect(error).toContain('-http_proxy <proxy>');
       expect(error).not.toContain('s3cret');
+      expect(lineFields('Error capturing video frame').cmd).toContain('-http_proxy <proxy>');
     });
 
     it('keeps the reason and the field names when a proxy is set', async () => {

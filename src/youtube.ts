@@ -615,7 +615,9 @@ function getExtendedTimeout(): number {
 function maskProxyInLogText(text: string): string {
   const { proxyFromEnv } = getYtDlpEnv();
   const withoutValue = proxyFromEnv ? text.replaceAll(proxyFromEnv, '<proxy>') : text;
-  return withoutValue.replace(/(?<=:\/\/)[^\s/?#@]+@/g, '<credentials>@');
+  // ponytail: a raw / ? or # in a password that is not the configured value ends the match early.
+  // A valid URL encodes them. Passing the proxy outside argv would remove the need for this.
+  return withoutValue.replace(/(?<=:\/\/)[^\s/?#]*@/g, '<credentials>@');
 }
 
 function execDetailsToLogFields(d: ExecFileErrorDetails): Record<string, unknown> {
