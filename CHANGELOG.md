@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- A failed yt-dlp or ffmpeg run could write the `YT_DLP_PROXY` value, with its user name and password, to the logs and to Sentry breadcrumbs (#99). The value was in `cmd` and `error` of the failure lines of the frame and search runs, and on the "Error downloading audio via yt-dlp" and "Direct stream frame capture failed" lines. The `error`, `cmd`, `stdout` and `stderr` fields now show `<proxy>` in its place, and `<credentials>` in place of the user name and password of any other URL. The page URL in `cmd` and the field names do not change.
+
 ## [1.5.21] - 2026-10-06
 
 ### Added

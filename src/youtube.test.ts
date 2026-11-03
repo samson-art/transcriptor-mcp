@@ -1688,6 +1688,159 @@ today to pay our respects to MCP, which
     });
   });
 
+  describe('proxy in log lines (#99)', () => {
+    const proxy = 'http://user:s3cret@proxy.example.com:8080';
+    const pageUrl = 'https://www.youtube.com/watch?v=abc123';
+    const streamLine = 'Failed to fetch stream info for frame capture';
+    const sectionLine = 'Error downloading video section for frame';
+    type ExecCallback = (error: Error | null, result?: { stdout: string; stderr: string }) => void;
+    type LogMock = jest.Mock<void, [Record<string, unknown>, string]>;
+
+    let logger: { info: LogMock; error: LogMock; warn: LogMock; debug: LogMock };
+
+    /** The fields of the log line with this message. */
+    function lineFields(message: string): Record<string, string> {
+      const calls = [...logger.warn.mock.calls, ...logger.error.mock.calls];
+      const call = calls.find(([, msg]) => msg === message);
+      if (!call) throw new Error(`no log line: ${message}`);
+      return call[0] as Record<string, string>;
+    }
+
+    /** A failed run as Node reports it: the message and `cmd` hold the real command line. */
+    function runFailure(file: string, args: string[], stderr: string): Error {
+      const cmd = [file, ...args].join(' ');
+      return Object.assign(new Error(`Command failed: ${cmd}\n${stderr}`), {
+        code: 1,
+        cmd,
+        stdout: `stdout ${proxy}`,
+        stderr,
+      });
+    }
+
+    /** Every run fails with this stderr. */
+    function mockFailingRuns(stderr = `[debug] Proxy map: {'all': '${proxy}'}`) {
+      execFileMock.mockImplementation(
+        (file: string, args: string[], _options: unknown, callback: ExecCallback) => {
+          callback(runFailure(file, args, stderr));
+        }
+      );
+    }
+
+    function expectMasked(fields: Record<string, string>) {
+      for (const name of ['error', 'cmd', 'stdout', 'stderr']) {
+        expect(fields[name]).toContain('<proxy>');
+        expect(fields[name]).not.toContain('s3cret');
+        expect(fields[name]).not.toContain('proxy.example.com');
+      }
+    }
+
+    beforeEach(() => {
+      jest.clearAllMocks();
+      process.env.YT_DLP_PROXY = proxy;
+      logger = { info: jest.fn(), error: jest.fn(), warn: jest.fn(), debug: jest.fn() };
+    });
+
+    afterEach(() => {
+      delete process.env.YT_DLP_PROXY;
+    });
+
+    it('masks the proxy in each field and keeps the page URL in cmd', async () => {
+      mockFailingRuns();
+
+      await captureVideoFrame(pageUrl, 10, { format: 'jpeg' }, logger as any);
+
+      for (const message of [streamLine, sectionLine]) {
+        const fields = lineFields(message);
+        expectMasked(fields);
+        expect(fields.cmd).toContain('--proxy <proxy>');
+        expect(fields.cmd.endsWith(pageUrl)).toBe(true);
+      }
+    });
+
+    it.each([
+      'https://www.tiktok.com/@some.user:1/video/7301',
+      'https://example.com?x=a:b@c',
+      'https://example.com#a:b@c',
+    ])('keeps a page URL with @ after the host whole in cmd: %s', async (page) => {
+      mockFailingRuns();
+
+      await captureVideoFrame(page, 10, { format: 'jpeg' }, logger as any);
+
+      expect(lineFields(streamLine).cmd.endsWith(page)).toBe(true);
+    });
+
+    it('masks credentials in a URL that differs from the configured value', async () => {
+      mockFailingRuns('ERROR: socks5://other:pw2@relay.example.com:1080 refused');
+
+      await captureVideoFrame(pageUrl, 10, { format: 'jpeg' }, logger as any);
+
+      const { stderr } = lineFields(streamLine);
+      expect(stderr).toBe('ERROR: socks5://<credentials>@relay.example.com:1080 refused');
+    });
+
+    it('masks the proxy on the audio download line', async () => {
+      mockFailingRuns();
+
+      await downloadAudio(pageUrl, logger as any);
+
+      const fields = lineFields('Error downloading audio via yt-dlp');
+      for (const name of ['error', 'stdout', 'stderr']) {
+        expect(fields[name]).toContain('<proxy>');
+        expect(fields[name]).not.toContain('s3cret');
+      }
+    });
+
+    it('masks the proxy on the direct stream line', async () => {
+      execFileMock.mockImplementation(
+        (file: string, args: string[], _options: unknown, callback: ExecCallback) => {
+          if (file === 'yt-dlp') {
+            callback(null, { stdout: 'abc123\n212.5\nhttps://cdn.example/s.mp4\n', stderr: '' });
+            return;
+          }
+          callback(runFailure(file, args, 'ffmpeg failed'));
+        }
+      );
+
+      await captureVideoFrame(pageUrl, 10, { format: 'jpeg' }, logger as any);
+
+      const { error } = lineFields(
+        'Direct stream frame capture failed, trying section download fallback'
+      );
+      expect(error).toContain('-http_proxy <proxy>');
+      expect(error).not.toContain('s3cret');
+    });
+
+    it('keeps the reason and the field names when a proxy is set', async () => {
+      mockFailingRuns("ERROR: Sign in to confirm you're not a bot");
+
+      await expect(
+        captureVideoFrame(pageUrl, 10, { format: 'jpeg' }, logger as any)
+      ).rejects.toMatchObject({ reason: 'bot_check' });
+
+      const fields = lineFields(streamLine);
+      expect(fields.reason).toBe('bot_check');
+      expect(Object.keys(fields).sort()).toEqual([
+        'cmd',
+        'error',
+        'exitCode',
+        'reason',
+        'stderr',
+        'stdout',
+      ]);
+    });
+
+    it('leaves the text unchanged when no proxy is set', async () => {
+      delete process.env.YT_DLP_PROXY;
+      mockFailingRuns('ERROR: plain failure');
+
+      await captureVideoFrame(pageUrl, 10, { format: 'jpeg' }, logger as any);
+
+      const fields = lineFields(streamLine);
+      expect(fields.stderr).toBe('ERROR: plain failure');
+      expect(fields.cmd.endsWith(pageUrl)).toBe(true);
+    });
+  });
+
   describe('classifyYtDlpFailure', () => {
     const cases: Array<[string, string]> = [
       ["ERROR: [youtube] x: Sign in to confirm you're not a bot. Use --cookies", 'bot_check'],
