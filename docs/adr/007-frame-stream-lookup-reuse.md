@@ -28,7 +28,7 @@ In `src/youtube.ts`, `captureVideoFrame` gets its lookup from `lookupStreamInfo`
 - If the section download fails with a known class of the video (`private`, `unavailable`, `geo_blocked`, `age_restricted`) and leaves no clip, the call throws that class. A call that reuses a lookup runs no lookup of its own, so only this run can name the class. The caller gets the exact text instead of the general text about the video stream. This also applies to a call that ran a fresh lookup.
 - A call makes its cookies copy only when it runs yt-dlp. A lookup hit whose direct read gives a frame makes no copy.
 - A drop removes a lookup only while the map still holds that lookup (`dropStreamLookup`). So a late failure of an old lookup does not remove a newer one.
-- `captureVideoFrame` and `downloadVideoSection` add a random part to the names of the frame file and the clip. Calls that wait on one lookup resume together. With names from the URL and the millisecond alone, two calls got one file.
+- Each frame call gets its own names for the frame file and the clip (`uniqueTempName`). Calls that wait on one lookup resume together. With names from the URL and the millisecond alone, two calls got one file.
 - `cache_hits_total{kind="stream"}` counts a reused lookup. `cache_misses_total{kind="stream"}` counts a lookup that the server starts, or tries to start. A lookup that the server refuses with 503 `busy`, or that runs out of time before it starts, also counts as a miss.
 - A restart empties the map.
 
