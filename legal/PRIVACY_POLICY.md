@@ -1,8 +1,8 @@
 # Privacy Policy — Transcriptor MCP (hosted service)
 
-**Version:** 1.1
-**Last updated:** September 16, 2026
-**Effective date:** September 16, 2026
+**Version:** 1.2
+**Last updated:** November 3, 2026
+**Effective date:** December 4, 2026
 
 Companion document: [Terms of Service](./TERMS_OF_SERVICE.md). "Output" has the meaning given to it in section 3 of the Terms.
 
@@ -32,6 +32,8 @@ The Service is free, so we take no payment and process no payment or billing dat
 Every tool call travels through the MCPal gateway to our server, so what you submit and the Output pass through both systems. Our server writes temporary files while it works and deletes them as soon as the call ends. If the server stops in the middle of a call, a file can stay until the server restarts and its temporary storage is replaced. We keep no Output beyond the cache described next. Both systems produce ordinary operational logs, so we do not promise that nothing about a request is written down.
 
 The hosted Service keeps a response cache so that a repeated request is answered without asking the source platform again. A cache entry holds Output — caption text, video metadata, the list of available subtitles or a chapter list — under the video address and the request parameters. It carries no identifier of the person whose request created it, and the same entry is served to anyone who makes the same request. Entries expire on their own after no more than 30 days. Search results and frames are not cached.
+
+A run of frames from one video needs the same stream lookup each time, so our server keeps that lookup in memory to ask the source platform less often. An entry holds the video address you submitted, the requested width, the video identifier, its length, technical facts about the chosen format and the temporary stream addresses from the platform. It holds no frame and no identifier of the person whose request created it, and it serves anyone who asks for a frame of the same video at the same width. The server uses an entry for no more than 5 minutes. It removes the entry at the next frame request that needs a new lookup after that time, and at the latest when the server restarts. The entry does not go to the response cache or to disk.
 
 The optional Whisper audio transcription is switched off on the hosted Service, so it downloads no audio and produces no transcript of its own. If we switch it on, we will update this policy first and state the storage period.
 
@@ -63,6 +65,7 @@ Our server requests captions, metadata and frames from the source platform over 
 
 - **Output**: not kept beyond the call, except in the response cache. Temporary files are deleted at the end of the call, and at the latest when the server restarts.
 - **Response cache**: no more than 30 days per entry, then expired automatically. Entries hold Output under the video address and request parameters, with no identifier of any user.
+- **Frame lookups**: in memory only, used for no more than 5 minutes, removed at the next frame request that needs a new lookup after that time, lost on restart.
 - **Failed-request list**: in memory only, empty while optional transcription is off, replaced after 100 entries, lost on restart.
 - **Usage records that identify you**: 45 days, then deleted automatically. Before deletion they are rolled up into daily totals per server and per tool and into counts of distinct users per day, week and month. Those totals carry no identifier and are kept for the life of the Service.
 - **Account and identity records**: kept by MCPal while your account exists, for the periods in its policy.
