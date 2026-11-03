@@ -7,9 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.24] - 2026-11-03
+
 ### Fixed
 
 - A failed yt-dlp or ffmpeg run could write the `YT_DLP_PROXY` value, with its user name and password, to the logs and to Sentry breadcrumbs (#99). The value was in `cmd` and `error` of the failure lines of the frame and search runs, and on the "Error downloading audio via yt-dlp" and "Direct stream frame capture failed" lines. The `error`, `cmd`, `stdout` and `stderr` fields now show `<proxy>` in its place, and `<credentials>` in place of the user name and password of any other URL. The page URL in `cmd` and the field names do not change.
+
+## [1.5.23] - 2026-11-03
+
+### Fixed
+
+- A long `get_playlist_transcripts` call took longer than a proxy in front of the server waits (#89). Common proxies close a response after 100 s with no data, so the caller got a gateway error and the result went to nobody. In the week to 2026-10-29, 8 of 300 playlist calls took longer than 100 s, the longest 127 s. The playlist run had `YT_DLP_TIMEOUT` or 120 s, whichever was longer, and that time started only when the run got a process slot. Now the run stops 90 s after the call starts, and the wait for a process slot counts toward these 90 s. When the time runs out, the call returns the transcripts that it downloaded by then.
+- A queued `get_playlist_transcripts` call could wait for a process slot past the 90 s, because only a free slot ended the wait. Now the call leaves the queue with the `timeout` text when 10 s of its 90 s are left. A run with less time does not start, because it cannot write a file. Other tools wait in the queue as before.
+- A `get_playlist_transcripts` call that the 90 s stopped with no transcript now answers with the `timeout` text. An error on one item, such as a private video, or a warning such as an extractor line, no longer replaces that answer. A rate limit or a bot check that yt-dlp reported still replaces it.
+- With `YT_DLP_VERBOSE_ON_ERROR=1`, the diagnostic replay of a failed playlist run asked for every item again during a caption hold. Now it does not start during a hold (ADR 002).
+- A playlist run that returned transcripts but did not exit 0 did not reset the caption hold. So the next 429 counted as a repeat, and the hold doubled. Now a run that the 90 s stopped, or that reached `maxItems`, resets the hold if it returned a transcript. A 429 in the same run keeps the hold.
+- A playlist call with format `lrc` could return one transcript twice, when the 90 s stopped the run during a conversion. Now it returns one result for each track.
+
+### Changed
+
+- `YT_DLP_TIMEOUT` no longer changes the limit of `get_playlist_transcripts`. A self-hosted server with no proxy in front now gives a long playlist a partial result after 90 s, not after 120 s.
+- With `YT_DLP_VERBOSE_ON_ERROR=1`, the diagnostic replay of a failed playlist run gets what is left of the same 90 s. It does not start with less than 10 s left, and it leaves the queue like the main run. So its output can be cut.
+
+## [1.5.22] - 2026-11-03
+
+### Fixed
+
+- A video longer than `WHISPER_MAX_DURATION_SECONDS` still cost one yt-dlp run (#88). Speech-to-text starts with an audio download, and yt-dlp skips that download for such a video. In the week from 2026-10-23 to 2026-10-29, the audio download started 638 times, and 247 of these runs (39%) ended in this skip. Now the server starts no audio download if the track list that it has before the run gives a length over the ceiling. Without `lang`, that list comes from the metadata run or from the cache. With `lang`, it comes only from the Redis cache, and the server makes no run to learn the length.
+- The answer for a video longer than `WHISPER_MAX_DURATION_SECONDS` said that speech-to-text ran (#88). Now the caller gets a 404 with the text "This server transcribes only videos up to N seconds long, and this video is longer." and one next step. This also applies to a call with `lang` whose track list was not in the cache: the audio download still starts, and the list that the answer reads after it gives the length.
+- `subtitles_extraction_failures_total{reason="no_subtitles"}` counted a video longer than `WHISPER_MAX_DURATION_SECONDS`, although speech-to-text got no audio (#88). Now it does not count these calls.
+- During a caption hold, a call without `lang` whose track list is in the cache and gives a length over `WHISPER_MAX_DURATION_SECONDS` got the `rate_limited` 502 (#88). Now it gets the 404 that names the ceiling, because this answer sends no request to the platform.
+- Nothing changes for a video of unknown length, for a video at or under the ceiling, or when the ceiling is 0 or unset. The track list in the tool output and in the REST body does not change.
+- With Redis caching, track lists cached before this release have no length until they expire (`CACHE_TTL_METADATA_SECONDS`, 1 hour by default). Calls on these videos keep the old answer until then.
+
+### Changed
+
+- The "MCP tool call" log line has a new `answer` value, `too_long`, for a video longer than `WHISPER_MAX_DURATION_SECONDS` (#88). It wins over `list` and `none`. The values `stt_failed` and `unread` do not occur together with it.
 
 ## [1.5.21] - 2026-10-06
 
