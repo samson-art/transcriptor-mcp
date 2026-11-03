@@ -1,5 +1,5 @@
 import { execFile, type ExecFileException, type ExecFileOptions } from 'node:child_process';
-import { createHash } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { promisify } from 'node:util';
 import { readFile, stat, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -97,10 +97,16 @@ async function execFileAsync(
   }
 }
 
-/** Builds a safe base name for temp files from URL (hash + timestamp). Exported for tests. */
-export function urlToSafeBase(url: string, prefix: string): string {
-  const hash = createHash('sha256').update(url).digest('hex').slice(0, 16);
-  return `${prefix}_${hash}_${Date.now()}`;
+/**
+ * Builds a temp name that no other call can pick. Calls for one video can start in the same
+ * millisecond: get_transcript calls with different languages, or frame calls that wait on one
+ * stream lookup. With a name from the URL and the millisecond, one call could read the file of
+ * another (the wrong language, or the clip of another timestamp) or lose its file to the
+ * cleanup of another. The file lookups match on the start of the name, and an id of fixed
+ * length means that no name is the start of another.
+ */
+function uniqueTempName(prefix: string): string {
+  return `${prefix}_${randomUUID()}`;
 }
 
 function isExecFileException(error: unknown): error is ExecFileException {
@@ -455,7 +461,7 @@ export async function downloadSubtitles(
   // as a step rather than as a series being born.
   primeSubtitleRequests(platform);
   const tempDir = tmpdir();
-  const outputPath = join(tempDir, urlToSafeBase(url, 'subtitles'));
+  const outputPath = join(tempDir, uniqueTempName('subtitles'));
   const { jsRuntimes, remoteComponents, cookiesFilePathFromEnv } = getYtDlpEnv();
 
   let cookiesPathToUse = cookiesFilePathFromEnv;
@@ -696,10 +702,7 @@ export async function downloadPlaylistSubtitles(
   // One playlist run asks for as many tracks as it has items: the heaviest caller of the
   // caption endpoint must be the first to stop while the platform is refusing.
   assertSubtitlesNotRateLimited(url);
-  const tempDir = join(
-    tmpdir(),
-    `playlist_subs_${Date.now()}_${Math.random().toString(36).slice(2)}`
-  );
+  const tempDir = join(tmpdir(), uniqueTempName('playlist_subs'));
   const outputTemplate = join(tempDir, '%(id)s.%(ext)s');
   const { jsRuntimes, remoteComponents, cookiesFilePathFromEnv } = getYtDlpEnv();
 
@@ -902,7 +905,7 @@ export async function downloadAudio(
   logger?: FastifyBaseLogger
 ): Promise<string | null> {
   const tempDir = tmpdir();
-  const outputBase = join(tempDir, urlToSafeBase(url, 'audio'));
+  const outputBase = join(tempDir, uniqueTempName('audio'));
   const outputTemplate = `${outputBase}.%(ext)s`;
   const { jsRuntimes, remoteComponents, cookiesFilePathFromEnv, proxyFromEnv } = getYtDlpEnv();
 
@@ -1228,13 +1231,8 @@ async function downloadVideoSection(
   const tempDir = tmpdir();
   // Calls that wait on one stream lookup resume together. If their direct reads fail, they can
   // start this download in the same millisecond. On TikTok and Bilibili, each direct read fails
-  // with 403 (605 frame calls in the week to 2026-10-29). With a name from the URL and the
-  // millisecond alone, one call can read the clip of another timestamp. It can also lose its
-  // clip to the cleanup of another call. So each call adds a random part, as copyCookiesFile does.
-  const outputBase = join(
-    tempDir,
-    `${urlToSafeBase(url, 'frame_clip')}_${Math.random().toString(36).slice(2)}`
-  );
+  // with 403 (605 frame calls in the week to 2026-10-29).
+  const outputBase = join(tempDir, uniqueTempName('frame_clip'));
   const args = [
     '-f',
     formatSelector,
@@ -1298,12 +1296,9 @@ export async function captureVideoFrame(
   const width = options.width ?? 1280;
   const quality = options.quality ?? 4;
   const mimeType = format === 'png' ? 'image/png' : 'image/jpeg';
-  // Two calls that start in the same millisecond got one frame file. With a shared stream
-  // lookup, they also read at the same moment. So each call adds a random part, as in
-  // downloadVideoSection.
   const outputPath = join(
     tmpdir(),
-    `${urlToSafeBase(url, 'frame')}_${Math.random().toString(36).slice(2)}.${format === 'png' ? 'png' : 'jpg'}`
+    `${uniqueTempName('frame')}.${format === 'png' ? 'png' : 'jpg'}`
   );
   const formatSelector = buildFrameFormatSelector(width);
   const lookupKey = JSON.stringify([formatSelector, url]);
@@ -1590,10 +1585,7 @@ async function logCookiesFileStatus(
 export async function copyCookiesFile(
   originalPath: string
 ): Promise<{ path: string; cleanup: () => Promise<void> }> {
-  const tempPath = join(
-    tmpdir(),
-    `cookies_${Date.now()}_${Math.random().toString(36).slice(2)}.txt`
-  );
+  const tempPath = join(tmpdir(), `${uniqueTempName('cookies')}.txt`);
   // 0600: a cookies file is a signed-in session, and tmpdir may be shared.
   await writeFile(tempPath, await readFile(originalPath), { mode: 0o600 });
   return {

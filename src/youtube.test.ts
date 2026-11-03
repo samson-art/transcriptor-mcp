@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process';
+import { writeFileSync } from 'node:fs';
 import { tmpdir } from 'os';
 import { join, basename, dirname } from 'path';
 import { access, constants, readFile, stat, writeFile, unlink } from 'node:fs/promises';
@@ -8,6 +9,11 @@ import {
   resetSubtitleRateLimitsForTests,
 } from './subtitle-rate-limit.js';
 import { renderPrometheus } from './metrics.js';
+
+// The file that yt-dlp writes for an `--output` template. Names are unique per call, so a
+// test can learn the name only from the args of the run.
+const outputFile = (args: string[], ext: string): string =>
+  args[args.indexOf('--output') + 1].replace('%(ext)s', ext);
 
 jest.mock('node:child_process', () => ({
   execFile: jest.fn(),
@@ -33,7 +39,6 @@ const {
   appendYtDlpSubtitleArgs,
   resolveSubtitleFormat,
   copyCookiesFile,
-  urlToSafeBase,
   collectExecFileErrorDetails,
   classifyYtDlpFailure,
   captureVideoFrame,
@@ -315,23 +320,19 @@ today to pay our respects to MCP, which
       const url = 'https://www.youtube.com/watch?v=video123';
       const content = 'subtitle content';
 
-      const timestamp = 1234567890;
-      const dateSpy = jest.spyOn(Date, 'now').mockReturnValue(timestamp);
-      const tempDir = tmpdir();
-      const baseName = urlToSafeBase(url, 'subtitles');
-      const subtitleFileName = `${baseName}.en.srt`;
-      const subtitleFilePath = join(tempDir, subtitleFileName);
-
-      await writeFile(subtitleFilePath, content, 'utf-8');
+      let subtitleFilePath = '';
 
       execFileMock.mockImplementation(
         (
           _file: string,
-          _args: string[],
+          args: string[],
           _options: unknown,
           callback: (error: Error | null, result: { stdout: string; stderr: string }) => void
         ) => {
-          callback(null, { stdout: '', stderr: '' });
+          subtitleFilePath = outputFile(args, 'en.srt');
+          void writeFile(subtitleFilePath, content, 'utf-8').then(() =>
+            callback(null, { stdout: '', stderr: '' })
+          );
         }
       );
 
@@ -340,20 +341,36 @@ today to pay our respects to MCP, which
       expect(execFileMock).toHaveBeenCalled();
       expect(result).toBe(content);
       await expect(access(subtitleFilePath, constants.F_OK)).rejects.toThrow();
+    });
 
+    it('gives each language its own track when calls for one video start in one millisecond', async () => {
+      const url = 'https://www.youtube.com/watch?v=two-langs';
+      const dateSpy = jest.spyOn(Date, 'now').mockReturnValue(1234567890);
+      execFileMock.mockImplementation(
+        (
+          _file: string,
+          args: string[],
+          _options: unknown,
+          cb: (err: null, result: { stdout: string; stderr: string }) => void
+        ) => {
+          const lang = args[args.indexOf('--sub-lang') + 1];
+          void writeFile(outputFile(args, `${lang}.srt`), `track ${lang}`, 'utf-8').then(() =>
+            cb(null, { stdout: '', stderr: '' })
+          );
+        }
+      );
+
+      const [en, de] = await Promise.all([
+        downloadSubtitles(url, 'auto', 'en'),
+        downloadSubtitles(url, 'auto', 'de'),
+      ]);
+
+      expect([en, de]).toEqual(['track en', 'track de']);
       dateSpy.mockRestore();
     });
 
     it("should return '' when the run brings no subtitle file", async () => {
       const url = 'https://www.youtube.com/watch?v=video-no-file';
-      const timestamp = 1234567891;
-      const dateSpy = jest.spyOn(Date, 'now').mockReturnValue(timestamp);
-      const tempDir = tmpdir();
-      const baseName = urlToSafeBase(url, 'subtitles');
-      const subtitleFileName = `${baseName}.en.srt`;
-      const subtitleFilePath = join(tempDir, subtitleFileName);
-
-      await unlink(subtitleFilePath).catch(() => {});
 
       execFileMock.mockImplementation(
         (
@@ -369,30 +386,24 @@ today to pay our respects to MCP, which
       const result = await downloadSubtitles(url, 'auto', 'en');
 
       expect(result).toBe('');
-
-      dateSpy.mockRestore();
     });
 
     it("should return '' when the subtitle file is empty", async () => {
       const url = 'https://www.youtube.com/watch?v=video-empty';
       const content = '   ';
-      const timestamp = 1234567892;
-      const dateSpy = jest.spyOn(Date, 'now').mockReturnValue(timestamp);
-      const tempDir = tmpdir();
-      const baseName = urlToSafeBase(url, 'subtitles');
-      const subtitleFileName = `${baseName}.en.srt`;
-      const subtitleFilePath = join(tempDir, subtitleFileName);
-
-      await writeFile(subtitleFilePath, content, 'utf-8');
+      let subtitleFilePath = '';
 
       execFileMock.mockImplementation(
         (
           _file: string,
-          _args: string[],
+          args: string[],
           _options: unknown,
           callback: (error: Error | null, result: { stdout: string; stderr: string }) => void
         ) => {
-          callback(null, { stdout: '', stderr: '' });
+          subtitleFilePath = outputFile(args, 'en.srt');
+          void writeFile(subtitleFilePath, content, 'utf-8').then(() =>
+            callback(null, { stdout: '', stderr: '' })
+          );
         }
       );
 
@@ -400,34 +411,29 @@ today to pay our respects to MCP, which
 
       expect(result).toBe('');
       await expect(access(subtitleFilePath, constants.F_OK)).resolves.toBeUndefined();
-
-      dateSpy.mockRestore();
+      await unlink(subtitleFilePath).catch(() => {});
     });
 
     it('should still return content when yt-dlp fails but file exists', async () => {
       const url = 'https://www.youtube.com/watch?v=video123';
       const content = 'subtitle content after error';
 
-      const timestamp = 1234567893;
-      const dateSpy = jest.spyOn(Date, 'now').mockReturnValue(timestamp);
-      const tempDir = tmpdir();
-      const baseName = urlToSafeBase(url, 'subtitles');
-      const subtitleFileName = `${baseName}.en.srt`;
-      const subtitleFilePath = join(tempDir, subtitleFileName);
-
-      await writeFile(subtitleFilePath, content, 'utf-8');
+      let subtitleFilePath = '';
 
       execFileMock.mockImplementation(
         (
           _file: string,
-          _args: string[],
+          args: string[],
           _options: unknown,
           callback: (error: Error | null, result: { stdout: string; stderr: string }) => void
         ) => {
           const error = new Error('yt-dlp error') as any;
           error.stdout = '';
           error.stderr = 'error';
-          callback(error, { stdout: '', stderr: 'error' });
+          subtitleFilePath = outputFile(args, 'en.srt');
+          void writeFile(subtitleFilePath, content, 'utf-8').then(() =>
+            callback(error, { stdout: '', stderr: 'error' })
+          );
         }
       );
 
@@ -435,8 +441,6 @@ today to pay our respects to MCP, which
 
       expect(result).toBe(content);
       await expect(access(subtitleFilePath, constants.F_OK)).rejects.toThrow();
-
-      dateSpy.mockRestore();
     });
   });
 
@@ -563,16 +567,14 @@ today to pay our respects to MCP, which
       const dateSpy = jest.spyOn(Date, 'now').mockReturnValue(t0);
       type Cb = (err: Error | null, result?: { stdout: string; stderr: string }) => void;
       const refuse = () => mockExecFileFailure('ERROR: HTTP Error 429: Too Many Requests');
-      // yt-dlp writes the track next to the output path, which carries the current clock.
-      const answerWithTrack = async () => {
-        await writeFile(
-          join(tmpdir(), `${urlToSafeBase(url, 'subtitles')}.en.srt`),
-          '1\n00:00:01,000 --> 00:00:02,000\nhi\n',
-          'utf-8'
-        );
-        execFileMock.mockImplementation((_f: string, _a: string[], _o: unknown, cb: Cb) =>
-          setImmediate(() => cb(null, { stdout: '', stderr: '' }))
-        );
+      const answerWithTrack = () => {
+        execFileMock.mockImplementation((_f: string, a: string[], _o: unknown, cb: Cb) => {
+          void writeFile(
+            outputFile(a, 'en.srt'),
+            '1\n00:00:01,000 --> 00:00:02,000\nhi\n',
+            'utf-8'
+          ).then(() => cb(null, { stdout: '', stderr: '' }));
+        });
       };
       const call = () => youtube.downloadSubtitles(url, 'auto', 'en');
 
@@ -580,14 +582,14 @@ today to pay our respects to MCP, which
       await call().catch(() => undefined);
 
       dateSpy.mockReturnValue(t0 + 11 * minute);
-      await answerWithTrack();
+      answerWithTrack();
       await expect(call()).resolves.toContain('hi');
 
       // Cleared: a later limit waits the base time again, not twice it.
       refuse();
       await call().catch(() => undefined);
       dateSpy.mockReturnValue(t0 + 22 * minute);
-      await answerWithTrack();
+      answerWithTrack();
       await expect(call()).resolves.toContain('hi');
       dateSpy.mockRestore();
     });
@@ -661,13 +663,32 @@ today to pay our respects to MCP, which
       delete process.env.WHISPER_MAX_DURATION_SECONDS;
     });
 
+    it('gives each call its own audio file when calls for one video start in one millisecond', async () => {
+      const dateSpy = jest.spyOn(Date, 'now').mockReturnValue(1234567894);
+      execFileMock.mockImplementation(
+        (
+          _file: string,
+          args: string[],
+          _options: unknown,
+          cb: (err: null, result: { stdout: string; stderr: string }) => void
+        ) => {
+          void writeFile(outputFile(args, 'm4a'), 'fake audio', 'utf-8').then(() =>
+            cb(null, { stdout: '', stderr: '' })
+          );
+        }
+      );
+
+      const [first, second] = await Promise.all([downloadAudio(url), downloadAudio(url)]);
+
+      expect(first).not.toBeNull();
+      expect(second).not.toBe(first);
+      await unlink(first as string).catch(() => {});
+      await unlink(second as string).catch(() => {});
+      dateSpy.mockRestore();
+    });
+
     it('should pass format and audio-quality to yt-dlp and return path to audio file', async () => {
-      const timestamp = 1234567894;
-      const dateSpy = jest.spyOn(Date, 'now').mockReturnValue(timestamp);
-      const tempDir = tmpdir();
-      const baseName = urlToSafeBase(url, 'audio');
-      const audioFilePath = join(tempDir, `${baseName}.m4a`);
-      await writeFile(audioFilePath, 'fake audio', 'utf-8');
+      let audioFilePath = '';
 
       let capturedArgs: string[] = [];
       execFileMock.mockImplementation(
@@ -679,7 +700,10 @@ today to pay our respects to MCP, which
         ) => {
           expect(file).toBe('yt-dlp');
           capturedArgs = args;
-          callback(null, { stdout: '', stderr: '' });
+          audioFilePath = outputFile(args, 'm4a');
+          void writeFile(audioFilePath, 'fake audio', 'utf-8').then(() =>
+            callback(null, { stdout: '', stderr: '' })
+          );
         }
       );
 
@@ -696,7 +720,6 @@ today to pay our respects to MCP, which
       expect(result).toBe(audioFilePath);
 
       await unlink(audioFilePath).catch(() => {});
-      dateSpy.mockRestore();
     });
 
     it('falls back to a format with sound when the platform has no audio-only format (#63)', async () => {
@@ -722,12 +745,7 @@ today to pay our respects to MCP, which
     it('should use YT_DLP_AUDIO_FORMAT and YT_DLP_AUDIO_QUALITY when set', async () => {
       process.env.YT_DLP_AUDIO_FORMAT = 'bestaudio[abr<=128]/ba';
       process.env.YT_DLP_AUDIO_QUALITY = '7';
-      const timestamp = 1234567895;
-      const dateSpy = jest.spyOn(Date, 'now').mockReturnValue(timestamp);
-      const tempDir = tmpdir();
-      const baseName = urlToSafeBase(url, 'audio');
-      const audioFilePath = join(tempDir, `${baseName}.m4a`);
-      await writeFile(audioFilePath, 'fake audio', 'utf-8');
+      let audioFilePath = '';
 
       let capturedArgs: string[] = [];
       execFileMock.mockImplementation(
@@ -738,7 +756,10 @@ today to pay our respects to MCP, which
           callback: (error: Error | null, result: { stdout: string; stderr: string }) => void
         ) => {
           capturedArgs = args;
-          callback(null, { stdout: '', stderr: '' });
+          audioFilePath = outputFile(args, 'm4a');
+          void writeFile(audioFilePath, 'fake audio', 'utf-8').then(() =>
+            callback(null, { stdout: '', stderr: '' })
+          );
         }
       );
 
@@ -750,27 +771,24 @@ today to pay our respects to MCP, which
       expect(capturedArgs[qualityIdx + 1]).toBe('7');
 
       await unlink(audioFilePath).catch(() => {});
-      dateSpy.mockRestore();
     });
 
     it('should use YT_DLP_AUDIO_TIMEOUT when set, else YT_DLP_TIMEOUT', async () => {
-      const timestamp = 1234567896;
-      const dateSpy = jest.spyOn(Date, 'now').mockReturnValue(timestamp);
-      const tempDir = tmpdir();
-      const baseName = urlToSafeBase(url, 'audio');
-      const audioFilePath = join(tempDir, `${baseName}.m4a`);
-      await writeFile(audioFilePath, 'fake audio', 'utf-8');
+      let audioFilePath = '';
 
       let capturedOptions: { timeout?: number } = {};
       execFileMock.mockImplementation(
         (
           _file: string,
-          _args: string[],
+          args: string[],
           options: { timeout?: number },
           callback: (error: Error | null, result: { stdout: string; stderr: string }) => void
         ) => {
           capturedOptions = options;
-          callback(null, { stdout: '', stderr: '' });
+          audioFilePath = outputFile(args, 'm4a');
+          void writeFile(audioFilePath, 'fake audio', 'utf-8').then(() =>
+            callback(null, { stdout: '', stderr: '' })
+          );
         }
       );
 
@@ -781,29 +799,21 @@ today to pay our respects to MCP, which
 
       delete process.env.YT_DLP_AUDIO_TIMEOUT;
       process.env.YT_DLP_TIMEOUT = '120000';
-      await writeFile(audioFilePath, 'fake audio', 'utf-8');
       await downloadAudio(url);
       expect(capturedOptions.timeout).toBe(120000);
       await unlink(audioFilePath).catch(() => {});
 
       delete process.env.YT_DLP_TIMEOUT;
-      await writeFile(audioFilePath, 'fake audio', 'utf-8');
       await downloadAudio(url);
       expect(capturedOptions.timeout).toBe(60000);
 
       await unlink(audioFilePath).catch(() => {});
-      dateSpy.mockRestore();
     });
 
     it('should pass YT_DLP_AUDIO_CONCURRENT_FRAGMENTS and YT_DLP_AUDIO_LIMIT_RATE to yt-dlp when set', async () => {
       process.env.YT_DLP_AUDIO_CONCURRENT_FRAGMENTS = '4';
       process.env.YT_DLP_AUDIO_LIMIT_RATE = '4M';
-      const timestamp = 1234567897;
-      const dateSpy = jest.spyOn(Date, 'now').mockReturnValue(timestamp);
-      const tempDir = tmpdir();
-      const baseName = urlToSafeBase(url, 'audio');
-      const audioFilePath = join(tempDir, `${baseName}.m4a`);
-      await writeFile(audioFilePath, 'fake audio', 'utf-8');
+      let audioFilePath = '';
 
       let capturedArgs: string[] = [];
       execFileMock.mockImplementation(
@@ -814,7 +824,10 @@ today to pay our respects to MCP, which
           callback: (error: Error | null, result: { stdout: string; stderr: string }) => void
         ) => {
           capturedArgs = args;
-          callback(null, { stdout: '', stderr: '' });
+          audioFilePath = outputFile(args, 'm4a');
+          void writeFile(audioFilePath, 'fake audio', 'utf-8').then(() =>
+            callback(null, { stdout: '', stderr: '' })
+          );
         }
       );
 
@@ -828,7 +841,6 @@ today to pay our respects to MCP, which
       expect(capturedArgs[rIdx + 1]).toBe('4M');
 
       await unlink(audioFilePath).catch(() => {});
-      dateSpy.mockRestore();
     });
 
     it('should cap the video length only when WHISPER_MAX_DURATION_SECONDS is set', async () => {
@@ -870,9 +882,8 @@ today to pay our respects to MCP, which
 
     it('measures the downloaded audio with ffprobe when the platform reports no length', async () => {
       process.env.WHISPER_MAX_DURATION_SECONDS = '120';
-      const dateSpy = jest.spyOn(Date, 'now').mockReturnValue(1234567895);
       const reel = 'https://www.instagram.com/reel/abc123/';
-      const audioFilePath = join(tmpdir(), `${urlToSafeBase(reel, 'audio')}.m4a`);
+      let audioFilePath = '';
       const logger = { info: jest.fn(), error: jest.fn(), warn: jest.fn(), debug: jest.fn() };
       let probeArgs: string[] = [];
       const run = (probe: string | Error) => {
@@ -889,6 +900,7 @@ today to pay our respects to MCP, which
               else callback(null, { stdout: probe, stderr: '' });
               return;
             }
+            audioFilePath = outputFile(args, 'm4a');
             void writeFile(audioFilePath, 'fake audio', 'utf-8').then(() =>
               callback(null, { stdout: '', stderr: '' })
             );
@@ -918,11 +930,11 @@ today to pay our respects to MCP, which
       // Whole seconds, like yt-dlp's own integer duration: a 120 s video whose audio
       // track runs a fraction longer is not over a 120 s cap.
       expect(await run('120.31\n')).toBe(audioFilePath);
+      await unlink(audioFilePath).catch(() => {});
 
       // Within the cap: the file is handed on.
       expect(await run('12.679\n')).toBe(audioFilePath);
       await unlink(audioFilePath).catch(() => {});
-      dateSpy.mockRestore();
     });
 
     it('reads the length even when the process cap is full', async () => {
@@ -930,24 +942,26 @@ today to pay our respects to MCP, which
       process.env.WHISPER_MAX_DURATION_SECONDS = '120';
       process.env.YT_DLP_MAX_CONCURRENCY = '1';
       process.env.YT_DLP_MAX_QUEUE = '0';
-      const dateSpy = jest.spyOn(Date, 'now').mockReturnValue(1234567896);
       const reel = 'https://www.instagram.com/reel/busy1/';
-      const audioFilePath = join(tmpdir(), `${urlToSafeBase(reel, 'audio')}.m4a`);
+      let audioFilePath = '';
       const tick = () => new Promise((resolve) => setImmediate(resolve));
       const releases: Array<() => void> = [];
-      // The download's output, staged up front so releasing a slot stays synchronous.
-      await writeFile(audioFilePath, 'fake audio', 'utf-8');
 
       execFileMock.mockImplementation(
         (
           file: string,
-          _args: string[],
+          args: string[],
           _options: unknown,
           callback: (error: Error | null, result: { stdout: string; stderr: string }) => void
         ) => {
           if (file === 'ffprobe') {
             callback(null, { stdout: '12.679\n', stderr: '' });
             return;
+          }
+          // The download's output, written now so that releasing a slot stays synchronous.
+          if (args.includes('--output')) {
+            audioFilePath = outputFile(args, 'm4a');
+            writeFileSync(audioFilePath, 'fake audio', 'utf-8');
           }
           releases.push(() => callback(null, { stdout: '{"id":"busy1"}', stderr: '' }));
         }
@@ -969,7 +983,6 @@ today to pay our respects to MCP, which
       await unlink(audioFilePath).catch(() => {});
       delete process.env.YT_DLP_MAX_CONCURRENCY;
       delete process.env.YT_DLP_MAX_QUEUE;
-      dateSpy.mockRestore();
     });
   });
 
@@ -1092,6 +1105,23 @@ today to pay our respects to MCP, which
       await unlink(writablePath).catch(() => {});
     });
 
+    it('gives each call its own copy when calls start in one millisecond', async () => {
+      const original = join(tmpdir(), 'cookies_same_ms.txt');
+      await writeFile(original, 'x', 'utf-8');
+      const dateSpy = jest.spyOn(Date, 'now').mockReturnValue(1234567890);
+
+      const [first, second] = await Promise.all([
+        copyCookiesFile(original),
+        copyCookiesFile(original),
+      ]);
+
+      expect(first.path).not.toBe(second.path);
+      await first.cleanup();
+      await second.cleanup();
+      await unlink(original).catch(() => {});
+      dateSpy.mockRestore();
+    });
+
     it('should copy to temp when cookies file is read-only and cleanup removes temp', async () => {
       const readOnlyPath = join(tmpdir(), 'cookies_readonly.txt');
       // A failed run of this case leaves the file read-only behind it.
@@ -1104,7 +1134,7 @@ today to pay our respects to MCP, which
 
       expect(path).not.toBe(readOnlyPath);
       expect(path).toContain(tmpdir());
-      expect(path).toMatch(/cookies_\d+_.*\.txt$/);
+      expect(path).toMatch(/cookies_[\w-]+\.txt$/);
       await expect(access(path, constants.F_OK)).resolves.toBeUndefined();
       await cleanup();
       await expect(access(path, constants.F_OK)).rejects.toThrow();
@@ -2110,6 +2140,32 @@ today to pay our respects to MCP, which
       expect(capturedArgs).toContain('--max-downloads');
       expect(capturedArgs[capturedArgs.indexOf('--max-downloads') + 1]).toBe('3');
       expect(capturedArgs).toContain('--write-subs');
+    });
+
+    it('gives each run its own folder when runs start in one millisecond', async () => {
+      const dateSpy = jest.spyOn(Date, 'now').mockReturnValue(1234567890);
+      const templates: string[] = [];
+      execFileMock.mockImplementation(
+        (
+          _file: string,
+          args: string[],
+          _opts: unknown,
+          cb: (err: null, o: string, e: string) => void
+        ) => {
+          templates.push(args[args.indexOf('--output') + 1]);
+          setImmediate(() => cb(null, '', ''));
+        }
+      );
+      const url = 'https://www.youtube.com/playlist?list=PLxxx';
+
+      await Promise.all([
+        downloadPlaylistSubtitles(url, { lang: 'en' }),
+        downloadPlaylistSubtitles(url, { lang: 'de' }),
+      ]);
+
+      expect(templates).toHaveLength(2);
+      expect(templates[0]).not.toBe(templates[1]);
+      dateSpy.mockRestore();
     });
 
     it('should omit --ignore-errors when YT_DLP_PLAYLIST_IGNORE_ERRORS=0', async () => {
