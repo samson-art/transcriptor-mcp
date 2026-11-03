@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.22] - 2026-11-03
+
 ### Fixed
 
 - A video longer than `WHISPER_MAX_DURATION_SECONDS` still cost one yt-dlp run (#88). Speech-to-text starts with an audio download, and yt-dlp skips that download for such a video. In the week from 2026-10-23 to 2026-10-29, the audio download started 638 times, and 247 of these runs (39%) ended in this skip. Now the server starts no audio download if the track list that it has before the run gives a length over the ceiling. Without `lang`, that list comes from the metadata run or from the cache. With `lang`, it comes only from the Redis cache, and the server makes no run to learn the length.
