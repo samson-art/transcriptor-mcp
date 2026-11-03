@@ -652,14 +652,28 @@ async function collectSubtitleResults(
   return results;
 }
 
+/**
+ * Removes the proxy from text for a log line (#99). The value appears in the command line, and
+ * yt-dlp prints it in stderr with -v. The second step catches credentials in any other form of
+ * a URL. It stops at / ? and #, so a page URL with @ in its path (TikTok) stays whole: tools
+ * read it from cmd.
+ */
+function maskProxyInLogText(text: string): string {
+  const { proxyFromEnv } = getYtDlpEnv();
+  const withoutValue = proxyFromEnv ? text.replaceAll(proxyFromEnv, '<proxy>') : text;
+  // ponytail: a raw / ? or # in a password that is not the configured value ends the match early.
+  // A valid URL encodes them. Passing the proxy outside argv would remove the need for this.
+  return withoutValue.replace(/(?<=:\/\/)[^\s/?#]*@/g, '<credentials>@');
+}
+
 function execDetailsToLogFields(d: ExecFileErrorDetails): Record<string, unknown> {
-  const out: Record<string, unknown> = { error: d.message };
+  const out: Record<string, unknown> = { error: maskProxyInLogText(d.message) };
   if (d.reason) out.reason = d.reason;
   if (d.exitCode !== undefined) out.exitCode = d.exitCode;
   if (d.signal) out.signal = d.signal;
-  if (d.cmd) out.cmd = d.cmd;
-  if (d.stdout) out.stdout = d.stdout;
-  if (d.stderr) out.stderr = d.stderr;
+  if (d.cmd) out.cmd = maskProxyInLogText(d.cmd);
+  if (d.stdout) out.stdout = maskProxyInLogText(d.stdout);
+  if (d.stderr) out.stderr = maskProxyInLogText(d.stderr);
   return out;
 }
 
@@ -1075,8 +1089,11 @@ export async function downloadAudio(
     const execErr = isExecFileException(error) ? error : null;
     logger?.error(
       {
-        error: err.message,
-        ...(execErr && { stdout: execErr.stdout, stderr: execErr.stderr }),
+        error: maskProxyInLogText(err.message),
+        ...(execErr && {
+          stdout: execErr.stdout && maskProxyInLogText(String(execErr.stdout)),
+          stderr: execErr.stderr && maskProxyInLogText(String(execErr.stderr)),
+        }),
       },
       'Error downloading audio via yt-dlp'
     );
@@ -1366,7 +1383,7 @@ export async function captureVideoFrame(
         if (error instanceof HttpError) throw error;
         lastError = error;
         logger?.warn(
-          { error: error instanceof Error ? error.message : String(error) },
+          { error: maskProxyInLogText(error instanceof Error ? error.message : String(error)) },
           'Direct stream frame capture failed, trying section download fallback'
         );
       }
