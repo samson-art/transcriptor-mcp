@@ -1,8 +1,8 @@
 # Terms of Service — Transcriptor MCP
 
-**Last updated:** September 16, 2026
-**Effective date:** September 16, 2026
-**Version:** 1.1
+**Last updated:** November 3, 2026
+**Effective date:** December 4, 2026
+**Version:** 1.2
 
 These Terms replace the End User Licence Agreement published earlier. The licence to use the Service is section 6.
 
@@ -28,7 +28,7 @@ Personal data is covered by the [Privacy Policy](./PRIVACY_POLICY.md).
 
 You supply a video URL, or a YouTube search term, and the Service returns text, metadata, subtitle files, chapter lists, search results and single still frames (the "Output"). It supports eleven video platforms: YouTube, X (Twitter), Instagram, TikTok, Twitch, Vimeo, Facebook, Bilibili, VK, Dailymotion and Reddit. Search is YouTube only. A frame is one still image at a timecode you give, up to 1920 pixels wide.
 
-The Service never gives you an audio or video file. Optional audio transcription (Whisper) is off and is not part of the hosted Service. The hosted Service keeps a response cache for up to 30 days; the [Privacy Policy](./PRIVACY_POLICY.md) explains what it holds and what that means for your data.
+The Service never gives you an audio or video file. If a video of up to 2 minutes has no captions that we can use, the Service can make a transcript from its audio; the [Privacy Policy](./PRIVACY_POLICY.md) explains how. The hosted Service keeps a response cache for up to 30 days; the [Privacy Policy](./PRIVACY_POLICY.md) explains what it holds and what that means for your data.
 
 We do not crawl, index, recommend, host or store content for third parties, and we keep no archive or training corpus. You decide what to request and you are responsible for having the right to the result.
 
