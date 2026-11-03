@@ -22,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `YT_DLP_TIMEOUT` no longer changes the limit of `get_playlist_transcripts`. A self-hosted server with no proxy in front now gives a long playlist a partial result after 90 s, not after 120 s.
 - With `YT_DLP_VERBOSE_ON_ERROR=1`, the diagnostic replay of a failed playlist run gets what is left of the same 90 s. It does not start with less than 10 s left, and it leaves the queue like the main run. So its output can be cut.
+
 ## [1.5.22] - 2026-11-03
 
 ### Fixed
