@@ -691,7 +691,7 @@ today to pay our respects to MCP, which
 
       expect(execFileMock).toHaveBeenCalled();
       expect(capturedArgs).toContain('-f');
-      expect(capturedArgs).toContain('bestaudio[abr<=192]/bestaudio/best*[acodec!=none]');
+      expect(capturedArgs).toContain('bestaudio[abr<=192]/bestaudio/best*[acodec!=none]/best');
       expect(capturedArgs).toContain('--audio-quality');
       expect(capturedArgs).toContain('5');
       expect(capturedArgs).toContain('--extract-audio');
@@ -703,7 +703,7 @@ today to pay our respects to MCP, which
       dateSpy.mockRestore();
     });
 
-    it('falls back to a format with sound when the platform has no audio-only format (#63)', async () => {
+    it('falls back to a format with sound, then to any format, when the platform has no audio-only format (#63, #108)', async () => {
       let capturedArgs: string[] = [];
       execFileMock.mockImplementation(
         (
@@ -720,7 +720,38 @@ today to pay our respects to MCP, which
       await downloadAudio(url);
 
       const formatIdx = capturedArgs.indexOf('-f');
-      expect(capturedArgs[formatIdx + 1]).toBe('bestaudio[abr<=192]/bestaudio/best*[acodec!=none]');
+      expect(capturedArgs[formatIdx + 1]).toBe(
+        'bestaudio[abr<=192]/bestaudio/best*[acodec!=none]/best'
+      );
+    });
+
+    it('deletes the video that a failed audio extraction leaves behind (#108)', async () => {
+      // A silent video: the last fallback downloads it, then extraction finds no sound.
+      const dateSpy = jest.spyOn(Date, 'now').mockReturnValue(1234567897);
+      const videoPath = join(tmpdir(), `${urlToSafeBase(url, 'audio')}.mp4`);
+      execFileMock.mockImplementation(
+        (
+          _file: string,
+          _args: string[],
+          _options: unknown,
+          callback: (error: Error | null, result: { stdout: string; stderr: string }) => void
+        ) => {
+          void writeFile(videoPath, 'fake video', 'utf-8').then(() =>
+            callback(
+              Object.assign(new Error('Command failed: yt-dlp'), {
+                code: 1,
+                stderr:
+                  'ERROR: Postprocessing: WARNING: unable to obtain file audio codec with ffprobe',
+              }),
+              { stdout: '', stderr: '' }
+            )
+          );
+        }
+      );
+
+      expect(await downloadAudio(url)).toBeNull();
+      await expect(access(videoPath, constants.F_OK)).rejects.toThrow();
+      dateSpy.mockRestore();
     });
 
     it('should use YT_DLP_AUDIO_FORMAT and YT_DLP_AUDIO_QUALITY when set', async () => {

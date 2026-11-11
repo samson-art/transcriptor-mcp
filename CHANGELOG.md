@@ -11,6 +11,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Terms of Service 1.3 and Privacy Policy 1.3 describe an optional paid plan for the hosted Service. They take effect on 2026-12-14, 30 days after the notice, and for a buyer from the moment of the purchase. The free allowance per UTC day stays, and it can be different for each tool. The paid plan removes the daily allowance for one person, within a fair use rule. The operator of the MCPal platform sells the plan and Stripe processes the payment. The Terms give the rules for the price, the renewal, the cancellation and a refund in the first 14 days. Self-hosting does not change.
 
+## [1.5.27] - 2026-11-11
+
+### Fixed
+
+- Transcription of a Facebook video failed with "Requested format is not available", because its formats have no codec fields. The audio run now falls back to the best format of any kind when no other format matches. When that format has no sound, the run fails as before, and the server now deletes the downloaded video. If you set `YT_DLP_AUDIO_FORMAT` to the old default, remove it or add `/best`: your value overrides the new default (#108).
+
 ## [1.5.26] - 2026-11-11
 
 ### Fixed
