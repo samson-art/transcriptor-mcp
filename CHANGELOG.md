@@ -11,6 +11,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Terms of Service 1.3 and Privacy Policy 1.3 describe an optional paid plan for the hosted Service. They take effect on 2026-12-14, 30 days after the notice, and for a buyer from the moment of the purchase. The free allowance per UTC day stays, and it can be different for each tool. The paid plan removes the daily allowance for one person, within a fair use rule. The operator of the MCPal platform sells the plan and Stripe processes the payment. The Terms give the rules for the price, the renewal, the cancellation and a refund in the first 14 days. Self-hosting does not change.
 
+## [1.5.29] - 2026-11-11
+
+### Changed
+
+- The MCP image no longer shows the lines of npm itself, for every npm command (#81). The default HTTP command loses the npm banner from its container log, and the npm error lines when the server exits with an error. A failure before the server starts, such as a missing script, now exits 1 with an empty stderr. The log lines of the server do not change. To get the npm lines back, run the image with `-e NPM_CONFIG_LOGLEVEL=notice`. The REST API image does not change.
+
+### Fixed
+
+- The stdio command wrote the npm script banner to stdout before the first MCP message (#81). In a local run of 1.5.21 on 2026-10-07, npm printed four lines there, and the TypeScript SDK 1.x client reported a parse error for each one. The MCP image now sets `NPM_CONFIG_LOGLEVEL=silent`, so the first stdout line is the answer of the server. For a local stdio server, the README now runs `npm run --silent start:mcp`.
+- The stdio step of the MCP smoke test now fails when the first stdout line is not JSON (#81).
+- `make docker-run-mcp-stdio` no longer writes its own command line to stdout before the server starts (#81).
+
 ## [1.5.28] - 2026-11-11
 
 ### Fixed
