@@ -10,6 +10,8 @@ import type { Cue, CuesStatus, VideoMeta } from './types.js';
 type SubtitlesPanelProps = {
   cues: Cue[];
   status: CuesStatus;
+  /** The text of the failed call, shown in place of the fixed line when status is 'error'. */
+  errorMessage?: string | null;
   video: VideoMeta;
   onOpenAtTime: (seconds: number) => void;
   onLoadSubtitles?: () => void;
@@ -25,6 +27,7 @@ type SubtitlesPanelProps = {
 export function SubtitlesPanel({
   cues,
   status,
+  errorMessage,
   video,
   onOpenAtTime,
   onLoadSubtitles,
@@ -120,7 +123,9 @@ export function SubtitlesPanel({
         )}
         {(status === 'empty' || status === 'error') && (
           <div style={styles.loadSubtitlesRow}>
-            <div style={styles.subtitlesMessage}>No subtitles available.</div>
+            <div style={styles.subtitlesMessage}>
+              {(status === 'error' && errorMessage) || 'No subtitles available.'}
+            </div>
             {onLoadSubtitles && (
               <button type="button" style={styles.loadMoreBtn} onClick={onLoadSubtitles}>
                 Retry

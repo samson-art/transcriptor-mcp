@@ -218,6 +218,7 @@ function TranscriptApp() {
             <SubtitlesPanel
               cues={subtitles.cues}
               status={subtitles.cuesStatus}
+              errorMessage={subtitles.cuesError}
               video={video}
               onOpenAtTime={(seconds) => void handleOpenExternal(seconds)}
               onLoadSubtitles={subtitles.loadSubtitles}

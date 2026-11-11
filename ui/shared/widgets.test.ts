@@ -1,5 +1,10 @@
 import { formatDuration, isYouTubePage, pageFromInput, watchUrlAt } from './format';
-import { parseToolError, pickDefaultTrack, type AvailableSubtitleTracks } from './subtitleTracks';
+import {
+  parseToolError,
+  pickDefaultTrack,
+  toolErrorText,
+  type AvailableSubtitleTracks,
+} from './subtitleTracks';
 import { videoInfoToMeta, type VideoInfoData } from './videoInfo';
 
 const reel = 'https://www.instagram.com/reel/DdZsSYXxBqd/';
@@ -133,5 +138,24 @@ describe('parseToolError', () => {
   it('reads nothing from a call that did not fail', () => {
     const transcript = { content: [{ type: 'text' as const, text: 'Hello.' }] };
     expect(parseToolError(transcript)).toBeNull();
+  });
+});
+
+describe('toolErrorText', () => {
+  const failed = (text: string) => ({ isError: true, content: [{ type: 'text' as const, text }] });
+
+  it('gives the text of a failed call unchanged, as a gateway in front of the server sends it', () => {
+    const text =
+      'You reached the daily free limit of "Transcriptor". The limit resets at 2026-11-17T00:00:00.000Z. To learn more about this server, open https://example.test/';
+    expect(toolErrorText(failed(text))).toBe(text);
+  });
+
+  it('gives null for a call that did not fail, so the widget shows its result', () => {
+    expect(toolErrorText({ content: [{ type: 'text' as const, text: 'Hello.' }] })).toBeNull();
+  });
+
+  it('gives null for a failure with no text, so the widget shows its own fixed line', () => {
+    expect(toolErrorText({ isError: true, content: [] })).toBeNull();
+    expect(toolErrorText(failed('   '))).toBeNull();
   });
 });

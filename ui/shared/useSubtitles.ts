@@ -4,6 +4,7 @@ import { notifyHostAboutResize } from './resize.js';
 import {
   parseAvailableSubtitles,
   pickDefaultTrack,
+  toolErrorText,
   type AvailableSubtitleTracks,
   type SubtitleTrack,
 } from './subtitleTracks.js';
@@ -33,6 +34,7 @@ export function useSubtitles(
 ) {
   const [cues, setCues] = useState<Cue[]>([]);
   const [cuesStatus, setCuesStatus] = useState<CuesStatus>('idle');
+  const [cuesError, setCuesError] = useState<string | null>(null);
   const [availableTracks, setAvailableTracks] = useState<AvailableSubtitleTracks | null>(null);
   const [selectedTrack, setSelectedTrack] = useState<SubtitleTrack | null>(null);
   const [tracksLoading, setTracksLoading] = useState(false);
@@ -55,6 +57,7 @@ export function useSubtitles(
   const reset = useCallback(() => {
     setCues([]);
     setCuesStatus('idle');
+    setCuesError(null);
     setAvailableTracks(null);
     setSelectedTrack(null);
     setNextCursor(undefined);
@@ -70,6 +73,7 @@ export function useSubtitles(
 
       if (!append) {
         setCuesStatus('loading');
+        setCuesError(null);
         setCues([]);
         setNextCursor(undefined);
         setIsTruncated(false);
@@ -90,7 +94,10 @@ export function useSubtitles(
         });
 
         if (result.isError) {
-          if (!append) setCuesStatus('error');
+          if (!append) {
+            setCuesError(toolErrorText(result));
+            setCuesStatus('error');
+          }
           return;
         }
 
@@ -190,6 +197,7 @@ export function useSubtitles(
   return {
     cues,
     cuesStatus,
+    cuesError,
     availableTracks,
     selectedTrack,
     tracksLoading,
