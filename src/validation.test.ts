@@ -2409,5 +2409,68 @@ describe('an omitted lang means the original language', () => {
     it('still answers stt_failed when the list that the hint loads gives a length under the ceiling', async () => {
       expect(await byNameWithCached(undefined, 300)).toMatchObject({ answer: 'stt_failed' });
     });
+
+    describe('a length that only the audio run measures (#107)', () => {
+      /** The audio run inside the job measures 700 s, over the 600 s ceiling, and brings no audio. */
+      const measuresTooLong = () =>
+        (whisperJobs.startOrReuseWhisperJob as jest.Mock).mockImplementation((jobUrl: string) => {
+          youtube.noteMeasuredAudioSeconds(jobUrl, 700);
+          return Promise.resolve(null);
+        });
+
+      afterEach(youtube.resetMeasuredAudioSecondsForTests);
+
+      it('answers too_long in auto-discovery when the audio is measured longer', async () => {
+        measuresTooLong();
+        listing([], []);
+        const failuresBefore = await failures();
+
+        const error = await failureOf({ url });
+
+        expect(whisperJobs.startOrReuseWhisperJob).toHaveBeenCalledTimes(1);
+        expect(error).toMatchObject({ name: 'NotFoundError', statusCode: 404, answer: 'too_long' });
+        expect(error.message).toBe(
+          'No subtitles could be downloaded for this video. This server transcribes only videos up to 600 seconds long, and this video is longer. The platform lists no subtitle tracks for this video, so no type or lang will work. Do not repeat the same call.'
+        );
+        expect(await failures()).toBe(failuresBefore);
+      });
+
+      it('answers too_long for a request by name when the audio is measured longer', async () => {
+        measuresTooLong();
+
+        const error = await byNameWithCached(undefined);
+
+        expect(whisperJobs.startOrReuseWhisperJob).toHaveBeenCalledTimes(1);
+        expect(error).toMatchObject({ name: 'NotFoundError', statusCode: 404, answer: 'too_long' });
+        expect(error.message).toBe(
+          'No auto subtitles could be downloaded for language "en". This server transcribes only videos up to 600 seconds long, and this video is longer. Pass a type and lang the video actually has.'
+        );
+      });
+
+      it.each([
+        // Auto-discovery runs speech-to-text only when the video lists no tracks.
+        { flow: 'without lang', request: {}, auto: [] },
+        { flow: 'by name', request: { type: 'auto', lang: 'en' }, auto: ['en'] },
+      ])('starts no second audio run for the same URL ($flow)', async ({ request, auto }) => {
+        measuresTooLong();
+        listing([], auto);
+        jest.spyOn(youtube, 'downloadSubtitles').mockResolvedValue('');
+
+        const first = await failureOf({ url, ...request });
+        const second = await failureOf({ url, ...request });
+
+        expect(whisperJobs.startOrReuseWhisperJob).toHaveBeenCalledTimes(1);
+        expect(first).toMatchObject({ answer: 'too_long' });
+        expect(second).toMatchObject({ answer: 'too_long' });
+        expect(second.message).toBe(first.message);
+      });
+
+      it('still answers stt_failed when the audio run measures nothing', async () => {
+        // An unreadable length (ffprobe failed) records nothing.
+        listing([], []);
+
+        expect(await failureOf({ url })).toMatchObject({ answer: 'stt_failed' });
+      });
+    });
   });
 });
