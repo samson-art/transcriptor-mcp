@@ -1,8 +1,10 @@
 # Terms of Service — Transcriptor MCP
 
-**Last updated:** September 16, 2026
-**Effective date:** September 16, 2026
-**Version:** 1.1
+**Last updated:** November 12, 2026
+**Effective date:** December 14, 2026
+**Version:** 1.3
+
+Version 1.2 applies from December 4, 2026 until this version takes effect. If you buy the paid plan before December 14, 2026, section 12 of this version applies to that purchase from the moment you buy. The page where you buy links to these Terms.
 
 These Terms replace the End User Licence Agreement published earlier. The licence to use the Service is section 6.
 
@@ -14,13 +16,15 @@ The Service is provided by a natural person (persona física) resident in Spain 
 - Tax identification number (NIF/NIE): provided on request via the contact e-mail
 - Contact e-mail, for direct and effective communication: **legal@transcriptor-mcp.org**
 
+We provide the Service. The operator of the MCPal platform sells the paid plan in section 12 and takes the payment in its own name. The payment page and your receipt show its name.
+
 ## 2. What these Terms cover
 
 These Terms are a contract between you and us for the hosted Transcriptor MCP service at `https://transcriptor.gateway.mcpal.io/mcp` (the "Service"). They bind you from the moment you accept them by an affirmative act — ticking the acceptance box shown with these Terms and the [Privacy Policy](./PRIVACY_POLICY.md) on the sign-in and consent screen — before your first tool call. We record the version number, the date and time, and that you ticked it.
 
 Sign-in, the gateway and quota metering run on the MCPal platform, which we do not operate. You accept MCPal's terms separately when you sign in.
 
-**Self-hosting is not covered by these Terms.** The source and documentation at <https://github.com/samson-art/transcriptor-mcp> are under the MIT Licence. An instance you run yourself is governed by that licence alone, needs no account and costs nothing. The container image also contains third-party software under other licences, including ffmpeg and yt-dlp, which the MIT Licence does not govern.
+**Self-hosting is not covered by these Terms.** The source and documentation at <https://github.com/samson-art/transcriptor-mcp> are under the MIT Licence. An instance you run yourself is governed by that licence alone, needs no account and costs nothing. The paid plan in section 12 does not apply to it. The container image also contains third-party software under other licences, including ffmpeg and yt-dlp, which the MIT Licence does not govern.
 
 Personal data is covered by the [Privacy Policy](./PRIVACY_POLICY.md).
 
@@ -28,7 +32,7 @@ Personal data is covered by the [Privacy Policy](./PRIVACY_POLICY.md).
 
 You supply a video URL, or a YouTube search term, and the Service returns text, metadata, subtitle files, chapter lists, search results and single still frames (the "Output"). It supports eleven video platforms: YouTube, X (Twitter), Instagram, TikTok, Twitch, Vimeo, Facebook, Bilibili, VK, Dailymotion and Reddit. Search is YouTube only. A frame is one still image at a timecode you give, up to 1920 pixels wide.
 
-The Service never gives you an audio or video file. Optional audio transcription (Whisper) is off and is not part of the hosted Service. The hosted Service keeps a response cache for up to 30 days; the [Privacy Policy](./PRIVACY_POLICY.md) explains what it holds and what that means for your data.
+The Service never gives you an audio or video file. If a video of up to 2 minutes has no captions that we can use, the Service can make a transcript from its audio; the [Privacy Policy](./PRIVACY_POLICY.md) explains how. The hosted Service keeps a response cache for up to 30 days; the [Privacy Policy](./PRIVACY_POLICY.md) explains what it holds and what that means for your data.
 
 We do not crawl, index, recommend, host or store content for third parties, and we keep no archive or training corpus. You decide what to request and you are responsible for having the right to the result.
 
@@ -94,29 +98,40 @@ If you believe the Service has been used to infringe your rights or to reach ill
 
 Output is produced automatically, from captions and metadata we do not write and do not check. It contains errors, omissions, wrong timings and wrong speaker attribution. Check Output against the source before you rely on it or publish it. Section 8 forbids the high-risk uses listed there.
 
-## 12. The Service is free. Quotas, availability and changes
+## 12. Free allowance, paid plan, availability and changes
 
-**The Service is supplied free of charge.** There is no subscription, no price and nothing to pay. Each signed-in user has an allowance of tool calls per UTC day, shown at sign-in; only tool calls count against it. When it is used up, further calls are refused until the next UTC day. We may change the allowance, and we may introduce paid plans in a future version of these Terms, which would take effect under section 18 and would never apply to a period already used.
+**Free allowance.** You can use the Service without payment. Each signed-in user has an allowance of tool calls per UTC day. The allowance can be different for each tool, and only tool calls count against it. When the allowance of a tool is used up, further calls to that tool are refused until the next UTC day. The refusal gives the time when the allowance starts again. We may change the allowance.
 
-Source platforms change and block access without warning, so a tool may stop working for a platform at any time. We may change, restrict or discontinue the Service or a tool only for a reason listed in section 18. Because the Service is free, you have no claim to continued availability, and we owe no refund of anything.
+**Paid plan.** The paid plan is optional. It removes the daily allowance for the person who buys it. It adds no tool, and it does not change the limits in sections 3 and 11.
+
+- **Price and payment.** The account page of the Service and the payment page show the price, with any tax, before you pay. You pay for one month in advance. The plan renews each month at the price then in force, until you cancel. The operator of the MCPal platform is the seller, and Stripe processes the payment. We never receive your card details.
+- **Cancellation.** You can cancel at any time on the account page. The plan then stays active until the end of the month that you paid for, and no further payment is taken.
+- **Refund in the first 14 days.** In the 14 days after your first payment, you can ask for all of it back, with no reason. Write to legal@transcriptor-mcp.org. You get the money back by the same means of payment within 14 days of your message, and the plan ends. **Consumers:** this is also how you use your right of withdrawal. You need no form: any clear statement is enough.
+- **Later months.** After those 14 days, a month that has started is not refunded, except where the law or this section says otherwise.
+- **Price changes.** We tell you by e-mail at least 30 days before a new price applies. It applies from your next renewal after that time, and you can cancel before it.
+- **Fair use.** The plan is for the own, interactive use of one person through an MCP client. It is not for bulk or automated runs, and sections 7 and 8 apply to it. Source platforms limit the number of requests that our server can send. If the volume of one account puts the access of other users at risk, we may slow the calls of that account or refuse them for a time, and we tell you by e-mail. If such a restriction lasts more than 7 days in a paid month and you did not breach these Terms, you can cancel and get the payment for that month back.
+
+**Availability and changes.** Source platforms change and block access without warning, so a tool may stop working for a platform at any time. We may change, restrict or discontinue the Service, a tool or the paid plan only for a reason listed in section 18. On the free allowance you have no claim to continued availability, and we owe no refund of anything. If we discontinue the Service or the paid plan, you get back the part of your last payment for the days that we do not provide.
 
 ## 13. Suspension and termination
 
 We may suspend, rate-limit or end access where the Service is used unlawfully or in breach of sections 7 or 8, where a request would infringe a third party's rights, where a complaint under section 10 is upheld, or where use threatens the security or availability of the Service. A person, not an automated rule, takes that decision. We tell you the reason unless the law prevents us, and you may reply to legal@transcriptor-mcp.org.
 
-You may stop at any time by disconnecting the server in your MCP client, and delete your account in your MCPal account page.
+If we end your access while you have a paid plan, and the reason is not a breach by you, you get back the part of your last payment for the days that we do not provide.
+
+You may stop at any time by disconnecting the server in your MCP client, and delete your account in your MCPal account page. To stop a paid plan, cancel it under section 12: the end of your use of the Service does not cancel it.
 
 ## 14. Warranties
 
 **Business users: THE SERVICE IS PROVIDED "AS IS" AND "AS AVAILABLE". ALL WARRANTIES, EXPRESS OR IMPLIED, INCLUDING AVAILABILITY, ACCURACY, NON-INFRINGEMENT, MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE, ARE EXCLUDED TO THE FULLEST EXTENT THE LAW ALLOWS.**
 
-**Consumers:** we do not promise error-free Output, support for any particular video, or uninterrupted operation, and sections 3, 11 and 12 describe those limits. Where mandatory Spanish or EU law gives you rights in a digital service supplied without payment of a price, those rights are unaffected by this section.
+**Consumers:** we do not promise error-free Output, support for any particular video, or uninterrupted operation, and sections 3, 11 and 12 describe those limits. Where mandatory Spanish or EU law gives you rights in a digital service, supplied for a price or without one, those rights are unaffected by this section. They include the legal guarantee of conformity.
 
 ## 15. Limitation of liability
 
 **Nothing in these Terms excludes or limits our liability for death or personal injury caused by our negligence, for fraud or fraudulent misrepresentation, for wilful misconduct (dolo) or gross negligence (culpa grave), or for any other liability that cannot lawfully be excluded.**
 
-Except for that paragraph, and because the Service is supplied free of charge, our total liability for all claims relating to one event is limited to **EUR 100**. **This financial cap applies to business users only.**
+Except for that paragraph, our total liability for all claims relating to one event is limited to **EUR 100**. If you have a paid plan, the limit is EUR 100 or the amount that you paid for the plan in the 12 months before the event, whichever is higher. **This financial cap applies to business users only.**
 
 **Business users:** we are not liable for loss of profit, loss of business, loss of data, or indirect or consequential loss. **Consumers:** no monetary cap applies to you, and we are liable for foreseeable loss caused by our failure to perform this contract or by our lack of reasonable care and skill.
 
@@ -134,9 +149,9 @@ These Terms are governed by Spanish law. **If you are a consumer habitually resi
 
 ## 18. Changes to these Terms
 
-We may amend these Terms only for one of these reasons: a change in the law or in a supervisory authority's guidance; a change imposed by the MCPal platform or another supplier we depend on; a change in the technical features of the Service; or the introduction of a paid plan.
+We may amend these Terms only for one of these reasons: a change in the law or in a supervisory authority's guidance; a change imposed by the MCPal platform or another supplier we depend on; a change in the technical features of the Service; or the introduction of a paid plan or a change to it.
 
-We give at least **30 days' notice** by e-mail, and additionally in the sign-in flow, with the new version number and the date it takes effect. Changes are not retroactive. Before that date you may stop using the Service, which costs you nothing.
+We give at least **30 days' notice** by e-mail, and additionally in the sign-in flow, with the new version number and the date it takes effect. Changes are not retroactive. Before that date you may stop using the Service, which costs you nothing, and cancel a paid plan under section 12.
 
 ## 19. General and contact
 

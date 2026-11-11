@@ -48,7 +48,7 @@ describe('youtube', () => {
   });
 
   /** yt-dlp exits non-zero with this on stderr. `promisify` drops everything after the error. */
-  function mockExecFileFailure(stderr: string, code = 1) {
+  function mockExecFileFailure(stderr: string, code: number | null = 1, signal?: string) {
     execFileMock.mockImplementation(
       (
         _file: string,
@@ -57,15 +57,23 @@ describe('youtube', () => {
         callback: (error: Error | null, result?: { stdout: string; stderr: string }) => void
       ) => {
         const error = new Error('Command failed: yt-dlp --cookies /cookies.txt') as Error & {
-          code?: number;
+          code?: number | null;
+          signal?: string;
           stderr?: string;
         };
         error.code = code;
+        error.signal = signal;
         error.stderr = stderr;
         setImmediate(() => callback(error, { stdout: '', stderr }));
       }
     );
   }
+
+  const srtTrack = '1\n00:00:00,000 --> 00:00:01,000\nhi\n';
+
+  /** yt-dlp reached `--max-downloads`. */
+  const cancelledAtMaxItems = () =>
+    Object.assign(new Error('Command failed: yt-dlp'), { code: 101 });
 
   describe('extractYouTubeVideoId', () => {
     it('should extract video ID from standard YouTube URLs', () => {
@@ -683,7 +691,7 @@ today to pay our respects to MCP, which
 
       expect(execFileMock).toHaveBeenCalled();
       expect(capturedArgs).toContain('-f');
-      expect(capturedArgs).toContain('bestaudio[abr<=192]/bestaudio/best*[acodec!=none]');
+      expect(capturedArgs).toContain('bestaudio[abr<=192]/bestaudio/best*[acodec!=none]/best');
       expect(capturedArgs).toContain('--audio-quality');
       expect(capturedArgs).toContain('5');
       expect(capturedArgs).toContain('--extract-audio');
@@ -695,7 +703,7 @@ today to pay our respects to MCP, which
       dateSpy.mockRestore();
     });
 
-    it('falls back to a format with sound when the platform has no audio-only format (#63)', async () => {
+    it('falls back to a format with sound, then to any format, when the platform has no audio-only format (#63, #108)', async () => {
       let capturedArgs: string[] = [];
       execFileMock.mockImplementation(
         (
@@ -712,7 +720,38 @@ today to pay our respects to MCP, which
       await downloadAudio(url);
 
       const formatIdx = capturedArgs.indexOf('-f');
-      expect(capturedArgs[formatIdx + 1]).toBe('bestaudio[abr<=192]/bestaudio/best*[acodec!=none]');
+      expect(capturedArgs[formatIdx + 1]).toBe(
+        'bestaudio[abr<=192]/bestaudio/best*[acodec!=none]/best'
+      );
+    });
+
+    it('deletes the video that a failed audio extraction leaves behind (#108)', async () => {
+      // A silent video: the last fallback downloads it, then extraction finds no sound.
+      const dateSpy = jest.spyOn(Date, 'now').mockReturnValue(1234567897);
+      const videoPath = join(tmpdir(), `${urlToSafeBase(url, 'audio')}.mp4`);
+      execFileMock.mockImplementation(
+        (
+          _file: string,
+          _args: string[],
+          _options: unknown,
+          callback: (error: Error | null, result: { stdout: string; stderr: string }) => void
+        ) => {
+          void writeFile(videoPath, 'fake video', 'utf-8').then(() =>
+            callback(
+              Object.assign(new Error('Command failed: yt-dlp'), {
+                code: 1,
+                stderr:
+                  'ERROR: Postprocessing: WARNING: unable to obtain file audio codec with ffprobe',
+              }),
+              { stdout: '', stderr: '' }
+            )
+          );
+        }
+      );
+
+      expect(await downloadAudio(url)).toBeNull();
+      await expect(access(videoPath, constants.F_OK)).rejects.toThrow();
+      dateSpy.mockRestore();
     });
 
     it('should use YT_DLP_AUDIO_FORMAT and YT_DLP_AUDIO_QUALITY when set', async () => {
@@ -896,6 +935,9 @@ today to pay our respects to MCP, which
       // Longer than the cap: the file is dropped and the caller sees "no audio".
       expect(await run('200.5\n')).toBeNull();
       expect(probeArgs[probeArgs.length - 1]).toBe(audioFilePath);
+      // The measured length is kept, so the next call answers too_long with no audio run (#107).
+      expect(youtube.measuredAudioSeconds(reel)).toBe(200.5);
+      youtube.resetMeasuredAudioSecondsForTests();
       await expect(access(audioFilePath, constants.F_OK)).rejects.toThrow();
       expect(logger.info).toHaveBeenCalledWith(
         { maxDuration: 120, duration: 200.5 },
@@ -917,8 +959,29 @@ today to pay our respects to MCP, which
 
       // Within the cap: the file is handed on.
       expect(await run('12.679\n')).toBe(audioFilePath);
+      // An unreadable length and a length within the cap are not kept.
+      expect(youtube.measuredAudioSeconds(reel)).toBeUndefined();
       await unlink(audioFilePath).catch(() => {});
       dateSpy.mockRestore();
+    });
+
+    it('keeps at most 1000 measured lengths and drops the oldest first', () => {
+      for (let i = 0; i <= 1000; i++) youtube.noteMeasuredAudioSeconds(`https://x.test/${i}`, 200);
+
+      expect(youtube.measuredAudioSeconds('https://x.test/0')).toBeUndefined();
+      expect(youtube.measuredAudioSeconds('https://x.test/1')).toBe(200);
+      expect(youtube.measuredAudioSeconds('https://x.test/1000')).toBe(200);
+      youtube.resetMeasuredAudioSecondsForTests();
+    });
+
+    it('moves a measured length that is noted again to the newest place', () => {
+      for (let i = 0; i < 1000; i++) youtube.noteMeasuredAudioSeconds(`https://x.test/${i}`, 200);
+      youtube.noteMeasuredAudioSeconds('https://x.test/0', 300);
+      youtube.noteMeasuredAudioSeconds('https://x.test/1000', 200);
+
+      expect(youtube.measuredAudioSeconds('https://x.test/0')).toBe(300);
+      expect(youtube.measuredAudioSeconds('https://x.test/1')).toBeUndefined();
+      youtube.resetMeasuredAudioSecondsForTests();
     });
 
     it('reads the length even when the process cap is full', async () => {
@@ -1688,6 +1751,194 @@ today to pay our respects to MCP, which
     });
   });
 
+  describe('proxy in log lines (#99)', () => {
+    const proxy = 'http://user:s3cret@proxy.example.com:8080';
+    const pageUrl = 'https://www.youtube.com/watch?v=abc123';
+    const streamLine = 'Failed to fetch stream info for frame capture';
+    const sectionLine = 'Error downloading video section for frame';
+    type ExecCallback = (error: Error | null, result?: { stdout: string; stderr: string }) => void;
+    type LogMock = jest.Mock<void, [Record<string, unknown>, string]>;
+
+    let logger: { info: LogMock; error: LogMock; warn: LogMock; debug: LogMock };
+
+    /** The fields of the log line with this message. */
+    function lineFields(message: string): Record<string, string> {
+      const calls = [...logger.warn.mock.calls, ...logger.error.mock.calls];
+      const call = calls.find(([, msg]) => msg === message);
+      if (!call) throw new Error(`no log line: ${message}`);
+      return call[0] as Record<string, string>;
+    }
+
+    /** A failed run as Node reports it: the message and `cmd` hold the real command line. */
+    function runFailure(file: string, args: string[], stderr: string): Error {
+      const cmd = [file, ...args].join(' ');
+      return Object.assign(new Error(`Command failed: ${cmd}\n${stderr}`), {
+        code: 1,
+        cmd,
+        stdout: `stdout ${proxy}`,
+        stderr,
+      });
+    }
+
+    /** Every run fails with this stderr. */
+    function mockFailingRuns(stderr = `[debug] Proxy map: {'all': '${proxy}'}`) {
+      execFileMock.mockImplementation(
+        (file: string, args: string[], _options: unknown, callback: ExecCallback) => {
+          callback(runFailure(file, args, stderr));
+        }
+      );
+    }
+
+    function expectMasked(fields: Record<string, string>) {
+      for (const name of ['error', 'cmd', 'stdout', 'stderr']) {
+        expect(fields[name]).toContain('<proxy>');
+        expect(fields[name]).not.toContain('s3cret');
+        expect(fields[name]).not.toContain('proxy.example.com');
+      }
+    }
+
+    beforeEach(() => {
+      jest.clearAllMocks();
+      process.env.YT_DLP_PROXY = proxy;
+      logger = { info: jest.fn(), error: jest.fn(), warn: jest.fn(), debug: jest.fn() };
+    });
+
+    afterEach(() => {
+      delete process.env.YT_DLP_PROXY;
+    });
+
+    it('masks the proxy in each field and keeps the page URL in cmd', async () => {
+      mockFailingRuns();
+
+      await captureVideoFrame(pageUrl, 10, { format: 'jpeg' }, logger as any);
+
+      for (const message of [streamLine, sectionLine]) {
+        const fields = lineFields(message);
+        expectMasked(fields);
+        expect(fields.cmd).toContain('--proxy <proxy>');
+        expect(fields.cmd.endsWith(pageUrl)).toBe(true);
+      }
+    });
+
+    it.each([
+      'https://www.tiktok.com/@some.user:1/video/7301',
+      'https://example.com?x=a:b@c',
+      'https://example.com#a:b@c',
+    ])('keeps a page URL with @ after the host whole in cmd: %s', async (page) => {
+      mockFailingRuns();
+
+      await captureVideoFrame(page, 10, { format: 'jpeg' }, logger as any);
+
+      expect(lineFields(streamLine).cmd.endsWith(page)).toBe(true);
+    });
+
+    it('masks credentials in a URL that differs from the configured value', async () => {
+      mockFailingRuns('ERROR: socks5://other:pw2@relay.example.com:1080 refused');
+
+      await captureVideoFrame(pageUrl, 10, { format: 'jpeg' }, logger as any);
+
+      const { stderr } = lineFields(streamLine);
+      expect(stderr).toBe('ERROR: socks5://<credentials>@relay.example.com:1080 refused');
+    });
+
+    it('masks a password with @ in a URL that differs from the configured value', async () => {
+      mockFailingRuns('ERROR: http://user:p@ss@relay.example.com:1080 refused');
+
+      await captureVideoFrame(pageUrl, 10, { format: 'jpeg' }, logger as any);
+
+      const { stderr } = lineFields(streamLine);
+      expect(stderr).toBe('ERROR: http://<credentials>@relay.example.com:1080 refused');
+    });
+
+    it('masks the proxy on the search failure line', async () => {
+      mockFailingRuns();
+
+      await searchVideos('query', 1, logger as any);
+
+      const fields = lineFields('Error searching videos via yt-dlp');
+      expectMasked(fields);
+      expect(fields.cmd).toContain('--proxy <proxy>');
+    });
+
+    it('leaves an absent stream absent on the audio download line', async () => {
+      execFileMock.mockImplementation(
+        (_file: string, _args: string[], _options: unknown, callback: ExecCallback) => {
+          callback(Object.assign(new Error(`Command failed: ${proxy}`), { code: 1 }));
+        }
+      );
+
+      await downloadAudio(pageUrl, logger as any);
+
+      const fields = lineFields('Error downloading audio via yt-dlp');
+      expect(fields.error).toBe('Command failed: <proxy>');
+      expect(fields.stdout).toBeUndefined();
+      expect(fields.stderr).toBeUndefined();
+    });
+
+    it('masks the proxy on the audio download line', async () => {
+      mockFailingRuns();
+
+      await downloadAudio(pageUrl, logger as any);
+
+      const fields = lineFields('Error downloading audio via yt-dlp');
+      for (const name of ['error', 'stdout', 'stderr']) {
+        expect(fields[name]).toContain('<proxy>');
+        expect(fields[name]).not.toContain('s3cret');
+      }
+    });
+
+    it('masks the proxy on the direct stream and capture failure lines', async () => {
+      execFileMock.mockImplementation(
+        (file: string, args: string[], _options: unknown, callback: ExecCallback) => {
+          if (file === 'yt-dlp') {
+            callback(null, { stdout: 'abc123\n212.5\nhttps://cdn.example/s.mp4\n', stderr: '' });
+            return;
+          }
+          callback(runFailure(file, args, 'ffmpeg failed'));
+        }
+      );
+
+      await captureVideoFrame(pageUrl, 10, { format: 'jpeg' }, logger as any);
+
+      const { error } = lineFields(
+        'Direct stream frame capture failed, trying section download fallback'
+      );
+      expect(error).toContain('-http_proxy <proxy>');
+      expect(error).not.toContain('s3cret');
+      expect(lineFields('Error capturing video frame').cmd).toContain('-http_proxy <proxy>');
+    });
+
+    it('keeps the reason and the field names when a proxy is set', async () => {
+      mockFailingRuns("ERROR: Sign in to confirm you're not a bot");
+
+      await expect(
+        captureVideoFrame(pageUrl, 10, { format: 'jpeg' }, logger as any)
+      ).rejects.toMatchObject({ reason: 'bot_check' });
+
+      const fields = lineFields(streamLine);
+      expect(fields.reason).toBe('bot_check');
+      expect(Object.keys(fields).sort()).toEqual([
+        'cmd',
+        'error',
+        'exitCode',
+        'reason',
+        'stderr',
+        'stdout',
+      ]);
+    });
+
+    it('leaves the text unchanged when no proxy is set', async () => {
+      delete process.env.YT_DLP_PROXY;
+      mockFailingRuns('ERROR: plain failure');
+
+      await captureVideoFrame(pageUrl, 10, { format: 'jpeg' }, logger as any);
+
+      const fields = lineFields(streamLine);
+      expect(fields.stderr).toBe('ERROR: plain failure');
+      expect(fields.cmd.endsWith(pageUrl)).toBe(true);
+    });
+  });
+
   describe('classifyYtDlpFailure', () => {
     const cases: Array<[string, string]> = [
       ["ERROR: [youtube] x: Sign in to confirm you're not a bot. Use --cookies", 'bot_check'],
@@ -1712,6 +1963,8 @@ today to pay our respects to MCP, which
         'rate_limited',
       ],
       ['ERROR: [TikTok] 123: Your IP address is blocked from accessing this post', 'geo_blocked'],
+      ['ERROR: [youtube:tab] UCx: This channel does not have a videos tab', 'unavailable'],
+      ['ERROR: [youtube:tab] UCx: This channel does not have a shorts tab', 'unavailable'],
     ];
 
     it.each(cases)('should classify %s as %s', (stderr, expected) => {
@@ -1972,6 +2225,30 @@ today to pay our respects to MCP, which
     /** Lets every pending promise advance to its next await. */
     const tick = () => new Promise((resolve) => setImmediate(resolve));
 
+    const queueLength = async () =>
+      Number(/^yt_dlp_queue_length\{[^}]*\} (\d+)$/m.exec(await renderPrometheus())?.[1]);
+
+    /**
+     * A call does real I/O before it queues, so poll. The loop stops when the call settles,
+     * so that a call that never queues fails its test and does not leak into the next one.
+     */
+    const waitUntilQueued = async (call: Promise<unknown>, length = 1) => {
+      let settled = false;
+      void call.finally(() => {
+        settled = true;
+      });
+      while (!settled && (await queueLength()) !== length) await tick();
+    };
+
+    /** The clock moves only when a test moves it. Real I/O and `tick` keep working. */
+    const useFakeClock = () =>
+      jest.useFakeTimers({
+        now: 1700000020000,
+        doNotFake: ['setImmediate', 'nextTick', 'queueMicrotask', 'hrtime', 'performance'],
+      });
+
+    const playlistUrl = 'https://www.youtube.com/playlist?list=PLxxx';
+
     beforeEach(() => {
       jest.clearAllMocks();
       releases = [];
@@ -2020,6 +2297,199 @@ today to pay our respects to MCP, which
       } finally {
         dateSpy.mockRestore();
         delete process.env.YT_DLP_FRAME_TIMEOUT;
+      }
+    });
+
+    it('should not start a playlist run that got its slot with under 10 s of its 90 s left', async () => {
+      // The 90 s of a playlist call include its wait for a slot. A proxy in front of the
+      // server must not give up on the call first (#89). A run with less than 10 s writes
+      // nothing and still costs platform requests.
+      process.env.YT_DLP_MAX_CONCURRENCY = '1';
+      let now = 1700000012000;
+      const dateSpy = jest.spyOn(Date, 'now').mockImplementation(() => now);
+      try {
+        const busy = fetchYtDlpJson(url);
+        await tick();
+        const playlist = downloadPlaylistSubtitles(playlistUrl, {
+          lang: 'en',
+        }).catch((err: unknown) => err);
+        await waitUntilQueued(playlist);
+        now += 80_001;
+        releases.shift()?.();
+        await tick();
+
+        // This check comes first. Without the rule, the test then fails here and does not
+        // hang on a run that never ends.
+        expect(execFileMock).toHaveBeenCalledTimes(1);
+        await expect(playlist).resolves.toMatchObject({
+          name: 'YtDlpError',
+          reason: 'timeout',
+          statusCode: 502,
+        });
+        await busy;
+      } finally {
+        dateSpy.mockRestore();
+      }
+    });
+
+    it('takes a queued playlist call out of the queue when 10 s of its 90 s are left', async () => {
+      process.env.YT_DLP_MAX_CONCURRENCY = '1';
+      useFakeClock();
+      try {
+        const busy = fetchYtDlpJson(url);
+        await tick();
+        const playlist = downloadPlaylistSubtitles(playlistUrl, { lang: 'en' }).catch(
+          (err: unknown) => err
+        );
+        await waitUntilQueued(playlist);
+
+        jest.advanceTimersByTime(79_999);
+        expect(await queueLength()).toBe(1);
+        jest.advanceTimersByTime(1);
+
+        await expect(playlist).resolves.toMatchObject({
+          name: 'YtDlpError',
+          reason: 'timeout',
+          statusCode: 502,
+        });
+        expect(await queueLength()).toBe(0);
+        expect(execFileMock).toHaveBeenCalledTimes(1);
+
+        // The call that left had no slot, so the busy run still gives back the only one.
+        releases.shift()?.();
+        await busy;
+        const next = fetchYtDlpJson(url);
+        await tick();
+        expect(execFileMock).toHaveBeenCalledTimes(2);
+        releases.shift()?.();
+        await next;
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it('stops the queue timer of a playlist call that got its slot', async () => {
+      process.env.YT_DLP_MAX_CONCURRENCY = '1';
+      process.env.YT_DLP_MAX_QUEUE = '2';
+      useFakeClock();
+      try {
+        const busy = fetchYtDlpJson(url);
+        await tick();
+        const playlist = downloadPlaylistSubtitles(playlistUrl, { lang: 'en' }).catch(
+          (err: unknown) => err
+        );
+        await waitUntilQueued(playlist);
+        const behind = fetchYtDlpJson(url);
+        await waitUntilQueued(behind, 2);
+
+        jest.advanceTimersByTime(40_000);
+        releases.shift()?.();
+        await busy;
+        await tick();
+        expect(execFileMock.mock.calls[1][2].timeout).toBe(50_000);
+
+        // A timer that still fired would take the call behind it out of the queue.
+        jest.advanceTimersByTime(40_000);
+        expect(await queueLength()).toBe(1);
+
+        releases.shift()?.();
+        await tick();
+        jest.advanceTimersByTime(200);
+        await expect(playlist).resolves.toEqual([]);
+        await tick();
+        releases.shift()?.();
+        await behind;
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it('keeps a frame call in the queue past its budget', async () => {
+      // Only the playlist has a queue timer. The frame answers when a slot frees.
+      process.env.YT_DLP_MAX_CONCURRENCY = '1';
+      process.env.YT_DLP_FRAME_TIMEOUT = '1000';
+      useFakeClock();
+      try {
+        const busy = fetchYtDlpJson(url);
+        await tick();
+        const frame = captureVideoFrame(url, 10).catch((err: unknown) => err);
+        await waitUntilQueued(frame);
+
+        jest.advanceTimersByTime(5_000);
+        expect(await queueLength()).toBe(1);
+
+        releases.shift()?.();
+        await expect(frame).resolves.toMatchObject({ name: 'YtDlpError', reason: 'timeout' });
+        await busy;
+      } finally {
+        jest.useRealTimers();
+        delete process.env.YT_DLP_FRAME_TIMEOUT;
+      }
+    });
+
+    it('does not let a queued verbose replay hold the answer past the queue limit', async () => {
+      // The failed run gives its slot to the next call, so the replay has to queue.
+      process.env.YT_DLP_MAX_CONCURRENCY = '1';
+      process.env.YT_DLP_VERBOSE_ON_ERROR = '1';
+      useFakeClock();
+      const logger = { info: jest.fn(), error: jest.fn(), warn: jest.fn(), debug: jest.fn() };
+      execFileMock.mockImplementationOnce(
+        (
+          _file: string,
+          _args: string[],
+          _options: unknown,
+          callback: (error: Error | null) => void
+        ) => {
+          releases.push(() =>
+            callback(
+              Object.assign(new Error('Command failed: yt-dlp'), {
+                code: 1,
+                stderr: 'ERROR: Private video',
+              })
+            )
+          );
+        }
+      );
+      try {
+        const playlist = downloadPlaylistSubtitles(
+          playlistUrl,
+          { lang: 'en' },
+          logger as any
+        ).catch((err: unknown) => err);
+        let settled = false;
+        void playlist.finally(() => {
+          settled = true;
+        });
+        // Stop on settle, and fail here. Without a first run, `other` would take the free slot
+        // and never queue, and the wait below would not end.
+        while (!settled && execFileMock.mock.calls.length === 0) await tick();
+        expect(execFileMock).toHaveBeenCalledTimes(1);
+        const other = fetchYtDlpJson(url);
+        await waitUntilQueued(other);
+
+        releases.shift()?.();
+        await tick();
+        expect(execFileMock).toHaveBeenCalledTimes(2);
+        // The call reads its temp directory after a 200 ms wait, then queues the replay.
+        while (!settled && (await queueLength()) !== 1) {
+          jest.advanceTimersByTime(200);
+          await tick();
+        }
+
+        jest.advanceTimersByTime(80_000);
+
+        await expect(playlist).resolves.toMatchObject({ name: 'YtDlpError', reason: 'private' });
+        expect(await queueLength()).toBe(0);
+        expect(execFileMock).toHaveBeenCalledTimes(2);
+        expect(logger.error).not.toHaveBeenCalledWith(
+          expect.anything(),
+          'yt-dlp playlist verbose replay stderr'
+        );
+        releases.shift()?.();
+        await other;
+      } finally {
+        jest.useRealTimers();
+        delete process.env.YT_DLP_VERBOSE_ON_ERROR;
       }
     });
 
@@ -2150,6 +2620,13 @@ today to pay our respects to MCP, which
       ).rejects.toMatchObject({ name: 'YtDlpError', reason: 'private' });
     });
 
+    it('reports a channel without the requested tab as unavailable', async () => {
+      mockExecFileFailure('ERROR: [youtube:tab] UCx: This channel does not have a videos tab');
+      await expect(
+        downloadPlaylistSubtitles('https://www.youtube.com/@x/videos', { lang: 'en' })
+      ).rejects.toMatchObject({ name: 'YtDlpError', reason: 'unavailable' });
+    });
+
     it('reports a cancelled queue that produced nothing and hit a limit as that limit', async () => {
       mockExecFileFailure(
         'ERROR: Unable to download video subtitles: HTTP Error 429: Too Many Requests',
@@ -2189,25 +2666,29 @@ today to pay our respects to MCP, which
       ).resolves.toEqual([]);
     });
 
-    it('returns what a bounded run wrote before yt-dlp cancelled the queue', async () => {
-      // The handler used to run after `finally` had already removed the temp directory, so
-      // every run that stopped at maxItems answered with nothing.
+    /** The run writes these files and then fails with this error. */
+    const failAfterWriting = (
+      error: Error,
+      files: Record<string, string> = { 'vid1.en.srt': srtTrack }
+    ) =>
       execFileMock.mockImplementation(
         (
           _file: string,
           args: string[],
           _options: unknown,
-          callback: (error: Error | null, result?: { stdout: string; stderr: string }) => void
+          callback: (error: Error | null) => void
         ) => {
           const dir = dirname(args[args.indexOf('--output') + 1]);
-          void writeFile(join(dir, 'vid1.en.srt'), '1\n00:00:00,000 --> 00:00:01,000\nhi\n').then(
-            () => {
-              const error = Object.assign(new Error('Command failed: yt-dlp'), { code: 101 });
-              callback(error, { stdout: '', stderr: '' });
-            }
-          );
+          void Promise.all(
+            Object.entries(files).map(([name, text]) => writeFile(join(dir, name), text))
+          ).then(() => callback(error));
         }
       );
+
+    it('returns what a bounded run wrote before yt-dlp cancelled the queue', async () => {
+      // The handler used to run after `finally` had already removed the temp directory, so
+      // every run that stopped at maxItems answered with nothing.
+      failAfterWriting(cancelledAtMaxItems());
 
       const results = await downloadPlaylistSubtitles(
         'https://www.youtube.com/playlist?list=PLxxx',
@@ -2215,6 +2696,322 @@ today to pay our respects to MCP, which
       );
 
       expect(results.map((r) => r.videoId)).toEqual(['vid1']);
+    });
+
+    it('gives the run 90 s from the start of the call, even with YT_DLP_TIMEOUT at 120 s', async () => {
+      // A proxy in front of the server can close a silent response after 100 s (#89).
+      process.env.YT_DLP_TIMEOUT = '120000';
+      const dateSpy = jest.spyOn(Date, 'now').mockReturnValue(1700000010000);
+      let timeout: number | undefined;
+      execFileMock.mockImplementation(
+        (
+          _file: string,
+          _args: string[],
+          options: { timeout?: number },
+          cb: (err: null, stdout: string, stderr: string) => void
+        ) => {
+          timeout = options.timeout;
+          setImmediate(() => cb(null, '', ''));
+        }
+      );
+      try {
+        await downloadPlaylistSubtitles('https://www.youtube.com/playlist?list=PLxxx', {
+          lang: 'en',
+        });
+        expect(timeout).toBe(90_000);
+      } finally {
+        dateSpy.mockRestore();
+        delete process.env.YT_DLP_TIMEOUT;
+      }
+    });
+
+    it('gives the verbose replay only what is left of the 90 s', async () => {
+      process.env.YT_DLP_VERBOSE_ON_ERROR = '1';
+      let now = 1700000011000;
+      const dateSpy = jest.spyOn(Date, 'now').mockImplementation(() => now);
+      const timeouts: Array<number | undefined> = [];
+      execFileMock.mockImplementation(
+        (
+          _file: string,
+          _args: string[],
+          options: { timeout?: number },
+          callback: (error: Error | null) => void
+        ) => {
+          timeouts.push(options.timeout);
+          now += 30_000; // each run takes 30 s
+          const error = Object.assign(new Error('Command failed: yt-dlp'), {
+            code: 1,
+            stderr: 'ERROR: Private video',
+          });
+          setImmediate(() => callback(error));
+        }
+      );
+      try {
+        await expect(
+          downloadPlaylistSubtitles('https://www.youtube.com/playlist?list=PLxxx', { lang: 'en' })
+        ).rejects.toMatchObject({ name: 'YtDlpError', reason: 'private' });
+        expect(timeouts).toEqual([90_000, 60_000]);
+      } finally {
+        dateSpy.mockRestore();
+        delete process.env.YT_DLP_VERBOSE_ON_ERROR;
+      }
+    });
+
+    /** execFile reports a run that it killed at its timeout like this: a signal, no exit code. */
+    const killedAtDeadline = (stderr?: string) =>
+      Object.assign(new Error('Command failed: yt-dlp'), {
+        code: null,
+        killed: true,
+        signal: 'SIGTERM',
+        stderr,
+      });
+
+    /** The deadline kills the run before it writes a file. */
+    const failAtDeadline = (stderr = '') => mockExecFileFailure(stderr, null, 'SIGTERM');
+
+    it('returns what the run wrote before the deadline stopped it', async () => {
+      failAfterWriting(killedAtDeadline());
+
+      const results = await downloadPlaylistSubtitles(
+        'https://www.youtube.com/playlist?list=PLxxx',
+        { lang: 'en' }
+      );
+
+      expect(results.map((r) => r.videoId)).toEqual(['vid1']);
+    });
+
+    it('answers timeout when the deadline stopped the run before it wrote anything', async () => {
+      failAtDeadline();
+
+      await expect(
+        downloadPlaylistSubtitles('https://www.youtube.com/playlist?list=PLxxx', { lang: 'en' })
+      ).rejects.toMatchObject({ name: 'YtDlpError', reason: 'timeout', statusCode: 502 });
+    });
+
+    it('answers timeout, not the error on one item, when the deadline stopped a run that wrote nothing', async () => {
+      // --ignore-errors keeps going after a private item and leaves its error in stderr. The
+      // run wrote nothing because the 90 s ran out, not because of that item (#89).
+      failAtDeadline('ERROR: [youtube] abc: Private video');
+
+      await expect(
+        downloadPlaylistSubtitles('https://www.youtube.com/playlist?list=PLxxx', { lang: 'en' })
+      ).rejects.toMatchObject({ name: 'YtDlpError', reason: 'timeout', statusCode: 502 });
+    });
+
+    it('keeps a rate limit as the answer when the deadline stopped a run that wrote nothing', async () => {
+      // yt-dlp retried a 429 until the deadline. The caller needs to hear about the limit
+      // (ADR 002).
+      failAtDeadline(
+        'ERROR: Unable to download video subtitles: HTTP Error 429: Too Many Requests'
+      );
+
+      await expect(
+        downloadPlaylistSubtitles('https://www.youtube.com/playlist?list=PLxxx', { lang: 'en' })
+      ).rejects.toMatchObject({ name: 'YtDlpError', reason: 'rate_limited', statusCode: 502 });
+    });
+
+    it('keeps a bot check as the answer when the deadline stopped a run that wrote nothing', async () => {
+      failAtDeadline("ERROR: [youtube] abc: Sign in to confirm you're not a bot");
+
+      await expect(
+        downloadPlaylistSubtitles('https://www.youtube.com/playlist?list=PLxxx', { lang: 'en' })
+      ).rejects.toMatchObject({ name: 'YtDlpError', reason: 'bot_check', statusCode: 502 });
+    });
+
+    it('answers timeout, not an extractor warning, when the deadline stopped a run that wrote nothing', async () => {
+      // yt-dlp can recover from this line, for example with another player client.
+      failAtDeadline('WARNING: [youtube] abc: nsig extraction failed');
+
+      await expect(
+        downloadPlaylistSubtitles('https://www.youtube.com/playlist?list=PLxxx', { lang: 'en' })
+      ).rejects.toMatchObject({ name: 'YtDlpError', reason: 'timeout', statusCode: 502 });
+    });
+
+    it.each(['lrc', 'vtt'] as const)(
+      'returns one %s track when a kill left the source and the converted file',
+      async (format) => {
+        // The other file holds the same track. Each format comes first once, so that the
+        // order of the directory listing cannot make this test pass.
+        failAfterWriting(killedAtDeadline(), {
+          'vid1.en.vtt': 'vtt text',
+          'vid1.en.lrc': 'lrc text',
+        });
+
+        const results = await downloadPlaylistSubtitles(
+          'https://www.youtube.com/playlist?list=PLxxx',
+          { lang: 'en', format }
+        );
+
+        expect(results).toEqual([{ videoId: 'vid1', content: `${format} text` }]);
+      }
+    );
+
+    it('keeps the source track when the converted file is still empty', async () => {
+      failAfterWriting(killedAtDeadline(), {
+        'vid1.en.vtt': 'vtt text',
+        'vid1.en.lrc': '',
+      });
+
+      const results = await downloadPlaylistSubtitles(
+        'https://www.youtube.com/playlist?list=PLxxx',
+        { lang: 'en', format: 'lrc' }
+      );
+
+      expect(results).toEqual([{ videoId: 'vid1', content: 'vtt text' }]);
+    });
+
+    describe('caption hold after a partial result', () => {
+      const playlistUrl = 'https://www.youtube.com/playlist?list=PLxxx';
+      const refused = 'ERROR: Unable to download video subtitles: HTTP Error 429';
+
+      const strikes = async () =>
+        Number(
+          /^subtitle_rate_limit_strikes\{[^}]*platform="youtube"[^}]*\} (\d+)$/m.exec(
+            await renderPrometheus()
+          )?.[1]
+        );
+
+      /** A 429 sets strike 1, and the wait of that hold has ended. */
+      const refuseOnceAndWaitOutTheHold = async (advance: () => void) => {
+        mockExecFileFailure(refused);
+        await expect(downloadPlaylistSubtitles(playlistUrl, { lang: 'en' })).rejects.toMatchObject({
+          reason: 'rate_limited',
+        });
+        expect(await strikes()).toBe(1);
+        advance();
+      };
+
+      it.each([
+        ['the deadline stopped the run', () => killedAtDeadline()],
+        ['yt-dlp cancelled the queue', cancelledAtMaxItems],
+      ])('resets the strikes when tracks came back and %s', async (_case, error) => {
+        // ADR 002: a delivered track clears the hold. Without the reset, the next 429 reads
+        // as strike 2, which is the ban alert.
+        let now = 1700000030000;
+        const dateSpy = jest.spyOn(Date, 'now').mockImplementation(() => now);
+        try {
+          await refuseOnceAndWaitOutTheHold(() => {
+            now += 3_600_000;
+          });
+
+          failAfterWriting(error());
+          const results = await downloadPlaylistSubtitles(playlistUrl, { lang: 'en' });
+          expect(results.map((r) => r.videoId)).toEqual(['vid1']);
+          expect(await strikes()).toBe(0);
+
+          mockExecFileFailure(refused);
+          await expect(
+            downloadPlaylistSubtitles(playlistUrl, { lang: 'en' })
+          ).rejects.toMatchObject({ reason: 'rate_limited' });
+          expect(await strikes()).toBe(1);
+        } finally {
+          dateSpy.mockRestore();
+        }
+      });
+
+      it('keeps the strikes when a failed run returned no track', async () => {
+        let now = 1700000032000;
+        const dateSpy = jest.spyOn(Date, 'now').mockImplementation(() => now);
+        try {
+          await refuseOnceAndWaitOutTheHold(() => {
+            now += 3_600_000;
+          });
+
+          mockExecFileFailure('ERROR: [youtube] abc: Private video');
+          await expect(
+            downloadPlaylistSubtitles(playlistUrl, { lang: 'en' })
+          ).rejects.toMatchObject({ reason: 'private' });
+          expect(await strikes()).toBe(1);
+        } finally {
+          dateSpy.mockRestore();
+        }
+      });
+
+      it('keeps the hold when the run that returned tracks also got a 429', async () => {
+        let now = 1700000031000;
+        const dateSpy = jest.spyOn(Date, 'now').mockImplementation(() => now);
+        try {
+          await refuseOnceAndWaitOutTheHold(() => {
+            now += 3_600_000;
+          });
+
+          failAfterWriting(killedAtDeadline(refused));
+          const results = await downloadPlaylistSubtitles(playlistUrl, { lang: 'en' });
+          expect(results.map((r) => r.videoId)).toEqual(['vid1']);
+          expect(await strikes()).toBe(2);
+
+          execFileMock.mockClear();
+          await expect(
+            downloadPlaylistSubtitles(playlistUrl, { lang: 'en' })
+          ).rejects.toMatchObject({ reason: 'rate_limited' });
+          expect(execFileMock).not.toHaveBeenCalled();
+        } finally {
+          dateSpy.mockRestore();
+        }
+      });
+    });
+
+    it('starts no verbose replay while the caption hold is active', async () => {
+      // The run just got a 429. A second run would send one caption request per item into
+      // the limit (ADR 002).
+      process.env.YT_DLP_VERBOSE_ON_ERROR = '1';
+      execFileMock.mockClear();
+      mockExecFileFailure('ERROR: Unable to download video subtitles: HTTP Error 429');
+      const logger = { info: jest.fn(), error: jest.fn(), warn: jest.fn(), debug: jest.fn() };
+      try {
+        await expect(
+          downloadPlaylistSubtitles(
+            'https://www.youtube.com/playlist?list=PLxxx',
+            { lang: 'en' },
+            logger as any
+          )
+        ).rejects.toMatchObject({ name: 'YtDlpError', reason: 'rate_limited' });
+        expect(execFileMock).toHaveBeenCalledTimes(1);
+        expect(logger.error).not.toHaveBeenCalledWith(
+          expect.anything(),
+          'yt-dlp playlist verbose replay stderr'
+        );
+      } finally {
+        delete process.env.YT_DLP_VERBOSE_ON_ERROR;
+      }
+    });
+
+    it('starts no verbose replay when the deadline stopped the run', async () => {
+      // No time is left. Without a guard, the replay waits for a slot and then logs its own
+      // refusal as if it were the stderr of a run.
+      process.env.YT_DLP_VERBOSE_ON_ERROR = '1';
+      let now = 1700000013000;
+      const dateSpy = jest.spyOn(Date, 'now').mockImplementation(() => now);
+      execFileMock.mockImplementation(
+        (
+          _file: string,
+          _args: string[],
+          _options: unknown,
+          callback: (error: Error | null) => void
+        ) => {
+          now += 90_000;
+          setImmediate(() => callback(killedAtDeadline()));
+        }
+      );
+      const logger = { info: jest.fn(), error: jest.fn(), warn: jest.fn(), debug: jest.fn() };
+      execFileMock.mockClear();
+      try {
+        await expect(
+          downloadPlaylistSubtitles(
+            'https://www.youtube.com/playlist?list=PLxxx',
+            { lang: 'en' },
+            logger as any
+          )
+        ).rejects.toMatchObject({ name: 'YtDlpError', reason: 'timeout', statusCode: 502 });
+        expect(execFileMock).toHaveBeenCalledTimes(1);
+        expect(logger.error).not.toHaveBeenCalledWith(
+          expect.anything(),
+          'yt-dlp playlist verbose replay stderr'
+        );
+      } finally {
+        dateSpy.mockRestore();
+        delete process.env.YT_DLP_VERBOSE_ON_ERROR;
+      }
     });
   });
 

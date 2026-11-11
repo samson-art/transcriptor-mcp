@@ -5,8 +5,10 @@ import React, { StrictMode, useCallback, useEffect, useState, type CSSProperties
 import { createRoot } from 'react-dom/client';
 import { AppShell } from '@shared/AppShell';
 import { pageFromInput, watchUrlAt } from '@shared/format';
+import { LinkedText } from '@shared/LinkedText';
 import { notifyHostAboutResize } from '@shared/resize';
 import { styles } from '@shared/styles';
+import { toolErrorText } from '@shared/subtitleTracks';
 import { WIDGET_CALL_META } from '@shared/widgetCall';
 
 type FrameData = {
@@ -65,12 +67,14 @@ function timeInputToArgs(value: string): { seconds: number } | { timecode: strin
 function VideoFrameApp() {
   const [frame, setFrame] = useState<FrameData | null>(null);
   const [status, setStatus] = useState<'waiting' | 'loading' | 'ready' | 'error'>('waiting');
+  const [failure, setFailure] = useState<string | null>(null);
   const [appRef, setAppRef] = useState<App | null>(null);
   const [sourceUrl, setSourceUrl] = useState<string | null>(null);
   const [captureOptions, setCaptureOptions] = useState<CaptureOptions>({});
   const [timeInput, setTimeInput] = useState('');
 
   const handleToolResult = useCallback((result: CallToolResult) => {
+    setFailure(toolErrorText(result));
     if (result.isError) {
       setStatus('error');
       notifyHostAboutResize();
@@ -108,6 +112,7 @@ function VideoFrameApp() {
         });
         handleToolResult(result);
       } catch {
+        setFailure(null);
         setStatus('error');
         notifyHostAboutResize();
       }
@@ -196,7 +201,9 @@ function VideoFrameApp() {
     <AppShell title="Video frame">
       {status === 'waiting' && <div style={styles.centered}>Waiting for video frame…</div>}
       {status === 'loading' && <div style={styles.centered}>Capturing frame…</div>}
-      {status === 'error' && <div style={styles.centered}>Failed to capture frame.</div>}
+      {status === 'error' && (
+        <div style={styles.centered}>{failure ? <LinkedText text={failure} app={appRef} /> : 'Failed to capture frame.'}</div>
+      )}
 
       {frame && status !== 'loading' && (
         <div style={frameWrapStyle}>
