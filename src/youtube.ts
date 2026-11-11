@@ -1,7 +1,7 @@
 import { execFile, type ExecFileException, type ExecFileOptions } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { promisify } from 'node:util';
-import { readFile, stat, unlink, writeFile } from 'node:fs/promises';
+import { readdir, readFile, stat, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import type { FastifyBaseLogger } from 'fastify';
@@ -43,6 +43,41 @@ function syncProcessGauges(): void {
 }
 
 /**
+ * A strict deadline refuses a run with less time than this. yt-dlp needs seconds to start
+ * and to read the playlist page, so a shorter run writes nothing and still costs requests.
+ * ponytail: 10 s is an estimate and not a measurement. If real runs write files in less
+ * time, or need more, change it here.
+ */
+const STRICT_DEADLINE_MIN_RUN_MS = 10_000;
+
+/**
+ * Queues the caller until a finished run hands it a slot. With a strict deadline, the caller
+ * leaves when a slot could no longer start a run. The handoff and the timer cannot both act:
+ * the handoff stops the timer, and a timer that fired has already removed the waiter.
+ */
+function waitForSlot(strictDeadline?: number): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const waiter = (): void => {
+      clearTimeout(timer);
+      resolve();
+    };
+    const timer =
+      strictDeadline === undefined
+        ? undefined
+        : setTimeout(
+            () => {
+              processWaiters.splice(processWaiters.indexOf(waiter), 1);
+              syncProcessGauges();
+              reject(new YtDlpError('timeout'));
+            },
+            strictDeadline - STRICT_DEADLINE_MIN_RUN_MS - Date.now()
+          );
+    processWaiters.push(waiter);
+    syncProcessGauges();
+  });
+}
+
+/**
  * Every run that fetches from a video platform goes through here, so one cap covers
  * the REST API, MCP over stdio and MCP over HTTP. Above the cap calls queue; above
  * the queue they are refused at once rather than piling up past any client's patience.
@@ -56,6 +91,8 @@ function syncProcessGauges(): void {
  * timer at spawn, so waiting in the queue never eats into a call's own budget. A
  * `deadline` is the exception, for a call that shares one budget across its processes:
  * the timeout is what is left when the process starts, and with nothing left it never does.
+ * A `strictDeadline` also bounds the wait in the queue, for a call whose caller stops
+ * listening at that time. It replaces `deadline`, so other callers still have no queue timer.
  *
  * ponytail: one cap shared by both binaries; split per binary only if frame capture
  * ever starves transcripts.
@@ -63,26 +100,30 @@ function syncProcessGauges(): void {
 async function execFileAsync(
   file: string,
   args: string[],
-  { deadline, ...options }: Omit<ExecFileOptions, 'encoding'> & { deadline?: number }
+  {
+    deadline,
+    strictDeadline,
+    ...options
+  }: Omit<ExecFileOptions, 'encoding'> & { deadline?: number; strictDeadline?: number }
 ): Promise<{ stdout: string; stderr: string }> {
   const max = parseIntEnv('YT_DLP_MAX_CONCURRENCY', 4);
   if (max > 0 && activeProcesses >= max) {
     if (processWaiters.length >= parseIntEnv('YT_DLP_MAX_QUEUE', 8)) {
       throw new ServerBusyError();
     }
-    await new Promise<void>((resolve) => {
-      processWaiters.push(resolve);
-      syncProcessGauges();
-    });
+    await waitForSlot(strictDeadline);
   } else {
     activeProcesses += 1;
   }
   syncProcessGauges();
 
   try {
-    if (deadline !== undefined) {
-      const left = deadline - Date.now();
-      if (left <= 0) throw new YtDlpError('timeout');
+    const end = strictDeadline ?? deadline;
+    if (end !== undefined) {
+      const left = end - Date.now();
+      if (left <= 0 || (strictDeadline !== undefined && left < STRICT_DEADLINE_MIN_RUN_MS)) {
+        throw new YtDlpError('timeout');
+      }
       options = { ...options, timeout: left };
     }
     return await execFileRaw(file, args, options);
@@ -142,14 +183,20 @@ const YT_DLP_FAILURE_PATTERNS: ReadonlyArray<[YtDlpFailureReason, RegExp]> = [
     'extractor',
     /nsig extraction failed|unable to extract|requested format is not available|unable to download (?:webpage|api page)|failed to parse json|unexpected response from webpage/i,
   ],
+  // "This channel does not have a videos tab": a channel URL with no uploads of that kind.
   [
     'unavailable',
-    /video (?:is )?unavailable|this video is not available|has been removed|does not exist|no longer available|unsupported url/i,
+    /video (?:is )?unavailable|this video is not available|has been removed|does not exist|no longer available|unsupported url|does not have an? \w+ tab/i,
   ],
   // Last on purpose: stderr includes warnings, and this one also appears next to
   // failures with a real cause above (a removed video must stay `unavailable`).
   ['extractor', /no impersonate target is available|none of these impersonate targets/i],
 ];
+
+/** Our own timeout stops a run with one of these signals. */
+function killedByTimeout(d: { signal?: string }): boolean {
+  return d.signal === 'SIGTERM' || d.signal === 'SIGKILL';
+}
 
 /**
  * Classifies a failed yt-dlp/ffmpeg run. stderr is checked before the signal, so a
@@ -164,7 +211,7 @@ export function classifyYtDlpFailure(d: {
   for (const [reason, pattern] of YT_DLP_FAILURE_PATTERNS) {
     if (pattern.test(haystack)) return reason;
   }
-  return d.signal === 'SIGTERM' || d.signal === 'SIGKILL' ? 'timeout' : 'unknown';
+  return killedByTimeout(d) ? 'timeout' : 'unknown';
 }
 
 /**
@@ -590,14 +637,19 @@ async function collectSubtitleResults(
   logger?: FastifyBaseLogger
 ): Promise<PlaylistSubtitlesResult[]> {
   const results: PlaylistSubtitlesResult[] = [];
+  // A kill can land while yt-dlp converts a track to `lrc`. The source file and the converted
+  // file then both exist, and they are one track. The caller lists the asked format first.
+  const delivered = new Set<string>();
   for (const file of subtitleFiles) {
     const parsed = parseSubtitleFilename(file);
-    if (!parsed) continue;
+    const track = file.slice(0, file.lastIndexOf('.'));
+    if (!parsed || delivered.has(track)) continue;
     const filePath = join(tempDir, file);
     try {
       const content = await readFile(filePath, 'utf-8');
       if (content.trim().length > 0) {
         results.push({ videoId: parsed.videoId, content });
+        delivered.add(track);
       }
     } catch (readErr) {
       logger?.warn({ file, error: readErr }, 'Failed to read subtitle file');
@@ -607,50 +659,71 @@ async function collectSubtitleResults(
   return results;
 }
 
-function getExtendedTimeout(): number {
-  const timeout = parseIntEnv('YT_DLP_TIMEOUT', 60000);
-  return Math.max(timeout, 120000);
+/**
+ * Removes the proxy from text for a log line (#99). The value appears in the command line, and
+ * yt-dlp prints it in stderr with -v. The second step catches credentials in any other form of
+ * a URL. It stops at / ? and #, so a page URL with @ in its path (TikTok) stays whole: tools
+ * read it from cmd.
+ */
+function maskProxyInLogText(text: string): string {
+  const { proxyFromEnv } = getYtDlpEnv();
+  const withoutValue = proxyFromEnv ? text.replaceAll(proxyFromEnv, '<proxy>') : text;
+  // ponytail: a raw / ? or # in a password that is not the configured value ends the match early.
+  // A valid URL encodes them. Passing the proxy outside argv would remove the need for this.
+  return withoutValue.replace(/(?<=:\/\/)[^\s/?#]*@/g, '<credentials>@');
 }
 
 function execDetailsToLogFields(d: ExecFileErrorDetails): Record<string, unknown> {
-  const out: Record<string, unknown> = { error: d.message };
+  const out: Record<string, unknown> = { error: maskProxyInLogText(d.message) };
   if (d.reason) out.reason = d.reason;
   if (d.exitCode !== undefined) out.exitCode = d.exitCode;
   if (d.signal) out.signal = d.signal;
-  if (d.cmd) out.cmd = d.cmd;
-  if (d.stdout) out.stdout = d.stdout;
-  if (d.stderr) out.stderr = d.stderr;
+  if (d.cmd) out.cmd = maskProxyInLogText(d.cmd);
+  if (d.stdout) out.stdout = maskProxyInLogText(d.stdout);
+  if (d.stderr) out.stderr = maskProxyInLogText(d.stderr);
   return out;
 }
 
 async function runPlaylistVerboseReplay(
+  url: string,
   buildFullArgs: (quiet: boolean, verbose: boolean) => string[],
+  deadline: number,
   logger?: FastifyBaseLogger
 ): Promise<void> {
   if (process.env.YT_DLP_VERBOSE_ON_ERROR !== '1') {
     return;
   }
   try {
+    // A hold means that the platform just refused. A replay would ask for every item again
+    // (ADR 002).
+    assertSubtitlesNotRateLimited(url);
     const verboseArgs = buildFullArgs(false, true);
     await execFileAsync('yt-dlp', verboseArgs, {
       maxBuffer: 50 * 1024 * 1024,
-      timeout: getExtendedTimeout(),
+      strictDeadline: deadline,
     });
   } catch (replayErr: unknown) {
+    // A hold, a full queue and a late slot start no run, so there is no stderr to log.
+    if (replayErr instanceof HttpError) return;
     const replayDetails = collectExecFileErrorDetails(replayErr);
     logger?.error(execDetailsToLogFields(replayDetails), 'yt-dlp playlist verbose replay stderr');
   }
 }
 
 async function handlePlaylistDownloadError(
+  url: string,
   error: unknown,
   readResults: () => Promise<PlaylistSubtitlesResult[]>,
   buildFullArgs: (quiet: boolean, verbose: boolean) => string[],
+  deadline: number,
   tempDir: string,
   logger?: FastifyBaseLogger
 ): Promise<PlaylistSubtitlesResult[]> {
   const details = collectExecFileErrorDetails(error);
   const partial = await readResults().catch(() => []);
+  // A track clears the hold, also from a run that did not exit 0 (ADR 002). A 429 in this run
+  // has just set the hold, and it stays.
+  if (partial.length > 0 && details.reason !== 'rate_limited') clearSubtitlesRateLimit(url);
 
   // Exit 101 is yt-dlp cancelling the queue on purpose: `--max-downloads` reached, which is
   // what `maxItems` asks for. It says so on stdout only and `--quiet` swallows that, which
@@ -674,8 +747,14 @@ async function handlePlaylistDownloadError(
     return partial;
   }
 
-  await runPlaylistVerboseReplay(buildFullArgs, logger);
-  throw new YtDlpError(details.reason ?? 'unknown');
+  await runPlaylistVerboseReplay(url, buildFullArgs, deadline, logger);
+  const reason = details.reason ?? 'unknown';
+  // A run that the deadline killed wrote nothing because time ran out (#89). With
+  // --ignore-errors, stderr can still name an error on one item, such as a private video, or a
+  // warning that yt-dlp recovered from, such as an `extractor` line. Neither is the cause. A
+  // refusal by the platform, which is a 429 (ADR 002) or a bot check, stays the answer.
+  const refused = reason === 'rate_limited' || reason === 'bot_check';
+  throw new YtDlpError(killedByTimeout(details) && !refused ? 'timeout' : reason);
 }
 
 /**
@@ -692,6 +771,12 @@ export async function downloadPlaylistSubtitles(
   logger?: FastifyBaseLogger
 ): Promise<PlaylistSubtitlesResult[]> {
   const { type = 'auto', lang, format, playlistItems, maxItems } = options;
+  // The whole call has one limit, and the wait for a process slot counts toward it.
+  // Common proxies close a response after 100 s with no data. The caller then gets a
+  // gateway error, and the result goes to nobody. In the week to 2026-10-29, 8 of 300
+  // playlist calls took longer than 100 s (#89). When the deadline stops the run, the call
+  // still returns what the run wrote. YT_DLP_TIMEOUT does not change this limit.
+  const deadline = Date.now() + 90_000;
   const subFormat = resolveSubtitleFormat(format);
   // One playlist run asks for as many tracks as it has items: the heaviest caller of the
   // caption endpoint must be the first to stop while the platform is refusing.
@@ -716,7 +801,10 @@ export async function downloadPlaylistSubtitles(
   const readPlaylistSubtitleResults = async (): Promise<PlaylistSubtitlesResult[]> => {
     await new Promise((resolve) => setTimeout(resolve, 200));
     const files = await readdir(tempDir);
-    const subtitleFiles = files.filter((f) => SUB_EXTENSIONS.some((e) => f.endsWith(e)));
+    const asked = `.${subFormat}`;
+    const subtitleFiles = files
+      .filter((f) => SUB_EXTENSIONS.some((e) => f.endsWith(e)))
+      .sort((a, b) => Number(b.endsWith(asked)) - Number(a.endsWith(asked)));
     return collectSubtitleResults(subtitleFiles, tempDir, logger);
   };
 
@@ -769,7 +857,7 @@ export async function downloadPlaylistSubtitles(
 
       await execFileAsync('yt-dlp', args, {
         maxBuffer: 50 * 1024 * 1024,
-        timeout: getExtendedTimeout(),
+        strictDeadline: deadline,
       });
       logger?.debug({ tempDir }, 'yt-dlp playlist subtitles completed');
 
@@ -780,9 +868,11 @@ export async function downloadPlaylistSubtitles(
       if (error instanceof HttpError) throw error;
       noteIfRateLimited(url, error);
       return await handlePlaylistDownloadError(
+        url,
         error,
         readPlaylistSubtitleResults,
         buildFullArgs,
+        deadline,
         tempDir,
         logger
       );
@@ -890,6 +980,37 @@ async function probeDurationSeconds(file: string, logger?: FastifyBaseLogger): P
   }
 }
 
+/** The speech-to-text length ceiling in seconds. 0 means no ceiling. */
+export function whisperMaxDurationSeconds(): number {
+  return parseIntEnv('WHISPER_MAX_DURATION_SECONDS', 0);
+}
+
+/**
+ * Lengths over the ceiling that only the audio run could measure (Instagram and TikTok often
+ * give none before it), keyed by URL. A repeat call then answers too_long without a new audio
+ * run (#107). From 2026-11-06 to 2026-11-09, about 20 such calls asked for each video twice.
+ */
+const measuredOverCeiling = new Map<string, number>();
+
+export function noteMeasuredAudioSeconds(url: string, seconds: number): void {
+  // Delete first, so a repeat moves the key to the end of the insertion order.
+  measuredOverCeiling.delete(url);
+  measuredOverCeiling.set(url, seconds);
+  // ponytail: process-local, at most 1000 URLs, oldest dropped, lost on restart. Move it to the
+  // cache if repeats after a restart or across replicas start to cost audio runs.
+  if (measuredOverCeiling.size > 1000) {
+    measuredOverCeiling.delete(measuredOverCeiling.keys().next().value as string);
+  }
+}
+
+export function measuredAudioSeconds(url: string): number | undefined {
+  return measuredOverCeiling.get(url);
+}
+
+export function resetMeasuredAudioSecondsForTests(): void {
+  measuredOverCeiling.clear();
+}
+
 /**
  * Downloads audio only for a video (for Whisper transcription).
  * Caller must unlink the returned file path when done.
@@ -916,9 +1037,13 @@ export async function downloadAudio(
 
   // TikTok has no audio-only format: every format holds video and sound, so without the
   // last fallback yt-dlp stops with "Requested format is not available" (#63).
+  // Facebook's plain sd/hd formats carry no codec fields, so bestaudio (needs vcodec none)
+  // and [acodec!=none] (drops an unknown acodec) match nothing and yt-dlp stops with the same
+  // error. Plain best keeps a format with unknown codecs, and yt-dlp reaches it only when the
+  // earlier alternatives match nothing, so YouTube and TikTok keep their choice (#108).
   const audioFormat =
     (process.env.YT_DLP_AUDIO_FORMAT ?? '').trim() ||
-    'bestaudio[abr<=192]/bestaudio/best*[acodec!=none]';
+    'bestaudio[abr<=192]/bestaudio/best*[acodec!=none]/best';
   const audioQualityNum = parseIntEnv('YT_DLP_AUDIO_QUALITY', 5);
   const audioQuality = audioQualityNum < 0 || audioQualityNum > 9 ? '5' : String(audioQualityNum);
 
@@ -939,11 +1064,13 @@ export async function downloadAudio(
   if (maxFilesize) {
     optionalArgs.push('--max-filesize', maxFilesize);
   }
-  const maxDuration = parseIntEnv('WHISPER_MAX_DURATION_SECONDS', 0);
+  const maxDuration = whisperMaxDurationSeconds();
   if (maxDuration > 0) {
     // yt-dlp skips a live stream or a longer video with exit code 0 and no file. `<=?`
     // lets a video of unknown length through (Instagram reels have no duration in the
     // JSON); its real length is measured on the downloaded audio below.
+    // overWhisperCeiling in src/validation.ts makes the same test before this run (#88).
+    // Change both together.
     optionalArgs.push('--match-filter', `!is_live & duration <=? ${maxDuration}`);
   }
   appendYtDlpEnvArgs(optionalArgs, {
@@ -954,6 +1081,7 @@ export async function downloadAudio(
   });
   appendYtDlpAudioArgs(optionalArgs);
   const args = [...baseArgs, ...optionalArgs, url];
+  const baseName = outputBase.split(/[/\\]/).pop() ?? '';
 
   try {
     await logCookiesFileStatus(logger, cookiesFilePathFromEnv);
@@ -965,8 +1093,6 @@ export async function downloadAudio(
     });
     await new Promise((resolve) => setTimeout(resolve, 100));
 
-    const { readdir } = await import('node:fs/promises');
-    const baseName = outputBase.split(/[/\\]/).pop() ?? '';
     const files = await readdir(tempDir);
     const audioFile = files.find(
       (f) =>
@@ -978,6 +1104,8 @@ export async function downloadAudio(
         const duration = await probeDurationSeconds(audioPath, logger);
         if (!(Math.floor(duration) <= maxDuration)) {
           await unlink(audioPath).catch(() => {});
+          // NaN (ffprobe failed) is not a length, so that answer stays stt_failed.
+          if (Number.isFinite(duration)) noteMeasuredAudioSeconds(url, duration);
           logger?.info(
             { maxDuration, duration },
             'No audio for Whisper: video too long or of unknown length'
@@ -999,11 +1127,20 @@ export async function downloadAudio(
     const execErr = isExecFileException(error) ? error : null;
     logger?.error(
       {
-        error: err.message,
-        ...(execErr && { stdout: execErr.stdout, stderr: execErr.stderr }),
+        error: maskProxyInLogText(err.message),
+        ...(execErr && {
+          stdout: execErr.stdout && maskProxyInLogText(String(execErr.stdout)),
+          stderr: execErr.stderr && maskProxyInLogText(String(execErr.stderr)),
+        }),
       },
       'Error downloading audio via yt-dlp'
     );
+    // The last fallback downloads a whole video. When the video has no sound, the extraction
+    // fails and yt-dlp leaves the video in the temp dir (#108).
+    const leftovers = await readdir(tempDir).catch(() => [] as string[]);
+    for (const f of leftovers) {
+      if (f.startsWith(`${baseName}.`)) await unlink(join(tempDir, f)).catch(() => {});
+    }
     return null;
   } finally {
     await cookiesCleanup?.();
@@ -1383,7 +1520,7 @@ export async function captureVideoFrame(
         if (error instanceof HttpError) throw error;
         lastError = error;
         logger?.warn(
-          { error: error instanceof Error ? error.message : String(error) },
+          { error: maskProxyInLogText(error instanceof Error ? error.message : String(error)) },
           'Direct stream frame capture failed, trying section download fallback'
         );
       }

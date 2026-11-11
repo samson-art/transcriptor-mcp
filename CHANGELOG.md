@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Terms of Service 1.3 and Privacy Policy 1.3 describe an optional paid plan for the hosted Service. They take effect on 2026-12-14, 30 days after the notice, and for a buyer from the moment of the purchase. The free allowance per UTC day stays, and it can be different for each tool. The paid plan removes the daily allowance for one person, within a fair use rule. The operator of the MCPal platform sells the plan and Stripe processes the payment. The Terms give the rules for the price, the renewal, the cancellation and a refund in the first 14 days. Self-hosting does not change.
+
+## [1.5.30] - 2026-11-12
+
 ### Fixed
 
 - A run of frames from one video no longer starts a stream lookup for each frame (#87). A lookup is one yt-dlp run of about 2.9 s that reads the length and the stream URLs of the video. In the week to 2026-10-29, 87% of about 7,800 frame calls were for a video that the server looked up in the previous 10 minutes. A frame call now reuses the lookup of an earlier call for the same URL and width for 5 minutes, and calls that come at the same time wait for one lookup. The lookup stays in process memory, because it holds signed stream URLs. Decision: [ADR 007](docs/adr/007-frame-stream-lookup-reuse.md).
@@ -19,6 +25,79 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `get_video_frame` gives the exact answer for a private, removed, geo-blocked or age-restricted video when the section download reports it. Before this, the call gave the general answer that the server could not read the video stream.
 - A `get_video_frame` call copies the cookies file only when it runs yt-dlp. A call that reuses a lookup and gets a frame from its direct read makes no copy.
 - `cache_hits_total` and `cache_misses_total` have a new label value, `kind="stream"`. A hit is a reused lookup. A miss is a lookup that the server starts, or tries to start, so a lookup refused with 503 `busy` also counts. A sum over all kinds now shows a different total. To keep the old total, leave out `kind="stream"`.
+
+## [1.5.29] - 2026-11-11
+
+### Changed
+
+- The MCP image no longer shows the lines of npm itself, for every npm command (#81). The default HTTP command loses the npm banner from its container log, and the npm error lines when the server exits with an error. A failure before the server starts, such as a missing script, now exits 1 with an empty stderr. The log lines of the server do not change. To get the npm lines back, run the image with `-e NPM_CONFIG_LOGLEVEL=notice`. The REST API image does not change.
+
+### Fixed
+
+- The stdio command wrote the npm script banner to stdout before the first MCP message (#81). In a local run of 1.5.21 on 2026-10-07, npm printed four lines there, and the TypeScript SDK 1.x client reported a parse error for each one. The MCP image now sets `NPM_CONFIG_LOGLEVEL=silent`, so the first stdout line is the answer of the server. For a local stdio server, the README now runs `npm run --silent start:mcp`.
+- The stdio step of the MCP smoke test now fails when the first stdout line is not JSON (#81).
+- `make docker-run-mcp-stdio` no longer writes its own command line to stdout before the server starts (#81).
+
+## [1.5.28] - 2026-11-11
+
+### Fixed
+
+- A playlist call on a channel with no videos or shorts tab failed as an unknown error. It now says that the content is not available (#109).
+
+## [1.5.27] - 2026-11-11
+
+### Fixed
+
+- Transcription of a Facebook video failed with "Requested format is not available", because its formats have no codec fields. The audio run now falls back to the best format of any kind when no other format matches. When that format has no sound, the run fails as before, and the server now deletes the downloaded video. If you set `YT_DLP_AUDIO_FORMAT` to the old default, remove it or add `/best`: your value overrides the new default (#108).
+
+## [1.5.26] - 2026-11-11
+
+### Fixed
+
+- A video whose downloaded audio was longer than `WHISPER_MAX_DURATION_SECONDS` got the `stt_failed` answer, and a repeat call downloaded the audio again. Now it gets the `too_long` answer, and the server keeps the measured length in memory (up to 1000 URLs), so a repeat call starts no audio run (#107).
+
+## [1.5.25] - 2026-11-11
+
+### Fixed
+
+- The search, video info and video frame widgets, and the subtitle panel, now show the text of a failed call (#106). Before, they showed their own fixed line ("No results found.", "Failed to load video info.", "Failed to capture frame.", "No subtitles available."), so the user did not see why a call failed. This matters most behind a gateway that refuses calls at a daily limit: its answer names the reset time, and the search widget showed "No results found." in its place. A failed call with no text keeps the fixed line. An `https` address in the text is a link that opens through the host, in these widgets and in the transcript widget. A UTC timestamp in the text (`2026-11-17T00:00:00.000Z`) shows as a date and a time in the language and the time zone of the browser (`17 Nov 2026, 01:00`). Tools, schemas and error texts do not change.
+
+## [1.5.24] - 2026-11-03
+
+### Fixed
+
+- A failed yt-dlp or ffmpeg run could write the `YT_DLP_PROXY` value, with its user name and password, to the logs and to Sentry breadcrumbs (#99). The value was in `cmd` and `error` of the failure lines of the frame and search runs, and on the "Error downloading audio via yt-dlp" and "Direct stream frame capture failed" lines. The `error`, `cmd`, `stdout` and `stderr` fields now show `<proxy>` in its place, and `<credentials>` in place of the user name and password of any other URL. The page URL in `cmd` and the field names do not change.
+
+## [1.5.23] - 2026-11-03
+
+### Fixed
+
+- A long `get_playlist_transcripts` call took longer than a proxy in front of the server waits (#89). Common proxies close a response after 100 s with no data, so the caller got a gateway error and the result went to nobody. In the week to 2026-10-29, 8 of 300 playlist calls took longer than 100 s, the longest 127 s. The playlist run had `YT_DLP_TIMEOUT` or 120 s, whichever was longer, and that time started only when the run got a process slot. Now the run stops 90 s after the call starts, and the wait for a process slot counts toward these 90 s. When the time runs out, the call returns the transcripts that it downloaded by then.
+- A queued `get_playlist_transcripts` call could wait for a process slot past the 90 s, because only a free slot ended the wait. Now the call leaves the queue with the `timeout` text when 10 s of its 90 s are left. A run with less time does not start, because it cannot write a file. Other tools wait in the queue as before.
+- A `get_playlist_transcripts` call that the 90 s stopped with no transcript now answers with the `timeout` text. An error on one item, such as a private video, or a warning such as an extractor line, no longer replaces that answer. A rate limit or a bot check that yt-dlp reported still replaces it.
+- With `YT_DLP_VERBOSE_ON_ERROR=1`, the diagnostic replay of a failed playlist run asked for every item again during a caption hold. Now it does not start during a hold (ADR 002).
+- A playlist run that returned transcripts but did not exit 0 did not reset the caption hold. So the next 429 counted as a repeat, and the hold doubled. Now a run that the 90 s stopped, or that reached `maxItems`, resets the hold if it returned a transcript. A 429 in the same run keeps the hold.
+- A playlist call with format `lrc` could return one transcript twice, when the 90 s stopped the run during a conversion. Now it returns one result for each track.
+
+### Changed
+
+- `YT_DLP_TIMEOUT` no longer changes the limit of `get_playlist_transcripts`. A self-hosted server with no proxy in front now gives a long playlist a partial result after 90 s, not after 120 s.
+- With `YT_DLP_VERBOSE_ON_ERROR=1`, the diagnostic replay of a failed playlist run gets what is left of the same 90 s. It does not start with less than 10 s left, and it leaves the queue like the main run. So its output can be cut.
+
+## [1.5.22] - 2026-11-03
+
+### Fixed
+
+- A video longer than `WHISPER_MAX_DURATION_SECONDS` still cost one yt-dlp run (#88). Speech-to-text starts with an audio download, and yt-dlp skips that download for such a video. In the week from 2026-10-23 to 2026-10-29, the audio download started 638 times, and 247 of these runs (39%) ended in this skip. Now the server starts no audio download if the track list that it has before the run gives a length over the ceiling. Without `lang`, that list comes from the metadata run or from the cache. With `lang`, it comes only from the Redis cache, and the server makes no run to learn the length.
+- The answer for a video longer than `WHISPER_MAX_DURATION_SECONDS` said that speech-to-text ran (#88). Now the caller gets a 404 with the text "This server transcribes only videos up to N seconds long, and this video is longer." and one next step. This also applies to a call with `lang` whose track list was not in the cache: the audio download still starts, and the list that the answer reads after it gives the length.
+- `subtitles_extraction_failures_total{reason="no_subtitles"}` counted a video longer than `WHISPER_MAX_DURATION_SECONDS`, although speech-to-text got no audio (#88). Now it does not count these calls.
+- During a caption hold, a call without `lang` whose track list is in the cache and gives a length over `WHISPER_MAX_DURATION_SECONDS` got the `rate_limited` 502 (#88). Now it gets the 404 that names the ceiling, because this answer sends no request to the platform.
+- Nothing changes for a video of unknown length, for a video at or under the ceiling, or when the ceiling is 0 or unset. The track list in the tool output and in the REST body does not change.
+- With Redis caching, track lists cached before this release have no length until they expire (`CACHE_TTL_METADATA_SECONDS`, 1 hour by default). Calls on these videos keep the old answer until then.
+
+### Changed
+
+- The "MCP tool call" log line has a new `answer` value, `too_long`, for a video longer than `WHISPER_MAX_DURATION_SECONDS` (#88). It wins over `list` and `none`. The values `stt_failed` and `unread` do not occur together with it.
 
 ## [1.5.21] - 2026-10-06
 

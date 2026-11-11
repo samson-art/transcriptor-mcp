@@ -34,10 +34,14 @@ export type NotFoundDetails = {
 };
 
 /**
- * Which "no subtitles" answer a call got, for the per-call log line only (#64): the track list
- * to choose from, no tracks at all, a failed speech-to-text run, or a list that could not be read.
+ * Which "no subtitles" answer a call got, for the per-call log line only (#64):
+ * - `list`: the track list to choose from.
+ * - `none`: no tracks at all.
+ * - `stt_failed`: a failed speech-to-text run.
+ * - `too_long`: a video over the speech-to-text length ceiling (#88).
+ * - `unread`: a list that could not be read.
  */
-export type NoSubtitlesAnswer = 'list' | 'none' | 'stt_failed' | 'unread';
+export type NoSubtitlesAnswer = 'list' | 'none' | 'stt_failed' | 'too_long' | 'unread';
 
 /** 404 Not Found – resource or subtitles not found */
 export class NotFoundError extends HttpError {
