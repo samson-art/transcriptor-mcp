@@ -904,6 +904,9 @@ today to pay our respects to MCP, which
       // Longer than the cap: the file is dropped and the caller sees "no audio".
       expect(await run('200.5\n')).toBeNull();
       expect(probeArgs[probeArgs.length - 1]).toBe(audioFilePath);
+      // The measured length is kept, so the next call answers too_long with no audio run (#107).
+      expect(youtube.measuredAudioSeconds(reel)).toBe(200.5);
+      youtube.resetMeasuredAudioSecondsForTests();
       await expect(access(audioFilePath, constants.F_OK)).rejects.toThrow();
       expect(logger.info).toHaveBeenCalledWith(
         { maxDuration: 120, duration: 200.5 },
@@ -925,8 +928,29 @@ today to pay our respects to MCP, which
 
       // Within the cap: the file is handed on.
       expect(await run('12.679\n')).toBe(audioFilePath);
+      // An unreadable length and a length within the cap are not kept.
+      expect(youtube.measuredAudioSeconds(reel)).toBeUndefined();
       await unlink(audioFilePath).catch(() => {});
       dateSpy.mockRestore();
+    });
+
+    it('keeps at most 1000 measured lengths and drops the oldest first', () => {
+      for (let i = 0; i <= 1000; i++) youtube.noteMeasuredAudioSeconds(`https://x.test/${i}`, 200);
+
+      expect(youtube.measuredAudioSeconds('https://x.test/0')).toBeUndefined();
+      expect(youtube.measuredAudioSeconds('https://x.test/1')).toBe(200);
+      expect(youtube.measuredAudioSeconds('https://x.test/1000')).toBe(200);
+      youtube.resetMeasuredAudioSecondsForTests();
+    });
+
+    it('moves a measured length that is noted again to the newest place', () => {
+      for (let i = 0; i < 1000; i++) youtube.noteMeasuredAudioSeconds(`https://x.test/${i}`, 200);
+      youtube.noteMeasuredAudioSeconds('https://x.test/0', 300);
+      youtube.noteMeasuredAudioSeconds('https://x.test/1000', 200);
+
+      expect(youtube.measuredAudioSeconds('https://x.test/0')).toBe(300);
+      expect(youtube.measuredAudioSeconds('https://x.test/1')).toBeUndefined();
+      youtube.resetMeasuredAudioSecondsForTests();
     });
 
     it('reads the length even when the process cap is full', async () => {

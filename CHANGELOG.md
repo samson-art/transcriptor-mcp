@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- A video whose downloaded audio was longer than `WHISPER_MAX_DURATION_SECONDS` got the `stt_failed` answer, and a repeat call downloaded the audio again. Now it gets the `too_long` answer, and the server keeps the measured length in memory (up to 1000 URLs), so a repeat call starts no audio run (#107).
+
 ## [1.5.24] - 2026-11-03
 
 ### Fixed
