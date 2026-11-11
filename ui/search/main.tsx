@@ -5,10 +5,12 @@ import React, { StrictMode, useCallback, useEffect, useRef, useState } from 'rea
 import { createRoot } from 'react-dom/client';
 import { AppShell } from '@shared/AppShell';
 import { watchUrlAt, youtubeWatchUrl } from '@shared/format';
+import { LinkedText } from '@shared/LinkedText';
 import { notifyHostAboutResize } from '@shared/resize';
 import {
   parseAvailableSubtitles,
   pickDefaultTrack,
+  toolErrorText,
   type AvailableSubtitleTracks,
   type SubtitleTrack,
 } from '@shared/subtitleTracks';
@@ -43,6 +45,9 @@ function SearchApp() {
   const [selectedTrack, setSelectedTrack] = useState<SubtitleTrack | null>(null);
   const [tracksLoading, setTracksLoading] = useState(false);
   const [status, setStatus] = useState<'waiting' | 'ready' | 'empty'>('waiting');
+  // The text of a failed search, shown in place of "No results found." (#106).
+  const [failure, setFailure] = useState<string | null>(null);
+  const [cuesError, setCuesError] = useState<string | null>(null);
   const [appRef, setAppRef] = useState<App | null>(null);
   const cuesStatusRef = useRef(cuesStatus);
   cuesStatusRef.current = cuesStatus;
@@ -54,6 +59,7 @@ function SearchApp() {
       setAppRef(app);
       app.ontoolresult = (result) => {
         const parsed = parseSearchResults(result);
+        setFailure(toolErrorText(result));
         setResults(parsed);
         setSelectedId(null);
         setCues([]);
@@ -110,6 +116,7 @@ function SearchApp() {
       const videoId = selectedId;
       const t = track ?? selectedTrack;
       setCuesStatus('loading');
+      setCuesError(null);
       setCues([]);
 
       try {
@@ -124,6 +131,7 @@ function SearchApp() {
         });
 
         if (result.isError) {
+          setCuesError(toolErrorText(result));
           setCuesStatus('error');
           notifyHostAboutResize();
           return;
@@ -227,6 +235,8 @@ function SearchApp() {
           <SubtitlesPanel
             cues={cues}
             status={cuesStatus}
+            errorMessage={cuesError}
+            app={appRef}
             video={selected}
             onOpenAtTime={(seconds) => void handleOpenExternal(selected, seconds)}
             onLoadSubtitles={() => void loadSubtitles()}
@@ -239,7 +249,9 @@ function SearchApp() {
       )}
 
       {status === 'waiting' && <div style={styles.centered}>Waiting for search results…</div>}
-      {status === 'empty' && <div style={styles.centered}>No results found.</div>}
+      {status === 'empty' && (
+        <div style={styles.centered}>{failure ? <LinkedText text={failure} app={appRef} /> : 'No results found.'}</div>
+      )}
 
       {results.length > 0 && (
         <ul style={styles.carousel}>

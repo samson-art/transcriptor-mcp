@@ -57,6 +57,15 @@ export function parseToolError(result: CallToolResult): ToolError | null {
   return { message: text.slice(0, hint.index), tracks };
 }
 
+/**
+ * The text of a failed call, or null when the call worked or the failure has no text.
+ * The text is the server's, or that of a gateway in front of it (a daily limit): the
+ * widget shows it as it is and adds no words, links or buttons of its own (#106).
+ */
+export function toolErrorText(result: CallToolResult): string | null {
+  return parseToolError(result)?.message.trim() || null;
+}
+
 export function trackMatches(available: AvailableSubtitleTracks, track: SubtitleTrack): boolean {
   return track.type === 'official'
     ? available.official.includes(track.lang)
