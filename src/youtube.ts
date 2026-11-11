@@ -177,9 +177,10 @@ const YT_DLP_FAILURE_PATTERNS: ReadonlyArray<[YtDlpFailureReason, RegExp]> = [
     'extractor',
     /nsig extraction failed|unable to extract|requested format is not available|unable to download (?:webpage|api page)|failed to parse json|unexpected response from webpage/i,
   ],
+  // "This channel does not have a videos tab": a channel URL with no uploads of that kind.
   [
     'unavailable',
-    /video (?:is )?unavailable|this video is not available|has been removed|does not exist|no longer available|unsupported url/i,
+    /video (?:is )?unavailable|this video is not available|has been removed|does not exist|no longer available|unsupported url|does not have an? \w+ tab/i,
   ],
   // Last on purpose: stderr includes warnings, and this one also appears next to
   // failures with a real cause above (a removed video must stay `unavailable`).
