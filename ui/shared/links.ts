@@ -20,3 +20,22 @@ export function splitLinks(text: string): TextPart[] {
   if (at < text.length) parts.push({ text: text.slice(at) });
   return parts;
 }
+
+const UTC_TIMESTAMP = /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?Z/g;
+
+/**
+ * Shows each UTC timestamp of a text ("2026-11-17T00:00:00.000Z") as a date and a time in
+ * the language and the zone of the reader (#106). `locale` and `timeZone` are for tests:
+ * the widget passes neither, so the browser decides.
+ */
+export function humanTimes(text: string, locale?: string, timeZone?: string): string {
+  const format = new Intl.DateTimeFormat(locale, {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+    timeZone,
+  });
+  return text.replace(UTC_TIMESTAMP, (stamp) => {
+    const time = new Date(stamp);
+    return Number.isNaN(time.getTime()) ? stamp : format.format(time);
+  });
+}

@@ -5,7 +5,7 @@ import {
   toolErrorText,
   type AvailableSubtitleTracks,
 } from './subtitleTracks';
-import { splitLinks } from './links';
+import { humanTimes, splitLinks } from './links';
 import { videoInfoToMeta, type VideoInfoData } from './videoInfo';
 
 const reel = 'https://www.instagram.com/reel/DdZsSYXxBqd/';
@@ -187,5 +187,29 @@ describe('splitLinks', () => {
   it('links nothing but https, so a text cannot start a script or a file', () => {
     const text = 'Try http://example.test/ or javascript:alert(1) or www.example.test';
     expect(splitLinks(text)).toEqual([{ text }]);
+  });
+});
+
+describe('humanTimes', () => {
+  it('shows a UTC timestamp as a date and a time in the zone of the reader', () => {
+    const text = 'The limit resets at 2026-11-17T00:00:00.000Z. Try again then.';
+    expect(humanTimes(text, 'en-GB', 'UTC')).toBe(
+      'The limit resets at 17 Nov 2026, 00:00. Try again then.'
+    );
+    expect(humanTimes(text, 'en-GB', 'Europe/Madrid')).toBe(
+      'The limit resets at 17 Nov 2026, 01:00. Try again then.'
+    );
+  });
+
+  it('reads a timestamp with no seconds part or no fraction', () => {
+    expect(humanTimes('at 2026-11-17T09:30Z', 'en-GB', 'UTC')).toBe('at 17 Nov 2026, 09:30');
+    expect(humanTimes('at 2026-11-17T09:30:15Z', 'en-GB', 'UTC')).toBe('at 17 Nov 2026, 09:30');
+  });
+
+  it('leaves a text with no timestamp, and a date that does not exist, as they are', () => {
+    expect(humanTimes('Video 2026-11-17 is private.', 'en-GB', 'UTC')).toBe(
+      'Video 2026-11-17 is private.'
+    );
+    expect(humanTimes('at 2026-13-45T99:99:99Z', 'en-GB', 'UTC')).toBe('at 2026-13-45T99:99:99Z');
   });
 });
