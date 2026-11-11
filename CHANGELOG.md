@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Transcription of a Facebook video failed with "Requested format is not available", because its formats have no codec fields. The audio run now falls back to the best format of any kind when no other format matches. When that format has no sound, the run fails as before, and the server now deletes the downloaded video. If you set `YT_DLP_AUDIO_FORMAT` to the old default, remove it or add `/best`: your value overrides the new default (#108).
+
 ## [1.5.24] - 2026-11-03
 
 ### Fixed

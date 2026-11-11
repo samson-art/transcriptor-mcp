@@ -1,7 +1,7 @@
 import { execFile, type ExecFileException, type ExecFileOptions } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { promisify } from 'node:util';
-import { readFile, stat, unlink, writeFile } from 'node:fs/promises';
+import { readdir, readFile, stat, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import type { FastifyBaseLogger } from 'fastify';
@@ -1004,9 +1004,13 @@ export async function downloadAudio(
 
   // TikTok has no audio-only format: every format holds video and sound, so without the
   // last fallback yt-dlp stops with "Requested format is not available" (#63).
+  // Facebook's plain sd/hd formats carry no codec fields, so bestaudio (needs vcodec none)
+  // and [acodec!=none] (drops an unknown acodec) match nothing and yt-dlp stops with the same
+  // error. Plain best keeps a format with unknown codecs, and yt-dlp reaches it only when the
+  // earlier alternatives match nothing, so YouTube and TikTok keep their choice (#108).
   const audioFormat =
     (process.env.YT_DLP_AUDIO_FORMAT ?? '').trim() ||
-    'bestaudio[abr<=192]/bestaudio/best*[acodec!=none]';
+    'bestaudio[abr<=192]/bestaudio/best*[acodec!=none]/best';
   const audioQualityNum = parseIntEnv('YT_DLP_AUDIO_QUALITY', 5);
   const audioQuality = audioQualityNum < 0 || audioQualityNum > 9 ? '5' : String(audioQualityNum);
 
@@ -1044,6 +1048,7 @@ export async function downloadAudio(
   });
   appendYtDlpAudioArgs(optionalArgs);
   const args = [...baseArgs, ...optionalArgs, url];
+  const baseName = outputBase.split(/[/\\]/).pop() ?? '';
 
   try {
     await logCookiesFileStatus(logger, cookiesFilePathFromEnv);
@@ -1055,8 +1060,6 @@ export async function downloadAudio(
     });
     await new Promise((resolve) => setTimeout(resolve, 100));
 
-    const { readdir } = await import('node:fs/promises');
-    const baseName = outputBase.split(/[/\\]/).pop() ?? '';
     const files = await readdir(tempDir);
     const audioFile = files.find(
       (f) =>
@@ -1097,6 +1100,12 @@ export async function downloadAudio(
       },
       'Error downloading audio via yt-dlp'
     );
+    // The last fallback downloads a whole video. When the video has no sound, the extraction
+    // fails and yt-dlp leaves the video in the temp dir (#108).
+    const leftovers = await readdir(tempDir).catch(() => [] as string[]);
+    for (const f of leftovers) {
+      if (f.startsWith(`${baseName}.`)) await unlink(join(tempDir, f)).catch(() => {});
+    }
     return null;
   } finally {
     await cookiesCleanup?.();
