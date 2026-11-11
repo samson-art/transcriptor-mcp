@@ -18,6 +18,7 @@ import {
   captureVideoFrame,
   getImageWidth,
   whisperMaxDurationSeconds,
+  measuredAudioSeconds,
   mapVideoInfo,
   resolveSubtitleFormat,
   type SubtitleFormat,
@@ -506,7 +507,7 @@ async function downloadWithAutoDiscover(
   const canTranscribe = whisperConfig.mode !== 'off' && !(onlyType && platform !== 'youtube');
   // The track list in hand has the length, so a longer video gets its answer without the audio
   // run (#88). This answer also comes during a hold, because it sends nothing to the platform.
-  if (canTranscribe && !overWhisperCeiling(available.duration)) {
+  if (canTranscribe && !overWhisperCeiling(available.duration, url)) {
     // A hold skips speech-to-text as well (ADR 002).
     assertSubtitlesNotRateLimited(url);
     logger?.info('Trying Whisper fallback for auto-discovery');
@@ -674,11 +675,12 @@ async function raceWhisperJob<T>(
  * a known length over the ceiling, yt-dlp reads the page, skips the download and exits 0 with no
  * file. From 2026-10-23 to 2026-10-29, 247 of 638 audio runs ended this way (#88). This is the
  * same test. Change both together. An unknown length is not over the ceiling: the run measures
- * the audio.
+ * the audio. A length that an earlier audio run measured over the ceiling counts as known (#107).
  */
-function overWhisperCeiling(duration: number | undefined): boolean {
+function overWhisperCeiling(duration: number | undefined, url: string): boolean {
   const ceiling = whisperMaxDurationSeconds();
-  return ceiling > 0 && typeof duration === 'number' && duration > ceiling;
+  const length = duration ?? measuredAudioSeconds(url);
+  return ceiling > 0 && typeof length === 'number' && length > ceiling;
 }
 
 async function throwNoSubtitlesError(opts: {
@@ -708,7 +710,7 @@ async function throwNoSubtitlesError(opts: {
       if (err instanceof YtDlpError) throw err;
       return undefined;
     }));
-  const tooLong = opts.canTranscribe && overWhisperCeiling(available?.duration);
+  const tooLong = opts.canTranscribe && overWhisperCeiling(available?.duration, opts.url);
   const whisperTried = opts.canTranscribe && !tooLong;
   if (whisperTried) recordSubtitlesFailure('no_subtitles');
 
@@ -904,7 +906,7 @@ async function handleExplicitRequestFlow(
     canTranscribe && whisperMaxDurationSeconds() > 0
       ? await peekCachedAvail(url, logger)
       : undefined;
-  if (canTranscribe && !overWhisperCeiling(cachedList?.duration)) {
+  if (canTranscribe && !overWhisperCeiling(cachedList?.duration, url)) {
     logger?.info({ lang: sanitizedLang }, 'Trying Whisper fallback');
     const job = startOrReuseWhisperJob(url, sanitizedLang, 'srt', logger);
     const outcome = await raceWhisperJob(job, whisperConfig.timeout);

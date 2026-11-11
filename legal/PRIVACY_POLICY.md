@@ -1,8 +1,10 @@
 # Privacy Policy — Transcriptor MCP (hosted service)
 
-**Version:** 1.2
-**Last updated:** November 3, 2026
-**Effective date:** December 4, 2026
+**Version:** 1.3
+**Last updated:** November 12, 2026
+**Effective date:** December 14, 2026
+
+Version 1.2 applies from December 4, 2026 until this version takes effect. If you buy the paid plan before December 14, 2026, the parts of this version about payment apply to you from the moment you buy.
 
 Companion document: [Terms of Service](./TERMS_OF_SERVICE.md). "Output" has the meaning given to it in section 3 of the Terms.
 
@@ -18,13 +20,14 @@ We publish the Service on the MCPal platform (`mcpal.io`), which we do not opera
 
 MCPal is the controller for the account and identity data in its systems, for the acceptance records and for the per-call usage records in section 3: it shows both documents at sign-in, records your acceptance, and holds and deletes the usage ledger on its own systems and to its own retention rules. Its policy at `https://mcpal.io/privacy.html` covers that layer. We receive those records as a recipient, through the MCPal dashboard, and we are the controller for what our own server does with your request. If you send us a request we cannot answer because the data sits in MCPal's systems, we forward it and tell you we have done so.
 
-The Service is free, so we take no payment and process no payment or billing data about you.
+The free allowance needs no payment, so no payment or billing data about you is processed for it. If you buy the paid plan, the operator of the MCPal platform sells it, and Stripe processes the payment. They are the controllers for the payment and billing data: your card details, your billing details and your receipts. We never receive your card details. From MCPal we receive at most the status and the dates of your subscription.
 
 ## 3. What is processed
 
 - **Account and identity data**, held by MCPal: internal and Zitadel identifiers, email address, name, organisation identifier, creation and update dates. We never receive your password. The OAuth clients your MCP application registers automatically are stored with your identifier.
 - **Acceptance record** (the platform calls it a consent record), held by MCPal: your Zitadel identifier, the server, the version of the Terms and of this policy you accepted, the time, **your IP address and your browser user-agent string**. It exists because both documents are shown on the sign-in screen, where you accept them.
 - **Per-call usage records**: one row per tool call in MCPal's ledger, with the server, the tool name, the time, success or failure, the duration, a client reference, your identifier, and technical fields about the call that the gateway sets. These records identify you.
+- **Subscription and payment data**, only if you buy the paid plan, held by MCPal and Stripe: your identifier, your email address, the identifiers of the Stripe customer and of the subscription, its status, the end of the paid period and whether you cancelled. Stripe alone holds your card details.
 - **What you send and what we return**: the addresses, search terms and other parameters you submit, and the Output we return.
 
 ## 4. What happens to your requests
@@ -45,7 +48,7 @@ We use nothing you send or receive to train any model, and we allow no provider 
 
 ## 5. Purposes and legal bases
 
-- Give you access, run your calls and apply the daily free quota: performance of our contract, Article 6(1)(b) GDPR.
+- Give you access, run your calls, apply the daily free quota and apply a paid plan: performance of our contract, Article 6(1)(b) GDPR.
 - Record the version you accepted, with IP address and user-agent string: our legitimate interest in proving the documents were shown and accepted, Article 6(1)(f). This is your acceptance of the documents, not consent under Article 6(1)(a).
 - Keep the Service working, diagnose faults, prevent abuse and quota circumvention: our legitimate interest in a secure and reliable service, Article 6(1)(f).
 
@@ -53,13 +56,13 @@ You may object to legitimate-interest processing at any time under Article 21 GD
 
 ## 6. Who receives data
 
-MCPal (gateway, identity, metering), Zitadel (identity, used by MCPal), Supabase (the database holding the platform data in section 3), and the companies that host the MCPal gateway and our server. The hosting companies process every request and every Output in transit.
+MCPal (gateway, identity, metering, sale of the paid plan), Stripe (payment, only if you buy the paid plan), Zitadel (identity, used by MCPal), Supabase (the database holding the platform data in section 3), and the companies that host the MCPal gateway and our server. The hosting companies process every request and every Output in transit.
 
 The Output goes back to the MCP client you connected, so the company that operates that client and its AI model receives it. That company is a separate controller under its own policy, we do not choose it, and we cannot control what it keeps. Consider this before you request material about identifiable people.
 
 Our server is able to send fault reports to Sentry (Functional Software, Inc.), and you should assume that it does. A report holds the error, the tool name, the submitted address and the log lines before it in that request, which can include the command we ran and the source platform's error output. We do not enable Sentry's optional collection of IP addresses and request headers, and we send Sentry no request or response bodies.
 
-Sentry and a hosting company may process data outside the European Economic Area, including in the United States. Where they do, the transfer is covered by the European Commission's standard contractual clauses or, where the recipient is certified, by the EU–US Data Privacy Framework. Ask us for the safeguards that apply to a given recipient and for the country its servers are in.
+Sentry, Stripe and a hosting company may process data outside the European Economic Area, including in the United States. Where they do, the transfer is covered by the European Commission's standard contractual clauses or, where the recipient is certified, by the EU–US Data Privacy Framework. Ask us for the safeguards that apply to a given recipient and for the country its servers are in.
 
 Our server requests captions, metadata, frames and audio from the source platform over our own network connection. We send that platform no identifier of yours and never use your credentials. We do not sell personal data, do not share it for advertising, and disclose it to an authority only where the law requires it.
 
@@ -70,6 +73,7 @@ Our server requests captions, metadata, frames and audio from the source platfor
 - **Frame lookups**: in memory only, used for no more than 5 minutes, removed at the next frame request that needs a new lookup after that time, lost on restart.
 - **Audio for transcription**: a temporary file, deleted when the transcription ends, and at the latest when the server restarts.
 - **Usage records that identify you**: 45 days, then deleted automatically. Before deletion they are rolled up into daily totals per server and per tool and into counts of distinct users per day, week and month. Those totals carry no identifier and are kept for the life of the Service.
+- **Subscription and payment records**: kept by MCPal and by Stripe for the periods in their policies, which include the periods that tax and accounting law requires.
 - **Account and identity records**: kept by MCPal while your account exists, for the periods in its policy.
 - **Acceptance records, including the IP address and user-agent string captured at sign-in**: held by MCPal while your account exists and deleted with it, for the periods in its policy.
 - **Fault reports at Sentry**: no more than 90 days.
@@ -84,7 +88,7 @@ You may complain to the Spanish supervisory authority, the Agencia Española de 
 
 ## 9. Providing data, and automated decisions
 
-An MCPal account and sign-in are needed to use the Service; without them we cannot provide it. Quota, entitlement and abuse checks run automatically and decide only whether one request is allowed. A decision to suspend or end your access is taken by a person, not automatically. We take no automated decision producing a legal effect for you or similarly significantly affecting you.
+An MCPal account and sign-in are needed to use the Service; without them we cannot provide it. Quota, paid plan, entitlement and abuse checks run automatically and decide only whether one request is allowed. A decision to suspend or end your access is taken by a person, not automatically. We take no automated decision producing a legal effect for you or similarly significantly affecting you.
 
 ## 10. People who appear in videos
 
@@ -102,7 +106,7 @@ Traffic is encrypted in transit and access to our systems is restricted. We hold
 
 ## 12. Changes and contact
 
-This policy carries a version number, and the acceptance record stores the version you accepted. We give at least 30 days' notice of any change, by email and additionally on the sign-in screen. If you do not accept the new version you may stop using the Service, which costs you nothing; section 18 of the [Terms of Service](./TERMS_OF_SERVICE.md) applies to changes.
+This policy carries a version number, and the acceptance record stores the version you accepted. We give at least 30 days' notice of any change, by email and additionally on the sign-in screen. If you do not accept the new version you may stop using the Service, which costs you nothing, and cancel a paid plan; section 18 of the [Terms of Service](./TERMS_OF_SERVICE.md) applies to changes.
 
 The current version is published at <https://github.com/samson-art/transcriptor-mcp/blob/main/legal/PRIVACY_POLICY.md>. Every version stays in that repository's history. This policy and the Terms are published in English.
 

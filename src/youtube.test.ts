@@ -691,7 +691,7 @@ today to pay our respects to MCP, which
 
       expect(execFileMock).toHaveBeenCalled();
       expect(capturedArgs).toContain('-f');
-      expect(capturedArgs).toContain('bestaudio[abr<=192]/bestaudio/best*[acodec!=none]');
+      expect(capturedArgs).toContain('bestaudio[abr<=192]/bestaudio/best*[acodec!=none]/best');
       expect(capturedArgs).toContain('--audio-quality');
       expect(capturedArgs).toContain('5');
       expect(capturedArgs).toContain('--extract-audio');
@@ -703,7 +703,7 @@ today to pay our respects to MCP, which
       dateSpy.mockRestore();
     });
 
-    it('falls back to a format with sound when the platform has no audio-only format (#63)', async () => {
+    it('falls back to a format with sound, then to any format, when the platform has no audio-only format (#63, #108)', async () => {
       let capturedArgs: string[] = [];
       execFileMock.mockImplementation(
         (
@@ -720,7 +720,38 @@ today to pay our respects to MCP, which
       await downloadAudio(url);
 
       const formatIdx = capturedArgs.indexOf('-f');
-      expect(capturedArgs[formatIdx + 1]).toBe('bestaudio[abr<=192]/bestaudio/best*[acodec!=none]');
+      expect(capturedArgs[formatIdx + 1]).toBe(
+        'bestaudio[abr<=192]/bestaudio/best*[acodec!=none]/best'
+      );
+    });
+
+    it('deletes the video that a failed audio extraction leaves behind (#108)', async () => {
+      // A silent video: the last fallback downloads it, then extraction finds no sound.
+      const dateSpy = jest.spyOn(Date, 'now').mockReturnValue(1234567897);
+      const videoPath = join(tmpdir(), `${urlToSafeBase(url, 'audio')}.mp4`);
+      execFileMock.mockImplementation(
+        (
+          _file: string,
+          _args: string[],
+          _options: unknown,
+          callback: (error: Error | null, result: { stdout: string; stderr: string }) => void
+        ) => {
+          void writeFile(videoPath, 'fake video', 'utf-8').then(() =>
+            callback(
+              Object.assign(new Error('Command failed: yt-dlp'), {
+                code: 1,
+                stderr:
+                  'ERROR: Postprocessing: WARNING: unable to obtain file audio codec with ffprobe',
+              }),
+              { stdout: '', stderr: '' }
+            )
+          );
+        }
+      );
+
+      expect(await downloadAudio(url)).toBeNull();
+      await expect(access(videoPath, constants.F_OK)).rejects.toThrow();
+      dateSpy.mockRestore();
     });
 
     it('should use YT_DLP_AUDIO_FORMAT and YT_DLP_AUDIO_QUALITY when set', async () => {
@@ -904,6 +935,9 @@ today to pay our respects to MCP, which
       // Longer than the cap: the file is dropped and the caller sees "no audio".
       expect(await run('200.5\n')).toBeNull();
       expect(probeArgs[probeArgs.length - 1]).toBe(audioFilePath);
+      // The measured length is kept, so the next call answers too_long with no audio run (#107).
+      expect(youtube.measuredAudioSeconds(reel)).toBe(200.5);
+      youtube.resetMeasuredAudioSecondsForTests();
       await expect(access(audioFilePath, constants.F_OK)).rejects.toThrow();
       expect(logger.info).toHaveBeenCalledWith(
         { maxDuration: 120, duration: 200.5 },
@@ -925,8 +959,29 @@ today to pay our respects to MCP, which
 
       // Within the cap: the file is handed on.
       expect(await run('12.679\n')).toBe(audioFilePath);
+      // An unreadable length and a length within the cap are not kept.
+      expect(youtube.measuredAudioSeconds(reel)).toBeUndefined();
       await unlink(audioFilePath).catch(() => {});
       dateSpy.mockRestore();
+    });
+
+    it('keeps at most 1000 measured lengths and drops the oldest first', () => {
+      for (let i = 0; i <= 1000; i++) youtube.noteMeasuredAudioSeconds(`https://x.test/${i}`, 200);
+
+      expect(youtube.measuredAudioSeconds('https://x.test/0')).toBeUndefined();
+      expect(youtube.measuredAudioSeconds('https://x.test/1')).toBe(200);
+      expect(youtube.measuredAudioSeconds('https://x.test/1000')).toBe(200);
+      youtube.resetMeasuredAudioSecondsForTests();
+    });
+
+    it('moves a measured length that is noted again to the newest place', () => {
+      for (let i = 0; i < 1000; i++) youtube.noteMeasuredAudioSeconds(`https://x.test/${i}`, 200);
+      youtube.noteMeasuredAudioSeconds('https://x.test/0', 300);
+      youtube.noteMeasuredAudioSeconds('https://x.test/1000', 200);
+
+      expect(youtube.measuredAudioSeconds('https://x.test/0')).toBe(300);
+      expect(youtube.measuredAudioSeconds('https://x.test/1')).toBeUndefined();
+      youtube.resetMeasuredAudioSecondsForTests();
     });
 
     it('reads the length even when the process cap is full', async () => {
