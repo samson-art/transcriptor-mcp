@@ -5,6 +5,7 @@ import React, { StrictMode, useCallback, useEffect, useState, type CSSProperties
 import { createRoot } from 'react-dom/client';
 import { AppShell } from '@shared/AppShell';
 import { pageFromInput, watchUrlAt } from '@shared/format';
+import { LinkedText } from '@shared/LinkedText';
 import { notifyHostAboutResize } from '@shared/resize';
 import { styles } from '@shared/styles';
 import { toolErrorText } from '@shared/subtitleTracks';
@@ -201,7 +202,7 @@ function VideoFrameApp() {
       {status === 'waiting' && <div style={styles.centered}>Waiting for video frame…</div>}
       {status === 'loading' && <div style={styles.centered}>Capturing frame…</div>}
       {status === 'error' && (
-        <div style={styles.centered}>{failure ?? 'Failed to capture frame.'}</div>
+        <div style={styles.centered}>{failure ? <LinkedText text={failure} app={appRef} /> : 'Failed to capture frame.'}</div>
       )}
 
       {frame && status !== 'loading' && (

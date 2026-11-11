@@ -1,6 +1,8 @@
+import type { App } from '@modelcontextprotocol/ext-apps';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { formatCueTime } from './format.js';
 import { highlightCueText } from './highlight.js';
+import { LinkedText } from './LinkedText.js';
 import { SubtitleTrackPicker } from './SubtitleTrackPicker.js';
 import { hasAvailableTracks } from './subtitleTracks.js';
 import type { AvailableSubtitleTracks, SubtitleTrack } from './subtitleTracks.js';
@@ -15,6 +17,8 @@ type SubtitlesPanelProps = {
    * above "Load more" when a next page failed.
    */
   errorMessage?: string | null;
+  /** Opens the links of `errorMessage` through the host. */
+  app?: App | null;
   video: VideoMeta;
   onOpenAtTime: (seconds: number) => void;
   onLoadSubtitles?: () => void;
@@ -31,6 +35,7 @@ export function SubtitlesPanel({
   cues,
   status,
   errorMessage,
+  app,
   video,
   onOpenAtTime,
   onLoadSubtitles,
@@ -127,7 +132,11 @@ export function SubtitlesPanel({
         {(status === 'empty' || status === 'error') && (
           <div style={styles.loadSubtitlesRow}>
             <div style={styles.subtitlesMessage}>
-              {(status === 'error' && errorMessage) || 'No subtitles available.'}
+              {status === 'error' && errorMessage ? (
+                <LinkedText text={errorMessage} app={app ?? null} />
+              ) : (
+                'No subtitles available.'
+              )}
             </div>
             {onLoadSubtitles && (
               <button type="button" style={styles.loadMoreBtn} onClick={onLoadSubtitles}>
@@ -174,7 +183,9 @@ export function SubtitlesPanel({
       {isTruncated && onLoadMore && (
         <div style={styles.loadMoreRow}>
           {status === 'ready' && errorMessage && (
-            <div style={styles.subtitlesMessage}>{errorMessage}</div>
+            <div style={styles.subtitlesMessage}>
+              <LinkedText text={errorMessage} app={app ?? null} />
+            </div>
           )}
           <button
             type="button"

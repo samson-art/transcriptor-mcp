@@ -5,6 +5,7 @@ import React, { StrictMode, useCallback, useEffect, useRef, useState } from 'rea
 import { createRoot } from 'react-dom/client';
 import { AppShell } from '@shared/AppShell';
 import { isYouTubePage, pageFromInput, watchUrlAt } from '@shared/format';
+import { LinkedText } from '@shared/LinkedText';
 import { notifyHostAboutResize } from '@shared/resize';
 import { parseToolError, type SubtitleTrack, type ToolError } from '@shared/subtitleTracks';
 import { SubtitlesPanel } from '@shared/SubtitlesPanel';
@@ -196,7 +197,9 @@ function TranscriptApp() {
 
       {failure && (
         <div style={styles.failure}>
-          <p style={styles.failureText}>{failure.message}</p>
+          <p style={styles.failureText}>
+            <LinkedText text={failure.message} app={appRef} />
+          </p>
           {failure.tracks.map(({ type, langs, more }) => (
             <div key={type} style={styles.trackGroup}>
               <span style={styles.trackGroupLabel}>{type}</span>
@@ -219,6 +222,7 @@ function TranscriptApp() {
               cues={subtitles.cues}
               status={subtitles.cuesStatus}
               errorMessage={subtitles.cuesError}
+              app={appRef}
               video={video}
               onOpenAtTime={(seconds) => void handleOpenExternal(seconds)}
               onLoadSubtitles={subtitles.loadSubtitles}

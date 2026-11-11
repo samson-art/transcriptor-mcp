@@ -6,6 +6,7 @@ import { createRoot } from 'react-dom/client';
 import { AppShell } from '@shared/AppShell';
 import { CollapsibleDescription } from '@shared/CollapsibleDescription';
 import { watchUrlAt } from '@shared/format';
+import { LinkedText } from '@shared/LinkedText';
 import { notifyHostAboutResize } from '@shared/resize';
 import { toolErrorText } from '@shared/subtitleTracks';
 import { SubtitlesPanel } from '@shared/SubtitlesPanel';
@@ -133,7 +134,7 @@ function VideoInfoApp() {
     <AppShell title="Video info">
       {status === 'waiting' && <div style={styles.centered}>Waiting for video info…</div>}
       {status === 'error' && (
-        <div style={styles.centered}>{failure ?? 'Failed to load video info.'}</div>
+        <div style={styles.centered}>{failure ? <LinkedText text={failure} app={appRef} /> : 'Failed to load video info.'}</div>
       )}
 
       {video && (
@@ -156,6 +157,7 @@ function VideoInfoApp() {
               cues={subtitles.cues}
               status={subtitles.cuesStatus}
               errorMessage={subtitles.cuesError}
+              app={appRef}
               video={video}
               onOpenAtTime={(seconds) => void handleOpenExternal(seconds)}
               onLoadSubtitles={subtitles.loadSubtitles}

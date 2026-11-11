@@ -5,6 +5,7 @@ import {
   toolErrorText,
   type AvailableSubtitleTracks,
 } from './subtitleTracks';
+import { splitLinks } from './links';
 import { videoInfoToMeta, type VideoInfoData } from './videoInfo';
 
 const reel = 'https://www.instagram.com/reel/DdZsSYXxBqd/';
@@ -163,5 +164,28 @@ describe('toolErrorText', () => {
   it('gives null for a failure with no text, so the widget shows its own fixed line', () => {
     expect(toolErrorText({ isError: true, content: [] })).toBeNull();
     expect(toolErrorText(failed('   '))).toBeNull();
+  });
+});
+
+describe('splitLinks', () => {
+  it('makes a link of an https address and keeps the words around it', () => {
+    expect(splitLinks('To learn more, open https://example.test/ now')).toEqual([
+      { text: 'To learn more, open ' },
+      { text: 'https://example.test/', href: 'https://example.test/' },
+      { text: ' now' },
+    ]);
+  });
+
+  it('leaves the full stop of the sentence out of the link', () => {
+    expect(splitLinks('See https://example.test/a?b=1.')).toEqual([
+      { text: 'See ' },
+      { text: 'https://example.test/a?b=1', href: 'https://example.test/a?b=1' },
+      { text: '.' },
+    ]);
+  });
+
+  it('links nothing but https, so a text cannot start a script or a file', () => {
+    const text = 'Try http://example.test/ or javascript:alert(1) or www.example.test';
+    expect(splitLinks(text)).toEqual([{ text }]);
   });
 });

@@ -5,6 +5,7 @@ import React, { StrictMode, useCallback, useEffect, useRef, useState } from 'rea
 import { createRoot } from 'react-dom/client';
 import { AppShell } from '@shared/AppShell';
 import { watchUrlAt, youtubeWatchUrl } from '@shared/format';
+import { LinkedText } from '@shared/LinkedText';
 import { notifyHostAboutResize } from '@shared/resize';
 import {
   parseAvailableSubtitles,
@@ -235,6 +236,7 @@ function SearchApp() {
             cues={cues}
             status={cuesStatus}
             errorMessage={cuesError}
+            app={appRef}
             video={selected}
             onOpenAtTime={(seconds) => void handleOpenExternal(selected, seconds)}
             onLoadSubtitles={() => void loadSubtitles()}
@@ -248,7 +250,7 @@ function SearchApp() {
 
       {status === 'waiting' && <div style={styles.centered}>Waiting for search results…</div>}
       {status === 'empty' && (
-        <div style={styles.centered}>{failure ?? 'No results found.'}</div>
+        <div style={styles.centered}>{failure ? <LinkedText text={failure} app={appRef} /> : 'No results found.'}</div>
       )}
 
       {results.length > 0 && (
