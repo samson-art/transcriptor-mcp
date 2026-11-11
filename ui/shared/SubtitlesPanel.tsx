@@ -10,7 +10,10 @@ import type { Cue, CuesStatus, VideoMeta } from './types.js';
 type SubtitlesPanelProps = {
   cues: Cue[];
   status: CuesStatus;
-  /** The text of the failed call, shown in place of the fixed line when status is 'error'. */
+  /**
+   * The text of the failed call: in place of the fixed line when status is 'error', and
+   * above "Load more" when a next page failed.
+   */
   errorMessage?: string | null;
   video: VideoMeta;
   onOpenAtTime: (seconds: number) => void;
@@ -170,6 +173,9 @@ export function SubtitlesPanel({
       </div>
       {isTruncated && onLoadMore && (
         <div style={styles.loadMoreRow}>
+          {status === 'ready' && errorMessage && (
+            <div style={styles.subtitlesMessage}>{errorMessage}</div>
+          )}
           <button
             type="button"
             style={styles.loadMoreBtn}

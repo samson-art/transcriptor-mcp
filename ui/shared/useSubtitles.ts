@@ -71,9 +71,9 @@ export function useSubtitles(
 
       const t = track ?? selectedTrackRef.current;
 
+      setCuesError(null);
       if (!append) {
         setCuesStatus('loading');
-        setCuesError(null);
         setCues([]);
         setNextCursor(undefined);
         setIsTruncated(false);
@@ -94,10 +94,9 @@ export function useSubtitles(
         });
 
         if (result.isError) {
-          if (!append) {
-            setCuesError(toolErrorText(result));
-            setCuesStatus('error');
-          }
+          // A refused next page keeps the cues on screen and says why under them.
+          setCuesError(toolErrorText(result));
+          if (!append) setCuesStatus('error');
           return;
         }
 

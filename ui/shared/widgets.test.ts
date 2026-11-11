@@ -150,6 +150,12 @@ describe('toolErrorText', () => {
     expect(toolErrorText(failed(text))).toBe(text);
   });
 
+  it('leaves out the track list sentence, which the widget shows with its own picker', () => {
+    const text = 'No subtitles for this track.';
+    const hint = ' Available tracks — official: en, de; auto: none.';
+    expect(toolErrorText(failed(text + hint))).toBe(text);
+  });
+
   it('gives null for a call that did not fail, so the widget shows its result', () => {
     expect(toolErrorText({ content: [{ type: 'text' as const, text: 'Hello.' }] })).toBeNull();
   });
