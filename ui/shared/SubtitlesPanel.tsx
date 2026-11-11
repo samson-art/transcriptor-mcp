@@ -1,6 +1,8 @@
+import type { App } from '@modelcontextprotocol/ext-apps';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { formatCueTime } from './format.js';
 import { highlightCueText } from './highlight.js';
+import { LinkedText } from './LinkedText.js';
 import { SubtitleTrackPicker } from './SubtitleTrackPicker.js';
 import { hasAvailableTracks } from './subtitleTracks.js';
 import type { AvailableSubtitleTracks, SubtitleTrack } from './subtitleTracks.js';
@@ -10,6 +12,13 @@ import type { Cue, CuesStatus, VideoMeta } from './types.js';
 type SubtitlesPanelProps = {
   cues: Cue[];
   status: CuesStatus;
+  /**
+   * The text of the failed call: in place of the fixed line when status is 'error', and
+   * above "Load more" when a next page failed.
+   */
+  errorMessage?: string | null;
+  /** Opens the links of `errorMessage` through the host. */
+  app?: App | null;
   video: VideoMeta;
   onOpenAtTime: (seconds: number) => void;
   onLoadSubtitles?: () => void;
@@ -25,6 +34,8 @@ type SubtitlesPanelProps = {
 export function SubtitlesPanel({
   cues,
   status,
+  errorMessage,
+  app,
   video,
   onOpenAtTime,
   onLoadSubtitles,
@@ -120,7 +131,13 @@ export function SubtitlesPanel({
         )}
         {(status === 'empty' || status === 'error') && (
           <div style={styles.loadSubtitlesRow}>
-            <div style={styles.subtitlesMessage}>No subtitles available.</div>
+            <div style={styles.subtitlesMessage}>
+              {status === 'error' && errorMessage ? (
+                <LinkedText text={errorMessage} app={app ?? null} />
+              ) : (
+                'No subtitles available.'
+              )}
+            </div>
             {onLoadSubtitles && (
               <button type="button" style={styles.loadMoreBtn} onClick={onLoadSubtitles}>
                 Retry
@@ -165,6 +182,11 @@ export function SubtitlesPanel({
       </div>
       {isTruncated && onLoadMore && (
         <div style={styles.loadMoreRow}>
+          {status === 'ready' && errorMessage && (
+            <div style={styles.subtitlesMessage}>
+              <LinkedText text={errorMessage} app={app ?? null} />
+            </div>
+          )}
           <button
             type="button"
             style={styles.loadMoreBtn}
