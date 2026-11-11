@@ -1908,6 +1908,8 @@ today to pay our respects to MCP, which
         'rate_limited',
       ],
       ['ERROR: [TikTok] 123: Your IP address is blocked from accessing this post', 'geo_blocked'],
+      ['ERROR: [youtube:tab] UCx: This channel does not have a videos tab', 'unavailable'],
+      ['ERROR: [youtube:tab] UCx: This channel does not have a shorts tab', 'unavailable'],
     ];
 
     it.each(cases)('should classify %s as %s', (stderr, expected) => {
@@ -2561,6 +2563,13 @@ today to pay our respects to MCP, which
       await expect(
         downloadPlaylistSubtitles('https://www.youtube.com/playlist?list=PLxxx', { lang: 'en' })
       ).rejects.toMatchObject({ name: 'YtDlpError', reason: 'private' });
+    });
+
+    it('reports a channel without the requested tab as unavailable', async () => {
+      mockExecFileFailure('ERROR: [youtube:tab] UCx: This channel does not have a videos tab');
+      await expect(
+        downloadPlaylistSubtitles('https://www.youtube.com/@x/videos', { lang: 'en' })
+      ).rejects.toMatchObject({ name: 'YtDlpError', reason: 'unavailable' });
     });
 
     it('reports a cancelled queue that produced nothing and hit a limit as that limit', async () => {

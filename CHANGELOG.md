@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- A playlist call on a channel with no videos or shorts tab failed as an unknown error. It now says that the content is not available (#109).
+
 ## [1.5.24] - 2026-11-03
 
 ### Fixed
