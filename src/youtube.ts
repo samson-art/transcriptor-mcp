@@ -979,6 +979,32 @@ export function whisperMaxDurationSeconds(): number {
 }
 
 /**
+ * Lengths over the ceiling that only the audio run could measure (Instagram and TikTok often
+ * give none before it), keyed by URL. A repeat call then answers too_long without a new audio
+ * run (#107). From 2026-11-06 to 2026-11-09, about 20 such calls asked for each video twice.
+ */
+const measuredOverCeiling = new Map<string, number>();
+
+export function noteMeasuredAudioSeconds(url: string, seconds: number): void {
+  // Delete first, so a repeat moves the key to the end of the insertion order.
+  measuredOverCeiling.delete(url);
+  measuredOverCeiling.set(url, seconds);
+  // ponytail: process-local, at most 1000 URLs, oldest dropped, lost on restart. Move it to the
+  // cache if repeats after a restart or across replicas start to cost audio runs.
+  if (measuredOverCeiling.size > 1000) {
+    measuredOverCeiling.delete(measuredOverCeiling.keys().next().value as string);
+  }
+}
+
+export function measuredAudioSeconds(url: string): number | undefined {
+  return measuredOverCeiling.get(url);
+}
+
+export function resetMeasuredAudioSecondsForTests(): void {
+  measuredOverCeiling.clear();
+}
+
+/**
  * Downloads audio only for a video (for Whisper transcription).
  * Caller must unlink the returned file path when done.
  * @param url - Video URL (any supported platform)
@@ -1071,6 +1097,8 @@ export async function downloadAudio(
         const duration = await probeDurationSeconds(audioPath, logger);
         if (!(Math.floor(duration) <= maxDuration)) {
           await unlink(audioPath).catch(() => {});
+          // NaN (ffprobe failed) is not a length, so that answer stays stt_failed.
+          if (Number.isFinite(duration)) noteMeasuredAudioSeconds(url, duration);
           logger?.info(
             { maxDuration, duration },
             'No audio for Whisper: video too long or of unknown length'

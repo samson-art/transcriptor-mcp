@@ -7,9 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Terms of Service 1.3 and Privacy Policy 1.3 describe an optional paid plan for the hosted Service. They take effect on 2026-12-14, 30 days after the notice, and for a buyer from the moment of the purchase. The free allowance per UTC day stays, and it can be different for each tool. The paid plan removes the daily allowance for one person, within a fair use rule. The operator of the MCPal platform sells the plan and Stripe processes the payment. The Terms give the rules for the price, the renewal, the cancellation and a refund in the first 14 days. Self-hosting does not change.
+
+## [1.5.27] - 2026-11-11
+
 ### Fixed
 
 - Transcription of a Facebook video failed with "Requested format is not available", because its formats have no codec fields. The audio run now falls back to the best format of any kind when no other format matches. When that format has no sound, the run fails as before, and the server now deletes the downloaded video. If you set `YT_DLP_AUDIO_FORMAT` to the old default, remove it or add `/best`: your value overrides the new default (#108).
+
+## [1.5.26] - 2026-11-11
+
+### Fixed
+
+- A video whose downloaded audio was longer than `WHISPER_MAX_DURATION_SECONDS` got the `stt_failed` answer, and a repeat call downloaded the audio again. Now it gets the `too_long` answer, and the server keeps the measured length in memory (up to 1000 URLs), so a repeat call starts no audio run (#107).
+
+## [1.5.25] - 2026-11-11
+
+### Fixed
+
+- The search, video info and video frame widgets, and the subtitle panel, now show the text of a failed call (#106). Before, they showed their own fixed line ("No results found.", "Failed to load video info.", "Failed to capture frame.", "No subtitles available."), so the user did not see why a call failed. This matters most behind a gateway that refuses calls at a daily limit: its answer names the reset time, and the search widget showed "No results found." in its place. A failed call with no text keeps the fixed line. An `https` address in the text is a link that opens through the host, in these widgets and in the transcript widget. A UTC timestamp in the text (`2026-11-17T00:00:00.000Z`) shows as a date and a time in the language and the time zone of the browser (`17 Nov 2026, 01:00`). Tools, schemas and error texts do not change.
 
 ## [1.5.24] - 2026-11-03
 
