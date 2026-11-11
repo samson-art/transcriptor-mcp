@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.25] - 2026-11-11
+
+### Fixed
+
+- The search, video info and video frame widgets, and the subtitle panel, now show the text of a failed call (#106). Before, they showed their own fixed line ("No results found.", "Failed to load video info.", "Failed to capture frame.", "No subtitles available."), so the user did not see why a call failed. This matters most behind a gateway that refuses calls at a daily limit: its answer names the reset time, and the search widget showed "No results found." in its place. A failed call with no text keeps the fixed line. An `https` address in the text is a link that opens through the host, in these widgets and in the transcript widget. A UTC timestamp in the text (`2026-11-17T00:00:00.000Z`) shows as a date and a time in the language and the time zone of the browser (`17 Nov 2026, 01:00`). Tools, schemas and error texts do not change.
+
 ## [1.5.24] - 2026-11-03
 
 ### Fixed
