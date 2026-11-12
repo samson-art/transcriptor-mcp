@@ -266,8 +266,8 @@ The Swagger interface is at `http://localhost:3000/docs`. For a full stack with 
 ```bash
 npm ci
 npm run build
-npm run start:mcp        # stdio
-npm run start:mcp:http   # Streamable HTTP on port 4200
+npm run --silent start:mcp   # stdio (--silent keeps the npm banner off stdout)
+npm run start:mcp:http       # Streamable HTTP on port 4200
 npm test
 ```
 

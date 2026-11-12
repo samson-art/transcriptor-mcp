@@ -1,4 +1,6 @@
 import { spawn } from 'node:child_process';
+import { createInterface } from 'node:readline';
+import type { Readable } from 'node:stream';
 
 import { isFlagSet } from './smoke-env.js';
 
@@ -24,6 +26,65 @@ export function runCommand(
     child.on('close', (code, signal) => {
       resolve({ code, signal });
     });
+  });
+}
+
+/**
+ * Reads the first line that an MCP stdio server writes to stdout, as JSON. The stdio transport
+ * allows only MCP messages on stdout, so a first line that is not JSON fails, a blank line too.
+ * This reader does not check the JSON-RPC shape: `checkMcpStdio` in `mcp-smoke.ts` does that. On
+ * 2026-10-07, `npm run start:mcp` of 1.5.21 wrote the npm script banner, which starts with a blank
+ * line, before the first message. A reader that skips lines that are not JSON lets the banner pass
+ * (#81).
+ */
+export async function readFirstLineAsJson(stdout: Readable): Promise<unknown> {
+  for await (const line of createInterface({ input: stdout, crlfDelay: Infinity })) {
+    try {
+      return JSON.parse(line) as unknown;
+    } catch {
+      throw new Error(
+        `The first stdout line is not JSON: ${JSON.stringify(line.slice(0, 200))}. In stdio mode, stdout must carry only MCP messages.`
+      );
+    }
+  }
+  throw new Error('The MCP stdio server closed stdout before its first line');
+}
+
+/** Starts a stdio server, sends `stdinInput` and returns its first stdout line, as JSON. */
+export function runCommandWithStdin(
+  command: string,
+  args: string[],
+  stdinInput: string,
+  timeoutMs: number
+): Promise<unknown> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, {
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+
+    // No "settled" flag: a Promise ignores a second settle, and a repeated clearTimeout or kill
+    // does nothing.
+    const settle = (finish: () => void, signal?: NodeJS.Signals) => {
+      clearTimeout(timeout);
+      child.kill(signal);
+      finish();
+    };
+    const fail = (err: Error) => settle(() => reject(err));
+    const timeout = setTimeout(() => {
+      settle(() => reject(new Error(`Command timed out after ${timeoutMs}ms`)), 'SIGKILL');
+    }, timeoutMs);
+
+    // ponytail: the first stdout line must be the answer, so a valid MCP notification in front of
+    // it fails the smoke with "missing result". If a server or SDK writes one (#86), wait for the
+    // first `result` or `error` line, and make every line before it parse as JSON.
+    readFirstLineAsJson(child.stdout).then((data) => settle(() => resolve(data)), fail);
+
+    child.on('error', fail);
+    child.stderr.on('data', (data: Buffer | string) => {
+      process.stderr.write(data);
+    });
+    child.stdin.on('error', fail);
+    child.stdin.end(stdinInput);
   });
 }
 

@@ -6,7 +6,7 @@
 
 ## Context
 
-`get_video_frame` ran one stream lookup for each call. The lookup is one yt-dlp run that prints the video id, the length and the direct stream URLs (`fetchVideoStreamInfo`). Then ffmpeg reads one frame from a stream URL. The stream URLs stay valid for hours.
+`get_video_frame` ran one stream lookup for each call. The lookup is one yt-dlp run that prints the video id, the length, the chosen format and the direct stream URLs (`fetchVideoStreamInfo`). Then ffmpeg reads one frame from a stream URL. The stream URLs stay valid for hours.
 
 Clients take many frames from one video in a row. The production logs of the week 2026-10-23 to 2026-10-29 show this:
 
