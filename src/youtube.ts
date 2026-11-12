@@ -1195,9 +1195,20 @@ type VideoStreamInfo = {
   streamUrls: string[];
 };
 
-/** Prefers a single mp4 video stream no wider than the requested frame; falls back to best. */
-function buildFrameFormatSelector(width: number): string {
-  return `bv*[width<=?${width}][ext=mp4]/bv*[width<=?${width}]/bv*/b`;
+/**
+ * Prefers an H.264 video stream no wider than the requested frame, then mp4, then best.
+ *
+ * H.264 comes first because yt-dlp ranks VP9 and AV1 above it, and YouTube marks its HLS VP9
+ * formats (602 to 628) as mp4. So the old first choice, mp4 alone, took format 605 over the
+ * H.264 format 230 of the same size. The ffmpeg of the image (5.1.9) has the VP9 and AV1
+ * decoders, but it finds no video stream in HLS VP9: the direct read fails, and the clip of
+ * the section download is a 262-byte mp4 without a stream (run in the image, 2026-11-12).
+ * In the first 11.5 hours of 1.5.32, 11 of 13 failed captures were HLS VP9 on YouTube or
+ * AV1 on Bilibili, and none was H.264 (#116).
+ */
+export function buildFrameFormatSelector(width: number): string {
+  const fits = `bv*[width<=?${width}]`;
+  return `${fits}[vcodec~='^(avc|h264)']/${fits}[ext=mp4]/${fits}/bv*/b`;
 }
 
 /** ffmpeg scale filter: cap width without upscaling, keep height even (comma escaped for filtergraph). */

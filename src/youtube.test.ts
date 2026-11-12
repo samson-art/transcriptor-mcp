@@ -3396,6 +3396,29 @@ today to pay our respects to MCP, which
       }
     });
 
+    it('asks for an H.264 stream first, in the lookup and in the section download (#116)', async () => {
+      // yt-dlp ranks VP9 and AV1 above H.264. The ffmpeg of the image finds no video stream
+      // in the HLS VP9 formats of YouTube, so H.264 must be the first choice of both runs.
+      mockFrameRuns();
+
+      await captureVideoFrame(url, 10, { width: 640 });
+
+      const selectors = execFileMock.mock.calls
+        .filter(([file]) => file === 'yt-dlp')
+        .map(([, args]) => (args as string[])[(args as string[]).indexOf('-f') + 1]);
+      expect(selectors).toEqual([
+        youtube.buildFrameFormatSelector(640),
+        youtube.buildFrameFormatSelector(640),
+      ]);
+      expect(selectors[0].split('/')).toEqual([
+        "bv*[width<=?640][vcodec~='^(avc|h264)']",
+        'bv*[width<=?640][ext=mp4]',
+        'bv*[width<=?640]',
+        'bv*',
+        'b',
+      ]);
+    });
+
     describe('stream lookup reuse', () => {
       const lookupOut = { stdout: 'vid123\n212\nhttps://cdn.example/stream.mp4\n', stderr: '' };
       const tick = () => new Promise((resolve) => setImmediate(resolve));

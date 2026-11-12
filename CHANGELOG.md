@@ -11,6 +11,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Terms of Service 1.3 and Privacy Policy 1.3 describe an optional paid plan for the hosted Service. They take effect on 2026-12-14, 30 days after the notice, and for a buyer from the moment of the purchase. The free allowance per UTC day stays, and it can be different for each tool. The paid plan removes the daily allowance for one person, within a fair use rule. The operator of the MCPal platform sells the plan and Stripe processes the payment. The Terms give the rules for the price, the renewal, the cancellation and a refund in the first 14 days. Self-hosting does not change.
 
+## [1.5.35] - 2026-11-12
+
+### Fixed
+
+- `get_video_frame` now asks for an H.264 stream first (#116). Before this, the server could select a VP9 stream that YouTube sends over HLS (for example formats 605, 606, 612 and 616), or an AV1 stream on Bilibili, although the video had an H.264 stream of the same size. The capture then ended with the 404 answer "Could not capture a frame". In the first 11.5 hours of 1.5.32, 11 of 13 failed captures had this pattern, and none had an H.264 stream. The ffmpeg of the image has the VP9 and AV1 decoders, but it finds no video stream in HLS VP9. A video without an H.264 stream of a width that fits gets the same choice as before. The number of runs for each call does not change.
+
 ## [1.5.32] - 2026-11-12
 
 ### Fixed
