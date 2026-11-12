@@ -62,6 +62,9 @@ jest.mock('@modelcontextprotocol/sdk/server/mcp.js', () => {
 
 jest.mock('@sentry/node', () => ({
   captureException: jest.fn(),
+  // No Sentry user here, so no Sentry log; src/instrument.test.ts covers both (#118).
+  getIsolationScope: () => ({ getUser: () => undefined }),
+  logger: { info: jest.fn() },
 }));
 
 jest.mock('./youtube.js', () => ({

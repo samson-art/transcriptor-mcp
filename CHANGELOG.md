@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Sentry can count the users who meet errors (#118). Behind a gateway that sends `x-mcpal-user-id` on each tool call, set the new `SENTRY_USER_HASH_SECRET`. The Sentry user of the request then becomes 16 hex characters of an HMAC of that id, never the id itself, so error events show "Users affected". Each tool call of such a request also sends one Sentry log, "MCP tool call", with the tool, the outcome, the reason of a failure, the "no subtitles" answer, the platform and the source. In Sentry Explore, `count_unique(user.id)` over these logs gives the users, and a filter on `outcome` or `reason` gives the users who met errors. The log holds no address and no video id. Without the env var or without the header, nothing changes.
+
 ### Changed
 
 - Terms of Service 1.3 and Privacy Policy 1.3 describe an optional paid plan for the hosted Service. They take effect on 2026-12-14, 30 days after the notice, and for a buyer from the moment of the purchase. The free allowance per UTC day stays, and it can be different for each tool. The paid plan removes the daily allowance for one person, within a fair use rule. The operator of the MCPal platform sells the plan and Stripe processes the payment. The Terms give the rules for the price, the renewal, the cancellation and a refund in the first 14 days. Self-hosting does not change.

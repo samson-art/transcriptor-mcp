@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHmac, randomUUID } from 'node:crypto';
 import type { AddressInfo } from 'node:net';
 import Fastify, { type FastifyInstance } from 'fastify';
 import * as Sentry from '@sentry/node';
@@ -10,9 +10,44 @@ import {
   resetSubtitleRateLimitsForTests,
 } from './subtitle-rate-limit.js';
 
-// The events the real SDK sends, with the options instrument.ts gives it. Only the DSN and
-// the transport are the test's: the transport keeps each event here and sends nothing.
+// This is the only test file that starts the real SDK. A second one in the same Jest worker
+// adds the OpenTelemetry hooks twice, and Fastify then refuses its "opentelemetry" decorator.
+
+// ext-apps ships ESM only, which ts-jest cannot load. Shim it onto the real McpServer
+// registration methods so the tool and resource surface stays intact.
+jest.mock('@modelcontextprotocol/ext-apps/server', () => ({
+  registerAppTool: (
+    server: { registerTool: (name: string, def: unknown, handler: unknown) => unknown },
+    name: string,
+    def: unknown,
+    handler: unknown
+  ) => server.registerTool(name, def, handler),
+  registerAppResource: (
+    server: {
+      registerResource: (name: string, uri: string, def: unknown, handler: unknown) => unknown;
+    },
+    name: string,
+    uri: string,
+    def: unknown,
+    handler: unknown
+  ) => server.registerResource(name, uri, def, handler),
+  RESOURCE_MIME_TYPE: 'text/html;profile=mcp-app',
+}));
+
+// Tool calls must not start the real yt-dlp; the tests answer for it. Other commands run for
+// real: the SDK's Context integration runs one to read the OS version for each event.
+jest.mock('node:child_process', () => {
+  const actual = jest.requireActual<typeof import('node:child_process')>('node:child_process');
+  return { ...actual, execFile: jest.fn(actual.execFile) };
+});
+
+type MockLog = { body: string; attributes: Record<string, { value: unknown }> };
+
+// What the real SDK sends, with the options instrument.ts gives it. Only the DSN and the
+// transport are the test's: the transport keeps each item here and sends nothing.
 const mockSent: Sentry.Event[] = [];
+const mockLogs: MockLog[] = [];
+const mockPayloads: string[] = [];
 jest.mock('@sentry/node', () => {
   const actual = jest.requireActual<typeof Sentry>('@sentry/node');
   return {
@@ -24,7 +59,9 @@ jest.mock('@sentry/node', () => {
         transport: () => ({
           send: (envelope: [unknown, Array<[{ type: string }, unknown]>]) => {
             for (const [item, payload] of envelope[1]) {
+              mockPayloads.push(JSON.stringify(payload));
               if (item.type === 'event') mockSent.push(payload as Sentry.Event);
+              if (item.type === 'log') mockLogs.push(...(payload as { items: MockLog[] }).items);
             }
             return Promise.resolve({});
           },
@@ -34,10 +71,15 @@ jest.mock('@sentry/node', () => {
   };
 });
 
+import { execFile } from 'node:child_process';
+import { createLoggerWithSentryBreadcrumbs } from './logger-sentry-breadcrumbs.js';
+
 const VIDEO_URL = 'https://www.youtube.com/watch?v=dQw4w9WgXcQ';
 const videoUrl = (i: number) => `https://www.youtube.com/watch?v=${String(i).padStart(11, 'v')}`;
 
 let app: FastifyInstance;
+let mcpApp: FastifyInstance;
+let mcpBaseUrl: string;
 
 beforeAll(async () => {
   // Tracing on: this is what adds Sentry's Fastify integration.
@@ -56,10 +98,19 @@ beforeAll(async () => {
     throw new Error('Unplanned fault.');
   });
   await app.ready();
+
+  const { buildMcpHttpApp } = await import('./mcp-http.js');
+  mcpApp = buildMcpHttpApp({
+    loggerInstance: createLoggerWithSentryBreadcrumbs({ level: 'silent' }),
+  });
+  // A real socket: Sentry's HTTP integration gives each request its own scope only on one.
+  await mcpApp.listen({ port: 0, host: '127.0.0.1' });
+  mcpBaseUrl = `http://127.0.0.1:${(mcpApp.server.address() as AddressInfo).port}`;
 });
 
 afterAll(async () => {
   await app.close();
+  await mcpApp.close();
   await Sentry.close();
   delete process.env.SENTRY_TRACES_SAMPLE_RATE;
 });
@@ -67,6 +118,8 @@ afterAll(async () => {
 beforeEach(() => {
   resetSubtitleRateLimitsForTests();
   mockSent.length = 0;
+  mockLogs.length = 0;
+  mockPayloads.length = 0;
 });
 
 const post = (url: string, videoUrl: string) =>
@@ -124,5 +177,142 @@ describe('Sentry events', () => {
     } finally {
       await listener.close();
     }
+  });
+});
+
+describe('Sentry user from the gateway (#118)', () => {
+  const SECRET = 'a-test-secret-of-some-length';
+  const INFO_URL = 'https://www.youtube.com/watch?v=sentryUser1';
+  const SLOW_URL = 'https://www.youtube.com/watch?v=sentryUser2';
+  const VIDEO_JSON = { id: 'sentryUser1', title: 'A video', duration: 60, formats: [{}] };
+  const execFileMock = execFile as unknown as jest.Mock;
+
+  const hashOf = (userId: string) =>
+    createHmac('sha256', SECRET).update(userId).digest('hex').slice(0, 16);
+  const attributesOf = (log: MockLog) =>
+    Object.fromEntries(Object.entries(log.attributes).map(([key, { value }]) => [key, value]));
+
+  async function callTool(name: string, args: Record<string, unknown>, userId?: string) {
+    const response = await fetch(`${mcpBaseUrl}/mcp`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        accept: 'application/json, text/event-stream',
+        ...(userId ? { 'x-mcpal-user-id': userId } : {}),
+      },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'tools/call',
+        params: { name, arguments: args },
+      }),
+    });
+    return response.text();
+  }
+
+  const realExecFile = jest.requireActual<typeof import('node:child_process')>('node:child_process')
+    .execFile as unknown as (...args: unknown[]) => unknown;
+  /** Answers each yt-dlp run with `answer`; any other command runs for real. */
+  function answerYtDlp(
+    answer: (args: string[], callback: (e: Error | null, r?: object) => void) => void
+  ) {
+    execFileMock.mockImplementation(
+      (file: string, args: string[], options: unknown, callback: (e: Error | null) => void) =>
+        file === 'yt-dlp' ? answer(args, callback) : realExecFile(file, args, options, callback)
+    );
+  }
+
+  beforeEach(() => {
+    process.env.SENTRY_USER_HASH_SECRET = SECRET;
+    // A metadata run answers with VIDEO_JSON, and the run for SLOW_URL answers later.
+    answerYtDlp((args, callback) => {
+      setTimeout(
+        () => callback(null, { stdout: JSON.stringify(VIDEO_JSON), stderr: '' }),
+        args.includes(SLOW_URL) ? 300 : 0
+      );
+    });
+  });
+
+  afterEach(() => {
+    delete process.env.SENTRY_USER_HASH_SECRET;
+    execFileMock.mockImplementation(realExecFile);
+  });
+
+  it('sends one log per tool call, with an HMAC of the user id and no address', async () => {
+    const userId = `sub-${randomUUID()}`;
+    await callTool('get_video_info', { url: INFO_URL }, userId);
+    await callTool('get_video_info', { url: 'not a video address' }, userId);
+    await Sentry.flush();
+
+    expect(mockLogs.map((log) => log.body)).toEqual(['MCP tool call', 'MCP tool call']);
+    const [ok, failed] = mockLogs.map(attributesOf);
+    expect(ok).toMatchObject({
+      tool: 'get_video_info',
+      outcome: 'ok',
+      platform: 'youtube',
+      source: 'model',
+      'user.id': hashOf(userId),
+    });
+    expect(ok).not.toHaveProperty('reason');
+    expect(failed).toMatchObject({
+      tool: 'get_video_info',
+      outcome: 'error',
+      reason: 'validation',
+      'user.id': hashOf(userId),
+    });
+    for (const attributes of [ok, failed]) {
+      for (const key of ['addr', 'vid', 'host', 'url']) expect(attributes).not.toHaveProperty(key);
+      expect(JSON.stringify(attributes)).not.toContain('sentryUser1');
+    }
+    // The raw id goes nowhere: not in a log, an event or a transaction.
+    expect(mockPayloads.join('\n')).not.toContain(userId);
+  });
+
+  it('sends no log and sets no user without the secret or without the header', async () => {
+    delete process.env.SENTRY_USER_HASH_SECRET;
+    await callTool('get_video_info', { url: INFO_URL }, `sub-${randomUUID()}`);
+    process.env.SENTRY_USER_HASH_SECRET = SECRET;
+    await callTool('get_video_info', { url: INFO_URL });
+    await Sentry.flush();
+
+    expect(mockLogs).toHaveLength(0);
+    for (const event of mockSent) expect(event.user?.id).toBeUndefined();
+  });
+
+  it('keeps the user of each request when two calls overlap', async () => {
+    const slowUser = `sub-${randomUUID()}`;
+    const fastUser = `sub-${randomUUID()}`;
+    const slow = callTool('get_video_chapters', { url: SLOW_URL }, slowUser);
+    // The second request sets its user while the first one still waits for its run.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    await callTool('get_video_info', { url: INFO_URL }, fastUser);
+    await slow;
+    // A later request without the header does not inherit a user.
+    await callTool('get_video_info', { url: INFO_URL });
+    await Sentry.flush();
+
+    const users = Object.fromEntries(
+      mockLogs.map(attributesOf).map((log) => [log.tool, log['user.id']])
+    );
+    expect(users).toEqual({
+      get_video_chapters: hashOf(slowUser),
+      get_video_info: hashOf(fastUser),
+    });
+  });
+
+  it('gives the error event of a failed call the same user', async () => {
+    const userId = `sub-${randomUUID()}`;
+    answerYtDlp((_args, callback) => {
+      const stderr = "ERROR: [youtube] x: Sign in to confirm you're not a bot";
+      callback(Object.assign(new Error('Command failed: yt-dlp'), { code: 1, stderr }));
+    });
+    await callTool('get_video_info', { url: INFO_URL }, userId);
+    await Sentry.flush();
+
+    expect(mockSent).toHaveLength(1);
+    expect(mockSent[0].tags).toMatchObject({ yt_dlp_reason: 'bot_check' });
+    expect(mockSent[0].user?.id).toBe(hashOf(userId));
+    expect(attributesOf(mockLogs[0])).toMatchObject({ outcome: 'error', reason: 'bot_check' });
+    expect(mockPayloads.join('\n')).not.toContain(userId);
   });
 });

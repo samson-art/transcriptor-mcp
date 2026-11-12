@@ -5,6 +5,7 @@
  * between requests, so any instance can answer any request. Authentication is NOT handled
  * here — the deployment terminates OAuth at the gateway in front of this listener.
  */
+import { createHmac } from 'node:crypto';
 import Fastify, {
   type FastifyError,
   type FastifyInstance,
@@ -49,6 +50,18 @@ type JsonRpcErrorBody = {
  */
 function jsonRpcError(code: number, message: string): JsonRpcErrorBody {
   return { jsonrpc: '2.0', error: { code, message }, id: null };
+}
+
+/**
+ * The Sentry user of a request (#118): the gateway names its signed-in user in
+ * `x-mcpal-user-id` on each tools/call. Sentry gets 16 hex characters of an HMAC of that id,
+ * never the id itself. Off without SENTRY_USER_HASH_SECRET. The header is trusted for the
+ * same reason as `x-request-id` below: only the gateway reaches this listener.
+ */
+function sentryUserId(header: string | string[] | undefined): string | undefined {
+  const secret = process.env.SENTRY_USER_HASH_SECRET;
+  if (!secret || typeof header !== 'string' || header === '') return undefined;
+  return createHmac('sha256', secret).update(header).digest('hex').slice(0, 16);
 }
 
 export type BuildMcpHttpAppOptions = {
@@ -105,6 +118,11 @@ export function buildMcpHttpApp(opts?: BuildMcpHttpAppOptions): FastifyInstance 
     // The transport writes status, headers and body straight to the raw response
     // (including SSE frames), so Fastify must stop managing this reply.
     reply.hijack();
+
+    // Sentry's HTTP integration gives each request its own isolation scope, so the user
+    // stays with this request's events and logs.
+    const userId = sentryUserId(request.headers['x-mcpal-user-id']);
+    if (userId) Sentry.getIsolationScope().setUser({ id: userId });
 
     // Stateless mode requires a fresh transport per request: the SDK throws when one is
     // reused, because concurrent clients would collide on JSON-RPC message ids. The

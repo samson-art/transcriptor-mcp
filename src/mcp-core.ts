@@ -545,6 +545,19 @@ async function withToolErrorHandling(
     };
     if (outcome === 'ok') log.info(line, 'MCP tool call');
     else log.warn(line, 'MCP tool call');
+    // Sentry counts users from these logs (#118), so only a call with a known user sends one.
+    // Sentry adds the user id itself. No address and no video id: those stay on stdout.
+    if (Sentry.getIsolationScope().getUser()?.id) {
+      Sentry.logger.info('MCP tool call', {
+        tool: line.tool,
+        outcome,
+        source: line.source,
+        // An undefined attribute would reach Sentry as an empty string.
+        ...(reason ? { reason } : {}),
+        ...(answer ? { answer } : {}),
+        ...(line.platform ? { platform: line.platform } : {}),
+      });
+    }
   }
 }
 
