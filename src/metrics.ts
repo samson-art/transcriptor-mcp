@@ -282,6 +282,18 @@ export function recordMcpToolCall(tool: string, source: 'widget' | 'model'): voi
   mcpToolCallsTotal.inc({ tool, source });
 }
 
+/**
+ * Gives every tool both source series at zero when the server starts. A widget series
+ * that first appears at 1 after a deploy leaves `increase()` nothing to diff against, so
+ * the first widget call of each tool after each deploy would be lost: the window an
+ * operator reads to judge a widget release (#115). Same reason as primeSubtitleRequests.
+ */
+export function primeMcpToolCalls(tools: readonly string[]): void {
+  for (const tool of tools) {
+    for (const source of ['widget', 'model']) mcpToolCallsTotal.inc({ tool, source }, 0);
+  }
+}
+
 export function recordMcpToolError(tool: string, reason: string): void {
   mcpToolErrorsTotal.inc({ tool, reason });
 }

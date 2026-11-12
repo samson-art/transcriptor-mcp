@@ -51,7 +51,12 @@ import {
   FRAME_MIN_WIDTH,
   FRAME_MAX_WIDTH,
 } from './validation.js';
-import { recordMcpRequestDuration, recordMcpToolCall, recordMcpToolError } from './metrics.js';
+import {
+  primeMcpToolCalls,
+  recordMcpRequestDuration,
+  recordMcpToolCall,
+  recordMcpToolError,
+} from './metrics.js';
 import { version } from './version.js';
 
 const TOOL_GET_TRANSCRIPT = 'get_transcript';
@@ -62,6 +67,18 @@ const TOOL_GET_VIDEO_CHAPTERS = 'get_video_chapters';
 const TOOL_GET_VIDEO_FRAME = 'get_video_frame';
 const TOOL_GET_PLAYLIST_TRANSCRIPTS = 'get_playlist_transcripts';
 const TOOL_SEARCH_VIDEOS = 'search_videos';
+
+// At import, so both source series of every tool are in the first scrape (#115).
+primeMcpToolCalls([
+  TOOL_GET_TRANSCRIPT,
+  TOOL_GET_RAW_SUBTITLES,
+  TOOL_GET_AVAILABLE_SUBTITLES,
+  TOOL_GET_VIDEO_INFO,
+  TOOL_GET_VIDEO_CHAPTERS,
+  TOOL_GET_VIDEO_FRAME,
+  TOOL_GET_PLAYLIST_TRANSCRIPTS,
+  TOOL_SEARCH_VIDEOS,
+]);
 
 const SEARCH_UI_URI = 'ui://search-videos/app.html';
 const TRANSCRIPT_UI_URI = 'ui://get-transcript/app.html';

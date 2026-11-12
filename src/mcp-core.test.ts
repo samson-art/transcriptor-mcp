@@ -569,23 +569,37 @@ describe('mcp-core tools', () => {
       const handler = getTool(server, 'get_video_info');
       normalizeVideoInputMock.mockReturnValue(testUrl);
       validateAndFetchVideoInfoMock.mockRejectedValue(new YtDlpError('private'));
-      mcpToolCallsTotal.reset();
+      const bySource = async () =>
+        Object.fromEntries(
+          (await mcpToolCallsTotal.get()).values
+            .filter((v) => v.labels.tool === 'get_video_info')
+            .map((v) => [`${v.labels.source}`, v.value] as const)
+        );
+      const before = await bySource();
 
       await handler({ url: testUrl }, { _meta: { 'transcriptor/source': 'widget' } });
       await handler({ url: testUrl }, {});
       // Any other value is a model call: the label has two values only.
       await handler({ url: testUrl }, { _meta: { 'transcriptor/source': 'other' } });
 
-      const series = (await mcpToolCallsTotal.get()).values.filter(
-        (v) => v.labels.tool === 'get_video_info'
-      );
-      const bySource = Object.fromEntries(series.map((v) => [v.labels.source, v.value]));
-      expect(bySource).toEqual({ widget: 1, model: 2 });
+      const after = await bySource();
+      expect(after).toEqual({ widget: before.widget + 1, model: before.model + 2 });
       const logged = (logger.warn.mock.calls as Array<[Record<string, unknown>, string]>)
         .filter((c) => c[1] === 'MCP tool call')
         .map((c) => c[0].source);
       expect(logged).toEqual(['widget', 'model', 'model']);
-      expect(series.reduce((sum, v) => sum + v.value, 0)).toBe(logged.length);
+    });
+
+    it('should have both source series of every tool before its first call (#115)', async () => {
+      const server = createMcpServer() as any;
+      const tools = [...(server.tools as Map<string, unknown>).keys()];
+      expect(tools).toHaveLength(8);
+      const series = (await mcpToolCallsTotal.get()).values.map(
+        (v) => `${v.labels.tool}/${v.labels.source}`
+      );
+      for (const tool of tools) {
+        expect(series).toEqual(expect.arrayContaining([`${tool}/widget`, `${tool}/model`]));
+      }
     });
 
     it('should name the kind of "no subtitles" answer in the log line, and only there (#64)', async () => {
