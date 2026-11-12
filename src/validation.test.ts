@@ -684,6 +684,34 @@ describe('validation', () => {
       });
     });
 
+    it('leaves no unhandled rejection when the audio download fails after WHISPER_TIMEOUT (#104)', async () => {
+      jest.spyOn(youtube, 'downloadSubtitles').mockResolvedValue(null);
+      jest.spyOn(youtube, 'fetchYtDlpJson').mockResolvedValue({ id: 'dQw4w9WgXcQ' });
+      (whisper.getWhisperConfig as jest.Mock).mockReturnValue({ mode: 'local', timeout: 1 });
+      const unhandled = jest.fn();
+      process.on('unhandledRejection', unhandled);
+      try {
+        for (const request of [
+          { url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ', type: 'auto', lang: 'en' },
+          { url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ' },
+        ]) {
+          withTracks([], []);
+          let lateReject!: (e: unknown) => void;
+          (whisperJobs.startOrReuseWhisperJob as jest.Mock).mockReturnValue(
+            new Promise<string | null>((_resolve, reject) => {
+              lateReject = reject;
+            })
+          );
+          await expect(validateAndDownloadSubtitles(request as any)).rejects.toThrow(NotFoundError);
+          lateReject(new YtDlpError('timeout'));
+          await new Promise<void>((resolve) => setTimeout(resolve, 10));
+        }
+        expect(unhandled).not.toHaveBeenCalled();
+      } finally {
+        process.off('unhandledRejection', unhandled);
+      }
+    });
+
     it('does not write a late speech-to-text answer to the cache when skipCache is set', async () => {
       (cacheSet as jest.Mock).mockClear();
       jest.spyOn(youtube, 'downloadSubtitles').mockResolvedValue(null);
@@ -1585,6 +1613,22 @@ describe('the answer when no subtitles came back', () => {
       expect(await failureOf({ url, type: 'official', lang: 'de' })).toMatchObject({
         answer: 'stt_failed',
       });
+    });
+
+    it('no answer, but the 502 error, when the audio download failed for a platform cause (#104)', async () => {
+      (whisper.getWhisperConfig as jest.Mock).mockReturnValue({ mode: 'local', timeout: 600_000 });
+      (whisperJobs.startOrReuseWhisperJob as jest.Mock).mockImplementation(() =>
+        Promise.reject(new YtDlpError('bot_check'))
+      );
+      withTracks([], []);
+      const auto = await failureOf({ url });
+      expect(auto).toMatchObject({ name: 'YtDlpError', reason: 'bot_check', statusCode: 502 });
+      expect(auto).not.toHaveProperty('answer');
+
+      withTracks(['en'], ['ru']);
+      const named = await failureOf({ url, type: 'official', lang: 'de' });
+      expect(named).toMatchObject({ name: 'YtDlpError', reason: 'bot_check', statusCode: 502 });
+      expect(named).not.toHaveProperty('answer');
     });
 
     it('answer=unread when the track list could not be read', async () => {

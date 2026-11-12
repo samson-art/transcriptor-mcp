@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- When the audio download for speech-to-text fails because of a bot check, a rate limit, a timeout or an extractor error, `get_transcript`, `get_raw_subtitles` and REST `/subtitles` now answer with the 502 error for that class (#104). Before this, the caller got the 404 "no subtitles" answer with `answer=stt_failed`, which is wrong information about the video. The "MCP tool call" log line now has the matching `reason` and no `answer`. A rate limit here does not start the caption hold (ADR 002). The server makes the same yt-dlp runs as before. Other failed downloads, a video that is too long, and speech-to-text that gives no text keep their current answers.
+
 ### Changed
 
 - Terms of Service 1.3 and Privacy Policy 1.3 describe an optional paid plan for the hosted Service. They take effect on 2026-12-14, 30 days after the notice, and for a buyer from the moment of the purchase. The free allowance per UTC day stays, and it can be different for each tool. The paid plan removes the daily allowance for one person, within a fair use rule. The operator of the MCPal platform sells the plan and Stripe processes the payment. The Terms give the rules for the price, the renewal, the cancellation and a refund in the first 14 days. Self-hosting does not change.

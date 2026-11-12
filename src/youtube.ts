@@ -1159,6 +1159,9 @@ export async function downloadAudio(
     for (const f of leftovers) {
       if (f.startsWith(`${baseName}.`)) await unlink(join(tempDir, f)).catch(() => {});
     }
+    // A platform or server failure is not "no subtitles" (#104). A 429 here does not start the
+    // caption hold: ADR 002 covers caption downloads only.
+    rethrowInfra(error);
     return null;
   } finally {
     await cookiesCleanup?.();
