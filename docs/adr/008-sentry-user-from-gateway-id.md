@@ -1,37 +1,57 @@
-# 008. Sentry counts users from an HMAC of the gateway user id and one Sentry log per tool call
+# 008. Sentry counts users from one log per tool call, with an HMAC of the gateway user id
 
 - Status: Accepted
 - Date: 2026-11-12
-- Sources: #118, PR for #118, CHANGELOG [Unreleased]
+- Sources: #118, #124, CHANGELOG [Unreleased]
 
 ## Context
 
-The metrics and the log lines of the server count calls, not people. One person who repeats a failing call looks like many failures. To learn how many users met errors, someone had to export the per-call records of the gateway and join them with the container logs by request id. That worked only while the logs of the current container existed.
+The metrics and the log lines of the server count calls, not people. One person who repeats a failing call looks like many failures. To count users, someone had to export the per-call records of the gateway and join them with the container logs by request id. That worked only while the logs of the current container existed.
 
-The gateway in front of the hosted server sends the id of its signed-in user on each `tools/call`, in `x-mcpal-user-id`. Sentry ties events, spans, logs and metrics to a user natively: `setUser` on a scope, and Sentry adds `user.id` to each item. Explore counts `count_unique(user.id)` on logs and spans, with filters.
+The gateway in front of the hosted server sends the id of its signed-in user on each `tools/call`, in `x-mcpal-user-id`. Sentry Explore counts the distinct values of a log attribute with `count_unique`, and it filters on the other attributes.
 
 ## Decision
 
-- `src/mcp-http.ts`, `sentryUserId`: when `SENTRY_USER_HASH_SECRET` is set and the request has `x-mcpal-user-id`, the POST `/mcp` handler sets the user of its Sentry isolation scope. The id is the first 16 hex characters of HMAC-SHA256 of the header value with the secret. The raw value never leaves the process.
-- `src/mcp-core.ts`, `withToolErrorHandling`: a tool call whose isolation scope has a user sends one Sentry log, "MCP tool call", with `tool`, `outcome`, `source`, and `reason`, `answer` and `platform` when they exist. No address, address hash or video id.
+- `src/mcp-core.ts`, `sentryUserId`: the id is the first 16 hex characters of HMAC-SHA256 of the header value, with the secret in `SENTRY_USER_HASH_SECRET`. The header comes from the request headers that the MCP SDK gives each tool call. Without the secret or the header, there is no id.
+- `src/mcp-core.ts`, `withToolErrorHandling`: a call with an id sends one Sentry log, "MCP tool call". Its attributes are `user.id`, `tool`, `outcome` and `source`, and also `reason`, `answer` and `platform` when they exist. It holds no address, address hash or video id.
+- A call whose transport closed before the answer gets `outcome: error` and `reason: cancelled`. A proxy cut the call, or the client left.
 - `src/instrument.ts`: `enableLogs: true`. Nothing else calls `Sentry.logger`.
-- The header is trusted for the same reason as `x-request-id` in ADR 001: only the gateway reaches the listener.
+- `src/lifecycle.ts`: shutdown waits up to 2 s for Sentry, because `process.exit` skips the flush of the SDK.
+- The server trusts the header for the same reason as `x-request-id` in ADR 001: only the gateway reaches the listener.
+
+Queries in Sentry Explore, Logs, with `message:"MCP tool call"`:
+
+- All users: `count_unique(user.id)`.
+- Users with any failure: the same query with `outcome:error`.
+- Users with a failure that the server can fix: `reason:[busy,timeout,rate_limited,bot_check,extractor,unknown]`, plus `reason:not_found` without `answer`. The second part covers the failures where the server cannot tell the cause.
 
 ## Alternatives
 
-- Count distinct users in the server (Redis HyperLogLog) and send only the counts as Sentry metrics. No id would leave the server, but it is custom code, and Sentry could not slice by tool or reason or link a user to an error. Application Metrics cannot count unique values, so this was the only way with metrics.
-- A hashed id on every tool-call span. Exact counts need all tool calls traced, which costs many spans per call. One log per call is cheaper and is never sampled.
-- The raw id as the Sentry user. It is a stable identifier of a person in another company's system; a keyed hash keeps the counts and does not expose it.
+- `Sentry.setUser` on the request scope. Issues then show "Users affected". The review of #124 rejected it for three reasons:
+  - Error events carry breadcrumbs from the log lines of the request, with the requested addresses and search queries. A user id on the event links a person to what they asked for.
+  - The request scope shares the Release Health session of the process, so the first user becomes the user of that session.
+  - Without an enabled Sentry client, the scope is the same for the whole process, so the user stays on later requests.
+- Count distinct users in the server, with a Redis HyperLogLog, and send only the counts as Sentry metrics. Application Metrics cannot count unique values. This keeps the id in the server, but it is custom code, and Sentry cannot slice the counts by tool or reason.
+- A hashed id on every tool-call span. Exact counts need every tool call traced, at the cost of many spans per call. A log per call costs less, and Sentry does not sample logs.
+- The raw id as the user id. It is a stable identifier of a person in another company's system. A keyed hash keeps the counts and does not show the id.
 
 ## Consequences
 
-- With the secret set, Sentry holds a pseudonymous id per user (in events up to 90 days, in logs for the Sentry log retention). The privacy policy of the hosted Service must say so before the secret is set there.
-- Sentry log volume: one log per tool call of a known user.
-- Calls that the gateway rejects before they reach the server (for example 502 or 530 during an outage) are not counted. Only the gateway sees those users.
-- Changing the secret changes every id: counts across the change see each user twice.
+- With the secret set, Sentry holds a pseudonymous id per user in its logs. The privacy policy of the hosted Service must say so before the operator sets the secret there.
+- Each tool call of a known user costs one Sentry log.
+- Some failures send no log:
+  - The gateway rejects some calls before they reach the server, for example with 502 or 530 during an outage.
+  - The MCP SDK rejects unknown tools and bad arguments before the tool runs.
+  - The SDK checks the output after the tool returns, so a call that fails that check gets an `ok` log.
+
+  The stdout line and the Prometheus metrics have the same gaps.
+
+- A new secret gives every user a new id. A count across the change sees each user twice.
+- A short secret is easy to guess for anyone who knows one id and its hash. Use a long random secret, the same on every instance.
 
 ## Do not
 
-- Do not send the raw header value, and do not add the address, `addr`, `vid` or `host` to the Sentry log. `src/instrument.test.ts` checks both.
-- Do not set the user on a shared scope (global or current scope outside the request): concurrent requests would swap users. The overlap test in `src/instrument.test.ts` guards this.
-- Do not turn on the request headers or the request body of `requestDataIntegration` in `src/instrument.ts`: the header would reach Sentry raw. `src/instrument.test.ts` guards this.
+- Do not send the raw header value. `src/instrument.test.ts` checks every log, event and transaction.
+- Do not add the address, `addr`, `vid` or `host` to the Sentry log. `src/instrument.test.ts` checks this.
+- Do not put the user on a Sentry scope. The error-event test in `src/instrument.test.ts` then fails.
+- Do not turn on the request headers or the request body of `requestDataIntegration`, and keep `beforeSendTransaction` in `src/instrument.ts`. `src/instrument.test.ts` guards both.

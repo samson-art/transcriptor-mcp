@@ -43,11 +43,11 @@ Then run `/mcp` and approve the sign-in in the browser. After this, `claude mcp 
 
 ### 🧭 No terminal
 
-| Client | What to do |
-| --- | --- |
-| **Claude** (web and desktop) | Open [Settings → Customize → Connectors](https://claude.ai/settings/connectors). Select **Add** → **Add custom connector**, paste `https://transcriptor.gateway.mcpal.io/mcp`, then select **Add**. |
-| **ChatGPT** | Open [Transcriptor in the ChatGPT plugin directory](https://chatgpt.com/plugins/plugin_asdk_app_6a92e6e7ec10819189c404c0721c3207) and select **Install plugin**; sign in when asked. Or in ChatGPT open **Plugins**, search **Transcriptor**, select **Install plugin**. Then mention `@Transcriptor` in a chat. |
-| **Codex** | Same directory, one install: ChatGPT and Codex share it. In a Codex task open **Sources** → **Use plugins** → **Transcriptor**; in the CLI, `/plugins`. |
+| Client                       | What to do                                                                                                                                                                                                                                                                                                       |
+| ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Claude** (web and desktop) | Open [Settings → Customize → Connectors](https://claude.ai/settings/connectors). Select **Add** → **Add custom connector**, paste `https://transcriptor.gateway.mcpal.io/mcp`, then select **Add**.                                                                                                              |
+| **ChatGPT**                  | Open [Transcriptor in the ChatGPT plugin directory](https://chatgpt.com/plugins/plugin_asdk_app_6a92e6e7ec10819189c404c0721c3207) and select **Install plugin**; sign in when asked. Or in ChatGPT open **Plugins**, search **Transcriptor**, select **Install plugin**. Then mention `@Transcriptor` in a chat. |
+| **Codex**                    | Same directory, one install: ChatGPT and Codex share it. In a Codex task open **Sources** → **Use plugins** → **Transcriptor**; in the CLI, `/plugins`.                                                                                                                                                          |
 
 ### 🧩 Any other MCP client
 
@@ -69,16 +69,16 @@ If you want to run the server yourself, read [Self-host](#-self-host). The tools
 
 ## 🧰 What you can ask
 
-| Ask for this | Tool |
-| --- | --- |
-| *"Summarize this video for me"* | `get_transcript` |
-| *"Give me the subtitles as an SRT file"* | `get_raw_subtitles` |
-| *"Is there a German track for this video?"* | `get_available_subtitles` |
-| *"Who published this and how many views?"* | `get_video_info` |
-| *"Go to the part about pricing"* | `get_video_chapters` |
-| *"Show me the screen at 4:12"* | `get_video_frame` |
-| *"Get English transcripts for the first 5 videos in this playlist"* | `get_playlist_transcripts` |
-| *"Find recent videos about X"* | `search_videos` (YouTube) |
+| Ask for this                                                        | Tool                       |
+| ------------------------------------------------------------------- | -------------------------- |
+| _"Summarize this video for me"_                                     | `get_transcript`           |
+| _"Give me the subtitles as an SRT file"_                            | `get_raw_subtitles`        |
+| _"Is there a German track for this video?"_                         | `get_available_subtitles`  |
+| _"Who published this and how many views?"_                          | `get_video_info`           |
+| _"Go to the part about pricing"_                                    | `get_video_chapters`       |
+| _"Show me the screen at 4:12"_                                      | `get_video_frame`          |
+| _"Get English transcripts for the first 5 videos in this playlist"_ | `get_playlist_transcripts` |
+| _"Find recent videos about X"_                                      | `search_videos` (YouTube)  |
 
 Long transcripts come in parts. Each response gives a cursor for the next part, so no text is lost.
 
@@ -225,7 +225,15 @@ docker run --rm -i artsamsonov/transcriptor-mcp:latest npm run start:mcp
   "mcpServers": {
     "transcriptor": {
       "command": "docker",
-      "args": ["run", "--rm", "-i", "artsamsonov/transcriptor-mcp:latest", "npm", "run", "start:mcp"]
+      "args": [
+        "run",
+        "--rm",
+        "-i",
+        "artsamsonov/transcriptor-mcp:latest",
+        "npm",
+        "run",
+        "start:mcp"
+      ]
     }
   }
 }
@@ -233,17 +241,17 @@ docker run --rm -i artsamsonov/transcriptor-mcp:latest npm run start:mcp
 
 The server starts with no environment variables. Each variable below is optional.
 
-| Variable | Default | Function |
-| --- | --- | --- |
-| `MCP_PORT` and `MCP_HOST` | `4200` and `0.0.0.0` | The HTTP listener |
-| `COOKIES_FILE_PATH` | — | A Netscape cookies file for videos that need an account. See [cookies.example.txt](cookies.example.txt) |
-| `WHISPER_MODE` | `off` | Set `local` or `api` to transcribe the audio when a video has no subtitles. Then set `WHISPER_BASE_URL` or `WHISPER_API_KEY`. `WHISPER_MAX_DURATION_SECONDS` skips longer videos and live streams; a video whose length the platform does not report is measured with `ffprobe` after the audio download |
-| `CACHE_MODE` | `off` | Set `redis` and `CACHE_REDIS_URL` to cache subtitles and metadata |
-| `YT_DLP_MAX_CONCURRENCY` | `4` | How many yt-dlp/ffmpeg processes may run at once. `YT_DLP_MAX_QUEUE` (`8`) is how many calls may wait; beyond that a call is refused at once with "server busy". A call peaks at ~40 MiB, so the cap bounds platform throttling and latency, not memory |
-| `SUBTITLES_RATE_LIMIT_HOLD_MS` | `600000` | After a platform answers 429 to a subtitle download, the server stops asking that platform for subtitles for this long and answers `rate_limited` right away. Each repeat doubles the wait, up to an hour; a successful download clears it. Metadata is not held back |
-| `CANARY_INTERVAL_MS` | `900000` | How often the HTTP server fetches one transcript to prove the path still works. `0` turns it off; `CANARY_URL` picks the video |
-| `SENTRY_USER_HASH_SECRET` | — | Behind a gateway that sends `x-mcpal-user-id`: Sentry events and one Sentry log per tool call get a hashed user id, so that Sentry counts the users who meet errors. Needs `SENTRY_DSN` |
-| `YT_DLP_*` | — | Timeouts, proxy, and JS runtimes. See [.env.example](.env.example) |
+| Variable                       | Default              | Function                                                                                                                                                                                                                                                                                                 |
+| ------------------------------ | -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `MCP_PORT` and `MCP_HOST`      | `4200` and `0.0.0.0` | The HTTP listener                                                                                                                                                                                                                                                                                        |
+| `COOKIES_FILE_PATH`            | —                    | A Netscape cookies file for videos that need an account. See [cookies.example.txt](cookies.example.txt)                                                                                                                                                                                                  |
+| `WHISPER_MODE`                 | `off`                | Set `local` or `api` to transcribe the audio when a video has no subtitles. Then set `WHISPER_BASE_URL` or `WHISPER_API_KEY`. `WHISPER_MAX_DURATION_SECONDS` skips longer videos and live streams; a video whose length the platform does not report is measured with `ffprobe` after the audio download |
+| `CACHE_MODE`                   | `off`                | Set `redis` and `CACHE_REDIS_URL` to cache subtitles and metadata                                                                                                                                                                                                                                        |
+| `YT_DLP_MAX_CONCURRENCY`       | `4`                  | How many yt-dlp/ffmpeg processes may run at once. `YT_DLP_MAX_QUEUE` (`8`) is how many calls may wait; beyond that a call is refused at once with "server busy". A call peaks at ~40 MiB, so the cap bounds platform throttling and latency, not memory                                                  |
+| `SUBTITLES_RATE_LIMIT_HOLD_MS` | `600000`             | After a platform answers 429 to a subtitle download, the server stops asking that platform for subtitles for this long and answers `rate_limited` right away. Each repeat doubles the wait, up to an hour; a successful download clears it. Metadata is not held back                                    |
+| `CANARY_INTERVAL_MS`           | `900000`             | How often the HTTP server fetches one transcript to prove the path still works. `0` turns it off; `CANARY_URL` picks the video                                                                                                                                                                           |
+| `SENTRY_USER_HASH_SECRET`      | —                    | Behind a gateway that sends `x-mcpal-user-id`: each tool call sends one Sentry log with a hashed user id, so that Sentry counts the users who meet errors. Needs `SENTRY_DSN`. See [ADR 008](docs/adr/008-sentry-user-from-gateway-id.md)                                                                |
+| `YT_DLP_*`                     | —                    | Timeouts, proxy, and JS runtimes. See [.env.example](.env.example)                                                                                                                                                                                                                                       |
 
 The same port serves `GET /health` and `GET /metrics`. The metrics are in Prometheus format and include the `mcp_*` counters.
 

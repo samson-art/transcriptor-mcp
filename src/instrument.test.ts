@@ -34,11 +34,19 @@ jest.mock('@modelcontextprotocol/ext-apps/server', () => ({
   RESOURCE_MIME_TYPE: 'text/html;profile=mcp-app',
 }));
 
-// Tool calls must not start the real yt-dlp; the tests answer for it. Other commands run for
-// real: the SDK's Context integration runs one to read the OS version for each event.
+// No platform command runs for real here. A test answers for yt-dlp, and a run that no test
+// answers fails at once. Other commands run for real, because the SDK's Context integration
+// reads the OS version with one for each event.
 jest.mock('node:child_process', () => {
   const actual = jest.requireActual<typeof import('node:child_process')>('node:child_process');
-  return { ...actual, execFile: jest.fn(actual.execFile) };
+  const platformCommands = new Set(['yt-dlp', 'ffmpeg', 'ffprobe']);
+  return {
+    ...actual,
+    execFile: jest.fn((file: string, ...rest: unknown[]) => {
+      if (platformCommands.has(file)) throw new Error(`No real ${file} in this test file.`);
+      return (actual.execFile as (...args: unknown[]) => unknown)(file, ...rest);
+    }),
+  };
 });
 
 type MockLog = { body: string; attributes: Record<string, { value: unknown }> };
@@ -203,13 +211,22 @@ describe('Sentry user from the gateway (#118)', () => {
   const SLOW_URL = 'https://www.youtube.com/watch?v=sentryUser2';
   const VIDEO_JSON = { id: 'sentryUser1', title: 'A video', duration: 60, formats: [{}] };
   const execFileMock = execFile as unknown as jest.Mock;
+  // The default of the mock above: platform commands fail, other commands run for real.
+  const defaultExecFile = execFileMock.getMockImplementation() as (...args: unknown[]) => unknown;
 
   const hashOf = (userId: string) =>
     createHmac('sha256', SECRET).update(userId).digest('hex').slice(0, 16);
   const attributesOf = (log: MockLog) =>
     Object.fromEntries(Object.entries(log.attributes).map(([key, { value }]) => [key, value]));
+  /** The user id belongs on the logs only, so it must reach no event and no transaction. */
+  const eventsAndTransactions = () => JSON.stringify([...mockSent, ...mockTransactions]);
 
-  async function callTool(name: string, args: Record<string, unknown>, userId?: string) {
+  async function callTool(
+    name: string,
+    args: Record<string, unknown>,
+    userId?: string,
+    signal?: AbortSignal
+  ) {
     const response = await fetch(`${mcpBaseUrl}/mcp`, {
       method: 'POST',
       headers: {
@@ -223,25 +240,26 @@ describe('Sentry user from the gateway (#118)', () => {
         method: 'tools/call',
         params: { name, arguments: args },
       }),
+      signal,
     });
     return response.text();
   }
 
-  const realExecFile = jest.requireActual<typeof import('node:child_process')>('node:child_process')
-    .execFile as unknown as (...args: unknown[]) => unknown;
-  /** Answers each yt-dlp run with `answer`; any other command runs for real. */
+  /** Answers each yt-dlp run with `answer`. Other commands keep the default of the mock. */
   function answerYtDlp(
     answer: (args: string[], callback: (e: Error | null, r?: object) => void) => void
   ) {
     execFileMock.mockImplementation(
       (file: string, args: string[], options: unknown, callback: (e: Error | null) => void) =>
-        file === 'yt-dlp' ? answer(args, callback) : realExecFile(file, args, options, callback)
+        file === 'yt-dlp' ? answer(args, callback) : defaultExecFile(file, args, options, callback)
     );
   }
 
+  const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
   beforeEach(() => {
     process.env.SENTRY_USER_HASH_SECRET = SECRET;
-    // A metadata run answers with VIDEO_JSON, and the run for SLOW_URL answers later.
+    // A metadata run answers with VIDEO_JSON, and the run for SLOW_URL answers 300 ms later.
     answerYtDlp((args, callback) => {
       setTimeout(
         () => callback(null, { stdout: JSON.stringify(VIDEO_JSON), stderr: '' }),
@@ -252,7 +270,7 @@ describe('Sentry user from the gateway (#118)', () => {
 
   afterEach(() => {
     delete process.env.SENTRY_USER_HASH_SECRET;
-    execFileMock.mockImplementation(realExecFile);
+    execFileMock.mockImplementation(defaultExecFile);
   });
 
   it('sends one log per tool call, with an HMAC of the user id and no address', async () => {
@@ -281,11 +299,29 @@ describe('Sentry user from the gateway (#118)', () => {
       for (const key of ['addr', 'vid', 'host', 'url']) expect(attributes).not.toHaveProperty(key);
       expect(JSON.stringify(attributes)).not.toContain('sentryUser1');
     }
+    expect(eventsAndTransactions()).not.toContain(hashOf(userId));
     // The raw id goes nowhere: not in a log, an event or a transaction.
     expect(mockPayloads.join('\n')).not.toContain(userId);
   });
 
-  it('sends no log and sets no user without the secret or without the header', async () => {
+  it('says which "no subtitles" answer the call got', async () => {
+    const userId = `sub-${randomUUID()}`;
+    // VIDEO_JSON lists no tracks, and this server does not transcribe audio here.
+    await callTool('get_transcript', { url: INFO_URL }, userId);
+    await Sentry.flush();
+
+    expect(mockLogs.map(attributesOf)).toEqual([
+      expect.objectContaining({
+        tool: 'get_transcript',
+        outcome: 'error',
+        reason: 'not_found',
+        answer: 'none',
+        'user.id': hashOf(userId),
+      }),
+    ]);
+  });
+
+  it('sends no log without the secret or without the header', async () => {
     delete process.env.SENTRY_USER_HASH_SECRET;
     await callTool('get_video_info', { url: INFO_URL }, `sub-${randomUUID()}`);
     process.env.SENTRY_USER_HASH_SECRET = SECRET;
@@ -293,31 +329,48 @@ describe('Sentry user from the gateway (#118)', () => {
     await Sentry.flush();
 
     expect(mockLogs).toHaveLength(0);
-    for (const event of mockSent) expect(event.user?.id).toBeUndefined();
   });
 
   it('keeps the user of each request when two calls overlap', async () => {
     const slowUser = `sub-${randomUUID()}`;
     const fastUser = `sub-${randomUUID()}`;
     const slow = callTool('get_video_chapters', { url: SLOW_URL }, slowUser);
-    // The second request sets its user while the first one still waits for its run.
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    // The second request comes while the first one still waits for its run.
+    await pause(50);
     await callTool('get_video_info', { url: INFO_URL }, fastUser);
     await slow;
-    // A later request without the header does not inherit a user.
+    // A later request without the header sends no log under any user.
     await callTool('get_video_info', { url: INFO_URL });
     await Sentry.flush();
 
-    const users = Object.fromEntries(
-      mockLogs.map(attributesOf).map((log) => [log.tool, log['user.id']])
-    );
-    expect(users).toEqual({
-      get_video_chapters: hashOf(slowUser),
-      get_video_info: hashOf(fastUser),
-    });
+    expect(mockLogs.map(attributesOf).map((log) => [log.tool, log['user.id']])).toEqual([
+      ['get_video_info', hashOf(fastUser)],
+      ['get_video_chapters', hashOf(slowUser)],
+    ]);
   });
 
-  it('gives the error event of a failed call the same user', async () => {
+  it('logs a call whose caller left before the answer as cancelled', async () => {
+    const userId = `sub-${randomUUID()}`;
+    const controller = new AbortController();
+    const call = callTool('get_video_chapters', { url: SLOW_URL }, userId, controller.signal);
+    await pause(50);
+    controller.abort();
+    await expect(call).rejects.toThrow();
+    // The run still ends 300 ms after it started, and the log comes then.
+    await pause(400);
+    await Sentry.flush();
+
+    expect(mockLogs.map(attributesOf)).toEqual([
+      expect.objectContaining({
+        tool: 'get_video_chapters',
+        outcome: 'error',
+        reason: 'cancelled',
+        'user.id': hashOf(userId),
+      }),
+    ]);
+  });
+
+  it('keeps the user id off the error event of a failed call', async () => {
     const userId = `sub-${randomUUID()}`;
     answerYtDlp((_args, callback) => {
       const stderr = "ERROR: [youtube] x: Sign in to confirm you're not a bot";
@@ -328,8 +381,13 @@ describe('Sentry user from the gateway (#118)', () => {
 
     expect(mockSent).toHaveLength(1);
     expect(mockSent[0].tags).toMatchObject({ yt_dlp_reason: 'bot_check' });
-    expect(mockSent[0].user?.id).toBe(hashOf(userId));
-    expect(attributesOf(mockLogs[0])).toMatchObject({ outcome: 'error', reason: 'bot_check' });
+    expect(mockSent[0].user?.id).toBeUndefined();
+    expect(eventsAndTransactions()).not.toContain(hashOf(userId));
+    expect(attributesOf(mockLogs[0])).toMatchObject({
+      outcome: 'error',
+      reason: 'bot_check',
+      'user.id': hashOf(userId),
+    });
     expect(mockPayloads.join('\n')).not.toContain(userId);
   });
 });
