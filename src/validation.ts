@@ -7,6 +7,7 @@ import {
   NotFoundError,
   UNKNOWN_FAILURE_MESSAGE,
   ValidationError,
+  VIDEO_GONE_REASONS,
   YtDlpError,
 } from './errors.js';
 import {
@@ -471,7 +472,12 @@ async function downloadWithAutoDiscover(
         false
       );
       if (cached) return cached;
-      const content = await downloadTrack(url, track, format, logger);
+      // The metadata run just read this video, so a "private" or "removed" from the track run is
+      // about the track, or a stray stderr line: the list is still the useful answer.
+      const content = await downloadTrack(url, track, format, logger).catch((err: unknown) => {
+        if (err instanceof YtDlpError && VIDEO_GONE_REASONS.has(err.reason)) return null;
+        throw err;
+      });
       if (content && content.trim().length > 0) {
         return { videoId, ...track, subtitlesContent: content, source: platform };
       }

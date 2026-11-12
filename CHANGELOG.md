@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- A transcript call for a private or removed video now stops after the first caption run (#117). Before this, the server also tried speech-to-text and read the video info, and both runs failed for the same reason. In one burst of 49 private videos, each call made three runs and took 4.3 s (median). The error text and the metric reason do not change.
+- A transcript call for a private or removed video now stops after the first caption run (#117). Before this, the server also read the video info and, with speech-to-text on, downloaded the audio. Those runs failed for the same reason. In one burst of 49 private videos on a server with speech-to-text on, each call made three runs and took 4.3 s (median). A call without `lang` still answers with the track list when the video's listing worked. The error text and the metric reason do not change.
 
 ### Changed
 
