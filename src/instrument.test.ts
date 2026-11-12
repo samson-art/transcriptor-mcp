@@ -48,6 +48,7 @@ type MockLog = { body: string; attributes: Record<string, { value: unknown }> };
 const mockSent: Sentry.Event[] = [];
 const mockLogs: MockLog[] = [];
 const mockPayloads: string[] = [];
+const mockTransactions: Sentry.Event[] = [];
 jest.mock('@sentry/node', () => {
   const actual = jest.requireActual<typeof Sentry>('@sentry/node');
   return {
@@ -62,6 +63,7 @@ jest.mock('@sentry/node', () => {
               mockPayloads.push(JSON.stringify(payload));
               if (item.type === 'event') mockSent.push(payload as Sentry.Event);
               if (item.type === 'log') mockLogs.push(...(payload as { items: MockLog[] }).items);
+              if (item.type === 'transaction') mockTransactions.push(payload as Sentry.Event);
             }
             return Promise.resolve({});
           },
@@ -120,6 +122,7 @@ beforeEach(() => {
   mockSent.length = 0;
   mockLogs.length = 0;
   mockPayloads.length = 0;
+  mockTransactions.length = 0;
 });
 
 const post = (url: string, videoUrl: string) =>
@@ -164,7 +167,13 @@ describe('Sentry events', () => {
       const { port } = listener.server.address() as AddressInfo;
       const response = await fetch(`http://127.0.0.1:${port}/fails`, {
         method: 'POST',
-        headers: { 'content-type': 'application/json', 'x-mcpal-user-id': userId },
+        headers: {
+          'content-type': 'application/json',
+          'x-mcpal-user-id': userId,
+          'cf-connecting-ip': '203.0.113.7',
+          'x-forwarded-for': '198.51.100.9',
+          'user-agent': 'a-test-client/1.0',
+        },
         body: JSON.stringify({ url: VIDEO_URL }),
       });
       expect(response.status).toBe(500);
@@ -174,6 +183,14 @@ describe('Sentry events', () => {
       expect(mockSent[0].request?.headers).toBeUndefined();
       expect(mockSent[0].request?.data).toBeUndefined();
       expect(JSON.stringify(mockSent[0])).not.toContain(userId);
+      // The span of the request, sampled here at 1, keeps neither the headers nor the IP.
+      const [transaction] = mockTransactions;
+      expect(transaction?.contexts?.trace?.op).toBe('http.server');
+      const spanData = JSON.stringify(transaction);
+      for (const value of [userId, '203.0.113.7', '198.51.100.9', 'a-test-client']) {
+        expect(spanData).not.toContain(value);
+      }
+      expect(spanData).not.toContain('http.request.header.');
     } finally {
       await listener.close();
     }

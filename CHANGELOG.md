@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Sentry can count the users who meet errors (#118). Behind a gateway that sends `x-mcpal-user-id` on each tool call, set the new `SENTRY_USER_HASH_SECRET`. The Sentry user of the request then becomes 16 hex characters of an HMAC of that id, never the id itself, so error events show "Users affected". Each tool call of such a request also sends one Sentry log, "MCP tool call", with the tool, the outcome, the reason of a failure, the "no subtitles" answer, the platform and the source. In Sentry Explore, `count_unique(user.id)` over these logs gives the users, and a filter on `outcome` or `reason` gives the users who met errors. The log holds no address and no video id. Without the env var or without the header, nothing changes.
+- Sentry can count the users who meet errors (#118). Set the new `SENTRY_USER_HASH_SECRET` behind a gateway that sends `x-mcpal-user-id` on each tool call. Each tool call then sends one Sentry log, "MCP tool call", with a user id: 16 hex characters of an HMAC of the gateway id. The log also holds the tool, the outcome, the reason, the "no subtitles" answer, the platform and the source. A call whose caller left before the answer has the reason `cancelled`. The log holds no address and no video id, and no Sentry event gets the user id.
 
 ### Changed
 
@@ -17,7 +17,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Sentry error events held every request header and up to 10 KB of the request body, because the Sentry SDK attaches them by default. Behind the hosted gateway the headers include the user id (`x-mcpal-user-id`), and the body holds the tool arguments. The privacy policy says that neither goes to Sentry. The server now sends no request headers, no request body and no cookies to Sentry. The method and the URL of the request stay.
+- Sentry got request headers and request bodies, which the privacy policy rules out. By default, the Sentry SDK adds every request header and up to 10 KB of the request body to an error event. The HTTP span of a sampled request also holds every header and the caller's IP. Behind the hosted gateway, the headers include the user id (`x-mcpal-user-id`), and the body holds the tool arguments. The server now sends Sentry no request headers, no request body, no cookies and no caller IP. The method and the URL of the request stay.
+- A restart lost the Sentry logs and events of its last seconds, because `process.exit` skips the flush of the Sentry SDK. The server now waits up to 2 s for Sentry before it exits.
 
 ## [1.5.32] - 2026-11-12
 

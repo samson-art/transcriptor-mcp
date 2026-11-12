@@ -7,6 +7,9 @@ import * as Sentry from '@sentry/node';
 import { HttpError, ServerBusyError, YtDlpError } from './errors.js';
 import { version } from './version.js';
 
+/** Span attributes that hold a request header or the caller's IP outside `http.request.header.*`. */
+const HEADER_SPAN_KEYS = new Set(['http.client_ip', 'http.user_agent']);
+
 Sentry.init({
   dsn: process.env.SENTRY_DSN,
   environment: process.env.SENTRY_ENVIRONMENT,
@@ -47,6 +50,18 @@ Sentry.init({
     if (ex instanceof YtDlpError) {
       event.fingerprint = ['yt-dlp', ex.reason];
       event.tags = { ...event.tags, yt_dlp_reason: ex.reason };
+    }
+    return event;
+  },
+  // The HTTP span of a sampled request copies every request header and the caller's IP into
+  // its attributes, whatever requestDataIntegration says. The privacy policy says neither goes
+  // to Sentry, so they leave each span here.
+  beforeSendTransaction(event) {
+    for (const data of [event.contexts?.trace?.data, ...(event.spans ?? []).map((s) => s.data)]) {
+      if (!data) continue;
+      for (const key of Object.keys(data)) {
+        if (key.startsWith('http.request.header.') || HEADER_SPAN_KEYS.has(key)) delete data[key];
+      }
     }
     return event;
   },
