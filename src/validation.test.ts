@@ -851,6 +851,29 @@ describe('validation', () => {
       ).rejects.toMatchObject({ name: 'YtDlpError', reason: 'private' });
     });
 
+    // #117: in one burst of 49 private videos each call made three platform runs.
+    it.each(['private', 'unavailable'] as const)(
+      'should stop after the caption run says %s: no audio run, no info run',
+      async (reason) => {
+        (whisper.getWhisperConfig as jest.Mock).mockReturnValue({
+          mode: 'local',
+          timeout: 600_000,
+        });
+        jest.spyOn(youtube, 'downloadSubtitles').mockRejectedValue(new YtDlpError(reason));
+        const jsonSpy = jest.spyOn(youtube, 'fetchYtDlpJson');
+
+        await expect(
+          validateAndDownloadSubtitles({
+            url: 'https://vimeo.com/123',
+            type: 'auto',
+            lang: 'en',
+          } as any)
+        ).rejects.toMatchObject({ name: 'YtDlpError', reason, statusCode: 404 });
+        expect(whisperJobs.startOrReuseWhisperJob).not.toHaveBeenCalled();
+        expect(jsonSpy).not.toHaveBeenCalled();
+      }
+    );
+
     describe('auto-discover (lang omitted)', () => {
       const youtubeUrl = 'https://www.youtube.com/watch?v=dQw4w9WgXcQ';
 

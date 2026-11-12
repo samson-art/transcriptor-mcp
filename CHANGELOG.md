@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- A transcript call for a private or removed video now stops after the first caption run (#117). Before this, the server also tried speech-to-text and read the video info, and both runs failed for the same reason. In one burst of 49 private videos, each call made three runs and took 4.3 s (median). The error text and the metric reason do not change.
+
 ### Changed
 
 - Terms of Service 1.3 and Privacy Policy 1.3 describe an optional paid plan for the hosted Service. They take effect on 2026-12-14, 30 days after the notice, and for a buyer from the moment of the purchase. The free allowance per UTC day stays, and it can be different for each tool. The paid plan removes the daily allowance for one person, within a fair use rule. The operator of the MCPal platform sells the plan and Stripe processes the payment. The Terms give the rules for the price, the renewal, the cancellation and a refund in the first 14 days. Self-hosting does not change.

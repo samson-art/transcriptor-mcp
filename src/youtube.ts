@@ -477,6 +477,10 @@ async function runYtDlpAndExtractSubtitles(
       }
     }
     rethrowInfra(error);
+    // A private or removed video fails the audio and info runs the same way. Before #117, null
+    // here started both: 3 runs and 4.3 s (median) per call in a burst of 49 private videos.
+    const { reason } = collectExecFileErrorDetails(error);
+    if (reason === 'private' || reason === 'unavailable') throw new YtDlpError(reason);
     return null;
   }
 }
