@@ -754,15 +754,15 @@ today to pay our respects to MCP, which
 
     it('deletes the video that a failed audio extraction leaves behind (#108)', async () => {
       // A silent video: the last fallback downloads it, then extraction finds no sound.
-      const dateSpy = jest.spyOn(Date, 'now').mockReturnValue(1234567897);
-      const videoPath = join(tmpdir(), `${urlToSafeBase(url, 'audio')}.mp4`);
+      let videoPath = '';
       execFileMock.mockImplementation(
         (
           _file: string,
-          _args: string[],
+          args: string[],
           _options: unknown,
           callback: (error: Error | null, result: { stdout: string; stderr: string }) => void
         ) => {
+          videoPath = outputFile(args, 'mp4');
           void writeFile(videoPath, 'fake video', 'utf-8').then(() =>
             callback(
               Object.assign(new Error('Command failed: yt-dlp'), {
@@ -777,8 +777,8 @@ today to pay our respects to MCP, which
       );
 
       expect(await downloadAudio(url)).toBeNull();
+      expect(videoPath).not.toBe('');
       await expect(access(videoPath, constants.F_OK)).rejects.toThrow();
-      dateSpy.mockRestore();
     });
 
     it('should use YT_DLP_AUDIO_FORMAT and YT_DLP_AUDIO_QUALITY when set', async () => {
