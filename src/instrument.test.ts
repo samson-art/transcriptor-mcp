@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+import type { AddressInfo } from 'node:net';
 import Fastify, { type FastifyInstance } from 'fastify';
 import * as Sentry from '@sentry/node';
 import { YtDlpError } from './errors.js';
@@ -92,5 +94,35 @@ describe('Sentry events', () => {
     expect(mockSent).toHaveLength(1);
     expect(mockSent[0].tags).toMatchObject({ route: '/fails' });
     expect(mockSent[0].contexts?.request).toMatchObject({ requestUrl: VIDEO_URL });
+  });
+
+  it('sends no request headers and no request body, as the privacy policy says', async () => {
+    // A real socket: Sentry's HTTP integration reads headers and the body only from one, and
+    // app.inject does not go through it.
+    const listener = Fastify();
+    listener.setErrorHandler(restErrorHandler);
+    listener.post('/fails', () => {
+      throw new Error('Unplanned fault.');
+    });
+    await listener.listen({ port: 0, host: '127.0.0.1' });
+    // Random, so that it cannot reach the event as a source line of this file (ContextLines).
+    const userId = `sub-${randomUUID()}`;
+    try {
+      const { port } = listener.server.address() as AddressInfo;
+      const response = await fetch(`http://127.0.0.1:${port}/fails`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-mcpal-user-id': userId },
+        body: JSON.stringify({ url: VIDEO_URL }),
+      });
+      expect(response.status).toBe(500);
+      await Sentry.flush();
+
+      expect(mockSent).toHaveLength(1);
+      expect(mockSent[0].request?.headers).toBeUndefined();
+      expect(mockSent[0].request?.data).toBeUndefined();
+      expect(JSON.stringify(mockSent[0])).not.toContain(userId);
+    } finally {
+      await listener.close();
+    }
   });
 });

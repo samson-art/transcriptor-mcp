@@ -23,6 +23,10 @@ Sentry.init({
     // the same error is then dropped as a duplicate. The REST and MCP HTTP error handlers
     // capture every 5xx themselves, so the integration only traces.
     Sentry.fastifyIntegration({ shouldHandleError: () => false }),
+    // The SDK attaches every request header and up to 10 KB of the request body to an event
+    // by default. Behind the gateway the headers include the user id (x-mcpal-user-id), and
+    // the body holds the tool arguments. The privacy policy says neither goes to Sentry.
+    Sentry.requestDataIntegration({ include: { headers: false, data: false, cookies: false } }),
   ],
   beforeSend(event, hint) {
     const ex = hint.originalException;
