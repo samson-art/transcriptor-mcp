@@ -125,10 +125,15 @@ export const ytDlpQueueLength = new Gauge({
 });
 
 // MCP metrics (labels set when used from MCP)
+/**
+ * `source` is the field of the same name in the "MCP tool call" log line. A deploy deletes
+ * the container log, so the log alone lost the widget/model split: on 2026-11-11 four
+ * releases in 80 minutes left 27 minutes of it (#115).
+ */
 export const mcpToolCallsTotal = new Counter({
   name: 'mcp_tool_calls_total',
-  help: 'MCP tool calls, counted when the call starts (failed calls included)',
-  labelNames: ['tool'],
+  help: 'MCP tool calls, counted when the call starts (failed calls included); source is widget or model',
+  labelNames: ['tool', 'source'],
   registers: [register],
 });
 
@@ -273,8 +278,8 @@ export function setYtDlpProcessGauges(active: number, queued: number): void {
   ytDlpQueueLength.set(queued);
 }
 
-export function recordMcpToolCall(tool: string): void {
-  mcpToolCallsTotal.inc({ tool });
+export function recordMcpToolCall(tool: string, source: 'widget' | 'model'): void {
+  mcpToolCallsTotal.inc({ tool, source });
 }
 
 export function recordMcpToolError(tool: string, reason: string): void {
