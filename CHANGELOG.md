@@ -13,7 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Sentry error events held every request header and up to 10 KB of the request body, because the Sentry SDK attaches them by default. Behind the hosted gateway the headers include the user id (`x-mcpal-user-id`), and the body holds the tool arguments. The privacy policy says that neither goes to Sentry. The server now sends no request headers, no request body and no cookies to Sentry. The method and the URL of the request stay.
+- Sentry got request headers and request bodies, which the privacy policy rules out. By default, the Sentry SDK adds every request header and up to 10 KB of the request body to an error event. The HTTP span of a sampled request also holds every header and the caller's IP. Behind the hosted gateway, the headers include the user id (`x-mcpal-user-id`), and the body holds the tool arguments. The server now sends Sentry no request headers, no request body, no cookies and no caller IP. The method and the URL of the request stay.
 
 ## [1.5.32] - 2026-11-12
 
