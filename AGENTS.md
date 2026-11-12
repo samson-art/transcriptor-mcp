@@ -77,6 +77,7 @@ Read the ADR before you change the code it names. If you make or reverse a decis
 - [004](docs/adr/004-private-cookies-copy.md): a private 0600 cookies copy for every yt-dlp call.
 - [005](docs/adr/005-captions-via-yt-dlp-only.md): caption tracks through yt-dlp only.
 - [006](docs/adr/006-original-language-without-lang.md): an omitted `lang` means the video's original language: one track request, or the track list.
+- [007](docs/adr/007-frame-stream-lookup-reuse.md): a frame call reuses the stream lookup of the same URL and width for 5 minutes, in process memory only.
 
 ## Autonomy
 

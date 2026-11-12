@@ -14,7 +14,13 @@ import {
   YtDlpError,
   type YtDlpFailureReason,
 } from './errors.js';
-import { primeSubtitleRequests, recordSubtitleRequest, setYtDlpProcessGauges } from './metrics.js';
+import {
+  primeSubtitleRequests,
+  recordCacheHit,
+  recordCacheMiss,
+  recordSubtitleRequest,
+  setYtDlpProcessGauges,
+} from './metrics.js';
 import { extractPlatformFromUrl } from './platform.js';
 import {
   assertSubtitlesNotRateLimited,
@@ -1237,6 +1243,68 @@ async function fetchVideoStreamInfo(
   }
 }
 
+// In the week to 2026-10-29, 87% of about 7,800 frame calls were for a video that the server
+// looked up in the previous 10 minutes. Eight videos got 42% of the frame calls. For seven of
+// them, the median gap between two frames was 0.4 to 0.7 s. A lookup is one yt-dlp run of
+// about 2.9 s, and its stream URLs stay valid for hours. See ADR 007.
+const STREAM_LOOKUP_TTL_MS = 5 * 60_000;
+
+/**
+ * Stream lookups by format selector and URL. Calls that come while a lookup runs share it.
+ * They live in process memory only: the stream URLs are signed for the address of this
+ * server, so they never go to Redis.
+ *
+ * ponytail: the map has no size cap and no timer. An expired entry leaves at the next miss.
+ * The ceiling is the lookups of the last 5 minutes. With the default cap of 4 processes and
+ * about 2.9 s for each lookup, that is at most about 400 entries. If memory use shows a
+ * need, add a size cap.
+ */
+const streamLookups = new Map<string, { expires: number; info: Promise<VideoStreamInfo | null> }>();
+
+/** Drops a lookup only while the map still holds it, so a late failure never drops a newer one. */
+function dropStreamLookup(key: string, info: Promise<VideoStreamInfo | null>): void {
+  if (streamLookups.get(key)?.info === info) streamLookups.delete(key);
+}
+
+/**
+ * Gives the lookup of the key from the last 5 minutes, or runs a new one.
+ *
+ * ponytail: a waiting call has no timer of its own. The budget of the call that started the
+ * lookup bounds the wait. With a budget of 0, a stalled lookup holds its waiters until it
+ * ends, and new calls join it for the full 5 minutes. If stalls show up with a budget of 0,
+ * give each waiter its own timer.
+ */
+function lookupStreamInfo(
+  key: string,
+  run: () => Promise<VideoStreamInfo | null>
+): Promise<VideoStreamInfo | null> {
+  const now = Date.now();
+  const kept = streamLookups.get(key);
+  if (kept && now < kept.expires) {
+    recordCacheHit('stream');
+    return kept.info;
+  }
+  recordCacheMiss('stream');
+  for (const [k, entry] of streamLookups) {
+    if (entry.expires <= now) streamLookups.delete(k);
+  }
+  const info = run();
+  streamLookups.set(key, { expires: now + STREAM_LOOKUP_TTL_MS, info });
+  // The map keeps no failed lookup. captureVideoFrame drops a lookup that gave no frame.
+  void info.catch(() => dropStreamLookup(key, info));
+  return info;
+}
+
+/** Empties the stream lookups. Exported for tests. */
+export function resetStreamLookupsForTests(): void {
+  streamLookups.clear();
+}
+
+/** The number of stream lookups in the map. Exported for tests. */
+export function streamLookupCountForTests(): number {
+  return streamLookups.size;
+}
+
 async function runFfmpegFrameCapture(opts: {
   input: string;
   /** Seek position in the input; omit to take the first frame */
@@ -1295,7 +1363,15 @@ async function downloadVideoSection(
   logger?: FastifyBaseLogger
 ): Promise<string | null> {
   const tempDir = tmpdir();
-  const outputBase = join(tempDir, urlToSafeBase(url, 'frame_clip'));
+  // Calls that wait on one stream lookup resume together. If their direct reads fail, they can
+  // start this download in the same millisecond. On TikTok and Bilibili, each direct read fails
+  // with 403 (605 frame calls in the week to 2026-10-29). With a name from the URL and the
+  // millisecond alone, one call can read the clip of another timestamp. It can also lose its
+  // clip to the cleanup of another call. So each call adds a random part, as copyCookiesFile does.
+  const outputBase = join(
+    tempDir,
+    `${urlToSafeBase(url, 'frame_clip')}_${Math.random().toString(36).slice(2)}`
+  );
   const args = [
     '-f',
     formatSelector,
@@ -1312,6 +1388,7 @@ async function downloadVideoSection(
     ...envArgs,
     url,
   ];
+  let refusal: YtDlpError | undefined;
   try {
     await execFileAsync('yt-dlp', args, {
       maxBuffer: 10 * 1024 * 1024,
@@ -1321,24 +1398,30 @@ async function downloadVideoSection(
     const details = collectExecFileErrorDetails(error);
     logger?.error(execDetailsToLogFields(details), 'Error downloading video section for frame');
     rethrowInfra(error);
+    // A call that reuses a stream lookup runs no lookup of its own. So only this run can say
+    // that the video became private, was removed or is blocked.
+    if (details.reason && details.reason !== 'unknown') refusal = new YtDlpError(details.reason);
     // The clip may still exist despite the error; fall through to the file search.
   }
 
   const { readdir } = await import('node:fs/promises');
   const baseName = outputBase.split(/[/\\]/).pop() ?? '';
+  let clip: string | undefined;
   try {
-    const files = await readdir(tempDir);
-    const clip = files.find((f) => f.startsWith(baseName));
-    return clip ? join(tempDir, clip) : null;
+    clip = (await readdir(tempDir)).find((f) => f.startsWith(baseName));
   } catch {
-    return null;
+    // A failed search is the same as no clip.
   }
+  if (clip) return join(tempDir, clip);
+  if (refusal) throw refusal;
+  return null;
 }
 
 /**
  * Captures a single frame from a video at the given timestamp.
  * Fast path: yt-dlp resolves a direct stream URL and ffmpeg seeks over HTTP.
  * Fallback: yt-dlp downloads a ~2s section and ffmpeg takes its first frame.
+ * A call reuses the lookup of the same URL and width for 5 minutes (lookupStreamInfo).
  * @param url - Video URL (any supported platform)
  * @param timestampSeconds - Frame position from the start of the video
  */
@@ -1352,38 +1435,52 @@ export async function captureVideoFrame(
   const width = options.width ?? 1280;
   const quality = options.quality ?? 4;
   const mimeType = format === 'png' ? 'image/png' : 'image/jpeg';
+  // Two calls that start in the same millisecond got one frame file. With a shared stream
+  // lookup, they also read at the same moment. So each call adds a random part, as in
+  // downloadVideoSection.
   const outputPath = join(
     tmpdir(),
-    `${urlToSafeBase(url, 'frame')}.${format === 'png' ? 'png' : 'jpg'}`
+    `${urlToSafeBase(url, 'frame')}_${Math.random().toString(36).slice(2)}.${format === 'png' ? 'png' : 'jpg'}`
   );
   const formatSelector = buildFrameFormatSelector(width);
+  const lookupKey = JSON.stringify([formatSelector, url]);
   // One budget for the whole call, not one per process: the lookup, the direct reads, the
   // section download and the clip read each used to get all of it. 0 means no limit.
   const budget = getFrameCaptureTimeout();
   const deadline = budget > 0 ? Date.now() + budget : undefined;
 
   const { jsRuntimes, remoteComponents, cookiesFilePathFromEnv, proxyFromEnv } = getYtDlpEnv();
-  let cookiesPathToUse = cookiesFilePathFromEnv;
+  // A lookup hit whose direct read gives a frame runs no yt-dlp, so it makes no cookies copy.
+  // Any other call makes one copy for its yt-dlp runs, and `finally` deletes it (ADR 004).
   let cookiesCleanup: (() => Promise<void>) | undefined;
-  if (cookiesFilePathFromEnv) {
-    const resolved = await copyCookiesFile(cookiesFilePathFromEnv);
-    cookiesPathToUse = resolved.path;
-    cookiesCleanup = resolved.cleanup;
-  }
-  const envArgs: string[] = [];
-  appendYtDlpEnvArgs(envArgs, {
-    jsRuntimes,
-    remoteComponents,
-    cookiesFilePathFromEnv: cookiesPathToUse,
-    proxyFromEnv,
-  });
+  let envArgsReady: Promise<string[]> | undefined;
+  const getEnvArgs = () =>
+    (envArgsReady ??= (async () => {
+      let cookiesPathToUse = cookiesFilePathFromEnv;
+      if (cookiesFilePathFromEnv) {
+        const resolved = await copyCookiesFile(cookiesFilePathFromEnv);
+        cookiesPathToUse = resolved.path;
+        cookiesCleanup = resolved.cleanup;
+      }
+      const envArgs: string[] = [];
+      appendYtDlpEnvArgs(envArgs, {
+        jsRuntimes,
+        remoteComponents,
+        cookiesFilePathFromEnv: cookiesPathToUse,
+        proxyFromEnv,
+      });
+      return envArgs;
+    })());
 
   let clipPath: string | null = null;
   try {
     await logCookiesFileStatus(logger, cookiesFilePathFromEnv);
     logger?.info({ timestampSeconds, format, width }, 'Capturing video frame');
 
-    const streamInfo = await fetchVideoStreamInfo(url, formatSelector, envArgs, deadline, logger);
+    const lookup = lookupStreamInfo(lookupKey, async () =>
+      fetchVideoStreamInfo(url, formatSelector, await getEnvArgs(), deadline, logger)
+    );
+    const streamInfo = await lookup;
     const videoId = streamInfo?.videoId ?? extractYouTubeVideoId(url) ?? 'unknown';
 
     if (
@@ -1418,6 +1515,8 @@ export async function captureVideoFrame(
           return { ok: true, videoId, data, mimeType };
         }
       } catch (error: unknown) {
+        // A read refused before ffmpeg starts (busy, or no budget left) says nothing about the
+        // stream URLs, so the lookup stays. The answer "beyond the duration" above keeps it too.
         if (error instanceof HttpError) throw error;
         lastError = error;
         logger?.warn(
@@ -1427,11 +1526,15 @@ export async function captureVideoFrame(
       }
     }
 
+    // No stream of this lookup gave a frame, or it had none. A reused lookup can hold URLs
+    // that stopped working, so the next call looks the video up again. This call takes the
+    // section download as before and runs no second lookup.
+    dropStreamLookup(lookupKey, lookup);
     clipPath = await downloadVideoSection(
       url,
       timestampSeconds,
       formatSelector,
-      envArgs,
+      await getEnvArgs(),
       deadline,
       logger
     );
