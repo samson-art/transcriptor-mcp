@@ -1,5 +1,11 @@
 import { formatDuration, isYouTubePage, pageFromInput, watchUrlAt } from './format';
-import { parseToolError, pickDefaultTrack, type AvailableSubtitleTracks } from './subtitleTracks';
+import {
+  parseToolError,
+  pickDefaultTrack,
+  toolErrorText,
+  type AvailableSubtitleTracks,
+} from './subtitleTracks';
+import { humanTimes, splitLinks } from './links';
 import { videoInfoToMeta, type VideoInfoData } from './videoInfo';
 
 const reel = 'https://www.instagram.com/reel/DdZsSYXxBqd/';
@@ -133,5 +139,77 @@ describe('parseToolError', () => {
   it('reads nothing from a call that did not fail', () => {
     const transcript = { content: [{ type: 'text' as const, text: 'Hello.' }] };
     expect(parseToolError(transcript)).toBeNull();
+  });
+});
+
+describe('toolErrorText', () => {
+  const failed = (text: string) => ({ isError: true, content: [{ type: 'text' as const, text }] });
+
+  it('gives the text of a failed call unchanged, as a gateway in front of the server sends it', () => {
+    const text =
+      'You reached the daily free limit of "Transcriptor". The limit resets at 2026-11-17T00:00:00.000Z. To learn more about this server, open https://example.test/';
+    expect(toolErrorText(failed(text))).toBe(text);
+  });
+
+  it('leaves out the track list sentence, which the widget shows with its own picker', () => {
+    const text = 'No subtitles for this track.';
+    const hint = ' Available tracks — official: en, de; auto: none.';
+    expect(toolErrorText(failed(text + hint))).toBe(text);
+  });
+
+  it('gives null for a call that did not fail, so the widget shows its result', () => {
+    expect(toolErrorText({ content: [{ type: 'text' as const, text: 'Hello.' }] })).toBeNull();
+  });
+
+  it('gives null for a failure with no text, so the widget shows its own fixed line', () => {
+    expect(toolErrorText({ isError: true, content: [] })).toBeNull();
+    expect(toolErrorText(failed('   '))).toBeNull();
+  });
+});
+
+describe('splitLinks', () => {
+  it('makes a link of an https address and keeps the words around it', () => {
+    expect(splitLinks('To learn more, open https://example.test/ now')).toEqual([
+      { text: 'To learn more, open ' },
+      { text: 'https://example.test/', href: 'https://example.test/' },
+      { text: ' now' },
+    ]);
+  });
+
+  it('leaves the full stop of the sentence out of the link', () => {
+    expect(splitLinks('See https://example.test/a?b=1.')).toEqual([
+      { text: 'See ' },
+      { text: 'https://example.test/a?b=1', href: 'https://example.test/a?b=1' },
+      { text: '.' },
+    ]);
+  });
+
+  it('links nothing but https, so a text cannot start a script or a file', () => {
+    const text = 'Try http://example.test/ or javascript:alert(1) or www.example.test';
+    expect(splitLinks(text)).toEqual([{ text }]);
+  });
+});
+
+describe('humanTimes', () => {
+  it('shows a UTC timestamp as a date and a time in the zone of the reader', () => {
+    const text = 'The limit resets at 2026-11-17T00:00:00.000Z. Try again then.';
+    expect(humanTimes(text, 'en-GB', 'UTC')).toBe(
+      'The limit resets at 17 Nov 2026, 00:00. Try again then.'
+    );
+    expect(humanTimes(text, 'en-GB', 'Europe/Madrid')).toBe(
+      'The limit resets at 17 Nov 2026, 01:00. Try again then.'
+    );
+  });
+
+  it('reads a timestamp with no seconds part or no fraction', () => {
+    expect(humanTimes('at 2026-11-17T09:30Z', 'en-GB', 'UTC')).toBe('at 17 Nov 2026, 09:30');
+    expect(humanTimes('at 2026-11-17T09:30:15Z', 'en-GB', 'UTC')).toBe('at 17 Nov 2026, 09:30');
+  });
+
+  it('leaves a text with no timestamp, and a date that does not exist, as they are', () => {
+    expect(humanTimes('Video 2026-11-17 is private.', 'en-GB', 'UTC')).toBe(
+      'Video 2026-11-17 is private.'
+    );
+    expect(humanTimes('at 2026-13-45T99:99:99Z', 'en-GB', 'UTC')).toBe('at 2026-13-45T99:99:99Z');
   });
 });
