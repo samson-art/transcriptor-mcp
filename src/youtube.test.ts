@@ -768,10 +768,17 @@ today to pay our respects to MCP, which
             const partial = outputFile(args, 'm4a.part');
             leave?.(partial);
             void writeFile(partial, 'partial', 'utf-8').then(() =>
-              callback(Object.assign(new Error('Command failed: yt-dlp'), { code: 1, ...fields }), {
-                stdout: '',
-                stderr: '',
-              })
+              // Node puts stderr in the message of a failed run too.
+              callback(
+                Object.assign(new Error(`Command failed: yt-dlp\n${fields.stderr ?? ''}`), {
+                  code: 1,
+                  ...fields,
+                }),
+                {
+                  stdout: '',
+                  stderr: '',
+                }
+              )
             );
           }
         );
@@ -780,7 +787,7 @@ today to pay our respects to MCP, which
         ['bot_check', { stderr: "ERROR: Sign in to confirm you're not a bot" }],
         ['rate_limited', { stderr: 'ERROR: HTTP Error 429: Too Many Requests' }],
         ['timeout', { signal: 'SIGTERM' }],
-        ['extractor', { stderr: 'ERROR: Requested format is not available' }],
+        ['extractor', { stderr: 'ERROR: [youtube] abc: nsig extraction failed' }],
       ])(
         'throws the 502 error for %s after one run, and removes its files',
         async (reason, fields) => {
@@ -802,7 +809,10 @@ today to pay our respects to MCP, which
         expect(await downloadAudio(url)).toBeNull();
         failWith({ stderr: 'ERROR: Private video' });
         expect(await downloadAudio(url)).toBeNull();
-        expect(execFileMock).toHaveBeenCalledTimes(2);
+        // This video has no format the audio chain takes (#63, #108): not a broken platform.
+        failWith({ stderr: 'ERROR: [facebook] 123: Requested format is not available' });
+        expect(await downloadAudio(url)).toBeNull();
+        expect(execFileMock).toHaveBeenCalledTimes(3);
       });
 
       it('does not start the caption hold on a 429 (ADR 002 covers caption downloads only)', async () => {

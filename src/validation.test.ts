@@ -1629,6 +1629,7 @@ describe('the answer when no subtitles came back', () => {
       const named = await failureOf({ url, type: 'official', lang: 'de' });
       expect(named).toMatchObject({ name: 'YtDlpError', reason: 'bot_check', statusCode: 502 });
       expect(named).not.toHaveProperty('answer');
+      (whisperJobs.startOrReuseWhisperJob as jest.Mock).mockReset();
     });
 
     it('answer=unread when the track list could not be read', async () => {

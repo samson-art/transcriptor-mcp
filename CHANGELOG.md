@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- When the audio download for speech-to-text fails because of a bot check, a rate limit, a timeout or an extractor error, `get_transcript`, `get_raw_subtitles` and REST `/subtitles` now answer with the 502 error for that class (#104). Before this, the caller got the 404 "no subtitles" answer with `answer=stt_failed`, which is wrong information about the video. The "MCP tool call" log line now has the matching `reason` and no `answer`. A rate limit here does not start the caption hold (ADR 002). The server makes the same yt-dlp runs as before. Other failed downloads, a video that is too long, and speech-to-text that gives no text keep their current answers.
+- When the audio download for speech-to-text fails because of a bot check, a rate limit, a timeout or an extractor error, `get_transcript`, `get_raw_subtitles` and REST `/subtitles` now answer with the 502 error for that class (#104). Before this, the caller got the 404 "no subtitles" answer with `answer=stt_failed`, which is wrong information about the video. The "MCP tool call" log line now has the matching `reason` and no `answer`. A rate limit here does not start the caption hold (ADR 002). The server makes the same yt-dlp runs as before. Other failed downloads, a video that is too long, and speech-to-text that gives no text keep their current answers. This includes a video with no format that the audio download can take (#63, #108): it is about the video, not the platform.
 
 ### Changed
 
