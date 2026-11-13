@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Sentry can count the users who meet errors (#118). Set the new `SENTRY_USER_HASH_SECRET` behind a gateway that sends `x-mcpal-user-id` on each tool call. Each tool call then sends one Sentry log, "MCP tool call", with a user id: 16 hex characters of an HMAC of the gateway id. The log also holds the tool, the outcome, the reason, the "no subtitles" answer, the platform and the source. A call whose caller left before the answer has the reason `cancelled`. The log holds no address and no video id, and no Sentry event gets the user id.
+- Sentry can count the users who meet errors (#118). Set the new `SENTRY_USER_HASH_SECRET` behind a gateway that sends `x-mcpal-user-id` on each tool call. Each tool call then sends one Sentry log, "MCP tool call", with a user id: 16 hex characters of an HMAC of the gateway id. The log also holds the tool, the outcome, the reason, the "no subtitles" answer, the platform and the source. A call whose caller left before the answer has the reason `cancelled`. The log holds no address and no video id. It has its own trace id, so Sentry does not link it to the error report or the trace of the call. No Sentry event gets the user id.
 
 ### Changed
 

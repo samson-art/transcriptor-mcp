@@ -567,23 +567,26 @@ async function withToolErrorHandling(
     // Sentry counts users from these logs (#118). The user id goes on this log only. On the
     // request scope it also reaches error events, whose breadcrumbs hold the requested
     // addresses, and the Release Health session of the whole process. The log holds no
-    // address and no video id: those stay on stdout.
+    // address and no video id: those stay on stdout. It also starts its own trace: with the
+    // trace id of the call, Sentry links it to the error event and the trace of that call.
     const userId = sentryUserId(call);
     if (userId) {
       // A closed transport means that the caller never got the answer: a proxy cut the call,
       // or the client left.
       const cancelled = call.extra.signal?.aborted === true;
       const failure = cancelled ? 'cancelled' : reason;
-      Sentry.logger.info('MCP tool call', {
-        'user.id': userId,
-        tool: line.tool,
-        outcome: failure ? 'error' : 'ok',
-        source: line.source,
-        // Sentry sends an undefined attribute as an empty string, so these keys stay out.
-        ...(failure ? { reason: failure } : {}),
-        ...(answer ? { answer } : {}),
-        ...(line.platform ? { platform: line.platform } : {}),
-      });
+      Sentry.startNewTrace(() =>
+        Sentry.logger.info('MCP tool call', {
+          'user.id': userId,
+          tool: line.tool,
+          outcome: failure ? 'error' : 'ok',
+          source: line.source,
+          // Sentry sends an undefined attribute as an empty string, so these keys stay out.
+          ...(failure ? { reason: failure } : {}),
+          ...(answer ? { answer } : {}),
+          ...(line.platform ? { platform: line.platform } : {}),
+        })
+      );
     }
   }
 }

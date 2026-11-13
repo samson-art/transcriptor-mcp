@@ -14,6 +14,7 @@ The gateway in front of the hosted server sends the id of its signed-in user on 
 
 - `src/mcp-core.ts`, `sentryUserId`: the id is the first 16 hex characters of HMAC-SHA256 of the header value, with the secret in `SENTRY_USER_HASH_SECRET`. The header comes from the request headers that the MCP SDK gives each tool call. Without the secret or the header, there is no id.
 - `src/mcp-core.ts`, `withToolErrorHandling`: a call with an id sends one Sentry log, "MCP tool call". Its attributes are `user.id`, `tool`, `outcome` and `source`, and also `reason`, `answer` and `platform` when they exist. It holds no address, address hash or video id.
+- The log starts its own trace (`Sentry.startNewTrace`). With the trace id of the call, Sentry links the log to the error event and the sampled trace of that call, and their breadcrumbs hold the requested address.
 - A call whose transport closed before the answer gets `outcome: error` and `reason: cancelled`. A proxy cut the call, or the client left.
 - `src/instrument.ts`: `enableLogs: true`. Nothing else calls `Sentry.logger`.
 - `src/lifecycle.ts`: shutdown waits up to 2 s for Sentry, because `process.exit` skips the flush of the SDK.
@@ -53,5 +54,6 @@ Queries in Sentry Explore, Logs, with `message:"MCP tool call"`:
 
 - Do not send the raw header value. `src/instrument.test.ts` checks every log, event and transaction.
 - Do not add the address, `addr`, `vid` or `host` to the Sentry log. `src/instrument.test.ts` checks this.
+- Do not send the log in the trace of the call. The error-event test in `src/instrument.test.ts` then fails.
 - Do not put the user on a Sentry scope. The error-event test in `src/instrument.test.ts` then fails.
 - Do not turn on the request headers or the request body of `requestDataIntegration`, and keep `beforeSendSpan` in `src/instrument.ts`. `src/instrument.test.ts` guards both.

@@ -49,7 +49,11 @@ jest.mock('node:child_process', () => {
   };
 });
 
-type MockLog = { body: string; attributes: Record<string, { value: unknown }> };
+type MockLog = {
+  body: string;
+  trace_id?: string;
+  attributes: Record<string, { value: unknown }>;
+};
 
 // What the real SDK sends, with the options instrument.ts gives it. Only the DSN and the
 // transport are the test's: the transport keeps each item here and sends nothing.
@@ -408,5 +412,12 @@ describe('Sentry user from the gateway (#118)', () => {
       'user.id': hashOf(userId),
     });
     expect(mockPayloads.join('\n')).not.toContain(userId);
+    // The log starts its own trace. With the trace id of the call, Sentry links the user id to
+    // the error event, whose log lines hold the requested address.
+    const callTrace = mockSent[0].contexts?.trace?.trace_id;
+    expect(callTrace).toEqual(expect.any(String));
+    expect(mockLogs[0].trace_id).toEqual(expect.any(String));
+    expect(mockLogs[0].trace_id).not.toBe(callTrace);
+    expect(Object.keys(mockLogs[0].attributes)).not.toContain('sentry.trace.parent_span_id');
   });
 });
