@@ -7,8 +7,29 @@ import * as Sentry from '@sentry/node';
 import { HttpError, ServerBusyError, YtDlpError } from './errors.js';
 import { version } from './version.js';
 
-/** Span attributes that hold a request header or the caller's IP outside `http.request.header.*`. */
-const HEADER_SPAN_KEYS = new Set(['http.client_ip', 'http.user_agent']);
+/** Span attributes that hold a request header or an IP outside `http.request.header.*`. */
+const HEADER_SPAN_KEYS = new Set([
+  'http.client_ip',
+  'http.user_agent',
+  'net.peer.ip',
+  'net.peer.port',
+]);
+
+/** MCP clients by user agent. The first match wins, so Codex comes before OpenAI. */
+const CLIENT_FAMILIES: Array<[family: string, userAgent: RegExp]> = [
+  ['codex', /codex/i],
+  ['openai', /openai/i],
+  ['claude', /claude/i],
+  ['cursor', /cursor/i],
+  ['opencode', /opencode/i],
+  ['google', /google|gemini/i],
+];
+
+/** A fixed name for the client, which names no person, in place of its user agent. */
+function clientFamily(userAgent: unknown): string | undefined {
+  if (typeof userAgent !== 'string' || userAgent === '') return undefined;
+  return CLIENT_FAMILIES.find(([, pattern]) => pattern.test(userAgent))?.[0] ?? 'other';
+}
 
 Sentry.init({
   dsn: process.env.SENTRY_DSN,
@@ -28,8 +49,11 @@ Sentry.init({
     Sentry.fastifyIntegration({ shouldHandleError: () => false }),
     // The SDK attaches every request header and up to 10 KB of the request body to an event
     // by default. Behind the gateway the headers include the user id (x-mcpal-user-id), and
-    // the body holds the tool arguments. The privacy policy says neither goes to Sentry.
-    Sentry.requestDataIntegration({ include: { headers: false, data: false, cookies: false } }),
+    // the body holds the tool arguments. The privacy policy says neither goes to Sentry, and
+    // no IP either. `ip` is set here, so SENTRY_SEND_DEFAULT_PII cannot turn it on.
+    Sentry.requestDataIntegration({
+      include: { headers: false, data: false, cookies: false, ip: false },
+    }),
   ],
   beforeSend(event, hint) {
     const ex = hint.originalException;
@@ -53,14 +77,22 @@ Sentry.init({
   },
   // The HTTP span of a sampled request copies every request header and the caller's IP into
   // its attributes, whatever requestDataIntegration says. The privacy policy says neither goes
-  // to Sentry, so they leave each span here.
-  beforeSendTransaction(event) {
-    for (const data of [event.contexts?.trace?.data, ...(event.spans ?? []).map((s) => s.data)]) {
-      if (!data) continue;
-      for (const key of Object.keys(data)) {
-        if (key.startsWith('http.request.header.') || HEADER_SPAN_KEYS.has(key)) delete data[key];
+  // to Sentry, so they leave each span here. The SDK runs this on the root span of a
+  // transaction too. Two facts from the headers stay, as fixed values: the MCP protocol
+  // version and the client family. They show which clients and versions call the server.
+  beforeSendSpan(span) {
+    const { data } = span;
+    if (span.op === 'http.server') {
+      const version = data['http.request.header.mcp_protocol_version'];
+      if (typeof version === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(version)) {
+        data['mcp.protocol.version'] = version;
       }
+      const family = clientFamily(data['http.user_agent']);
+      if (family) data['mcp.client.family'] = family;
     }
-    return event;
+    for (const key of Object.keys(data)) {
+      if (key.startsWith('http.request.header.') || HEADER_SPAN_KEYS.has(key)) delete data[key];
+    }
+    return span;
   },
 });

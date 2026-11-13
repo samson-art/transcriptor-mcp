@@ -13,7 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Sentry got request headers and request bodies, which the privacy policy rules out. By default, the Sentry SDK adds every request header and up to 10 KB of the request body to an error event. The HTTP span of a sampled request also holds every header and the caller's IP. Behind the hosted gateway, the headers include the user id (`x-mcpal-user-id`), and the body holds the tool arguments. The server now sends Sentry no request headers, no request body, no cookies and no caller IP. The method and the URL of the request stay.
+- Sentry got request headers and request bodies, which the privacy policy rules out. By default, the Sentry SDK adds every request header and up to 10 KB of the request body to an error event. The span of a sampled request also holds the request headers and the caller's IP. Behind the hosted gateway, the headers include the user id (`x-mcpal-user-id`), and the body holds the tool arguments. Error events and spans now hold no request headers, no request body, no cookies and no IP address from the request, also with `SENTRY_SEND_DEFAULT_PII=true`. Two facts from the headers stay on the request span as fixed values: `mcp.protocol.version` and `mcp.client.family` (`codex`, `openai`, `claude`, `cursor`, `opencode`, `google` or `other`).
 
 ## [1.5.32] - 2026-11-12
 
