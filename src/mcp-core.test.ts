@@ -13,7 +13,7 @@ import {
   YtDlpError,
 } from './errors.js';
 import { createMcpServer } from './mcp-core.js';
-import { renderPrometheus } from './metrics.js';
+import { mcpToolCallsTotal, renderPrometheus } from './metrics.js';
 import * as youtube from './youtube.js';
 import * as validation from './validation.js';
 
@@ -554,6 +554,52 @@ describe('mcp-core tools', () => {
         /mcp_request_duration_seconds_count\{[^}]*endpoint="get_video_info",outcome="error"[^}]*\} [1-9]/
       );
       expect(metrics).toMatch(/mcp_tool_calls_total\{[^}]*tool="get_video_info"[^}]*\} [1-9]/);
+    });
+
+    it('should count calls by tool and source, with the source of the log line (#115)', async () => {
+      const logger = {
+        error: jest.fn(),
+        info: jest.fn(),
+        debug: jest.fn(),
+        warn: jest.fn(),
+        child: jest.fn(),
+      };
+      logger.child.mockReturnValue(logger);
+      const server = createMcpServer({ logger: logger as any }) as any;
+      const handler = getTool(server, 'get_video_info');
+      normalizeVideoInputMock.mockReturnValue(testUrl);
+      validateAndFetchVideoInfoMock.mockRejectedValue(new YtDlpError('private'));
+      const bySource = async () =>
+        Object.fromEntries(
+          (await mcpToolCallsTotal.get()).values
+            .filter((v) => v.labels.tool === 'get_video_info')
+            .map((v) => [`${v.labels.source}`, v.value] as const)
+        );
+      const before = await bySource();
+
+      await handler({ url: testUrl }, { _meta: { 'transcriptor/source': 'widget' } });
+      await handler({ url: testUrl }, {});
+      // Any other value is a model call: the label has two values only.
+      await handler({ url: testUrl }, { _meta: { 'transcriptor/source': 'other' } });
+
+      const after = await bySource();
+      expect(after).toEqual({ widget: before.widget + 1, model: before.model + 2 });
+      const logged = (logger.warn.mock.calls as Array<[Record<string, unknown>, string]>)
+        .filter((c) => c[1] === 'MCP tool call')
+        .map((c) => c[0].source);
+      expect(logged).toEqual(['widget', 'model', 'model']);
+    });
+
+    it('should have both source series of every tool before its first call (#115)', async () => {
+      const server = createMcpServer() as any;
+      const tools = [...(server.tools as Map<string, unknown>).keys()];
+      expect(tools).toHaveLength(8);
+      const series = (await mcpToolCallsTotal.get()).values.map(
+        (v) => `${v.labels.tool}/${v.labels.source}`
+      );
+      for (const tool of tools) {
+        expect(series).toEqual(expect.arrayContaining([`${tool}/widget`, `${tool}/model`]));
+      }
     });
 
     it('should name the kind of "no subtitles" answer in the log line, and only there (#64)', async () => {
