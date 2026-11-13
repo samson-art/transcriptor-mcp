@@ -94,6 +94,8 @@ let mcpBaseUrl: string;
 beforeAll(async () => {
   // Tracing on: this is what adds Sentry's Fastify integration.
   process.env.SENTRY_TRACES_SAMPLE_RATE = '1';
+  // The PII switch must not change what the privacy test below sees.
+  delete process.env.SENTRY_SEND_DEFAULT_PII;
   await import('./instrument.js');
   app = Fastify();
   app.setErrorHandler(restErrorHandler);
@@ -169,8 +171,9 @@ describe('Sentry events', () => {
       throw new Error('Unplanned fault.');
     });
     await listener.listen({ port: 0, host: '127.0.0.1' });
-    // Random, so that it cannot reach the event as a source line of this file (ContextLines).
+    // Random, so that they cannot reach the event as a source line of this file (ContextLines).
     const userId = `sub-${randomUUID()}`;
+    const cookie = `sid-${randomUUID()}`;
     try {
       const { port } = listener.server.address() as AddressInfo;
       const response = await fetch(`http://127.0.0.1:${port}/fails`, {
@@ -180,7 +183,9 @@ describe('Sentry events', () => {
           'x-mcpal-user-id': userId,
           'cf-connecting-ip': '203.0.113.7',
           'x-forwarded-for': '198.51.100.9',
-          'user-agent': 'a-test-client/1.0',
+          'user-agent': 'openai-mcp/1.0.0 (Codex)',
+          'mcp-protocol-version': '2025-11-25',
+          cookie: `session=${cookie}`,
         },
         body: JSON.stringify({ url: VIDEO_URL }),
       });
@@ -188,14 +193,28 @@ describe('Sentry events', () => {
       await Sentry.flush();
 
       expect(mockSent).toHaveLength(1);
-      expect(mockSent[0].request?.headers).toBeUndefined();
-      expect(mockSent[0].request?.data).toBeUndefined();
-      expect(JSON.stringify(mockSent[0])).not.toContain(userId);
+      // Only the method and the URL of the request stay: no headers, body, cookies or IP.
+      expect(mockSent[0].request).toEqual({
+        method: 'POST',
+        url: `http://127.0.0.1:${port}/fails`,
+      });
+      expect(mockSent[0].user?.ip_address).toBeUndefined();
+      for (const value of [userId, cookie]) {
+        expect(JSON.stringify(mockSent[0])).not.toContain(value);
+      }
       // The span of the request, sampled here at 1, keeps neither the headers nor the IP.
       const [transaction] = mockTransactions;
-      expect(transaction?.contexts?.trace?.op).toBe('http.server');
+      expect(transaction?.transaction).toBe('POST /fails');
+      const rootData = transaction?.contexts?.trace?.data ?? {};
+      expect(rootData).toMatchObject({
+        'sentry.op': 'http.server',
+        'http.response.status_code': 500,
+        'mcp.protocol.version': '2025-11-25',
+        'mcp.client.family': 'codex',
+      });
+      expect(Object.keys(rootData)).not.toContain('net.peer.ip');
       const spanData = JSON.stringify(transaction);
-      for (const value of [userId, '203.0.113.7', '198.51.100.9', 'a-test-client']) {
+      for (const value of [userId, cookie, '203.0.113.7', '198.51.100.9', 'openai-mcp']) {
         expect(spanData).not.toContain(value);
       }
       expect(spanData).not.toContain('http.request.header.');

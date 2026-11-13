@@ -54,4 +54,4 @@ Queries in Sentry Explore, Logs, with `message:"MCP tool call"`:
 - Do not send the raw header value. `src/instrument.test.ts` checks every log, event and transaction.
 - Do not add the address, `addr`, `vid` or `host` to the Sentry log. `src/instrument.test.ts` checks this.
 - Do not put the user on a Sentry scope. The error-event test in `src/instrument.test.ts` then fails.
-- Do not turn on the request headers or the request body of `requestDataIntegration`, and keep `beforeSendTransaction` in `src/instrument.ts`. `src/instrument.test.ts` guards both.
+- Do not turn on the request headers or the request body of `requestDataIntegration`, and keep `beforeSendSpan` in `src/instrument.ts`. `src/instrument.test.ts` guards both.
