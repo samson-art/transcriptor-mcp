@@ -78,6 +78,7 @@ Read the ADR before you change the code it names. If you make or reverse a decis
 - [005](docs/adr/005-captions-via-yt-dlp-only.md): caption tracks through yt-dlp only.
 - [006](docs/adr/006-original-language-without-lang.md): an omitted `lang` means the video's original language: one track request, or the track list.
 - [007](docs/adr/007-frame-stream-lookup-reuse.md): a frame call reuses the stream lookup of the same URL and width for 5 minutes, in process memory only.
+- [008](docs/adr/008-sentry-user-from-gateway-id.md): Sentry counts users from one Sentry log per tool call, with an HMAC of the gateway user id. No Sentry event gets the id. Off without `SENTRY_USER_HASH_SECRET`.
 
 ## Autonomy
 

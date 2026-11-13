@@ -4,7 +4,7 @@ import {
   RESOURCE_MIME_TYPE,
 } from '@modelcontextprotocol/ext-apps/server';
 import { McpServer, ResourceTemplate } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { createHash } from 'node:crypto';
+import { createHash, createHmac } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 // IMPORTANT: use Zod v3 schemas for MCP JSON Schema compatibility.
@@ -430,8 +430,27 @@ function trackHint(details?: NotFoundDetails): string {
 /** What a tool was called with, as far as the per-call log line needs it. */
 type ToolCall = {
   args: Record<string, unknown>;
-  extra: { _meta?: Record<string, unknown> };
+  extra: {
+    _meta?: Record<string, unknown>;
+    /** Only over HTTP. The SDK gives the request headers with lowercase names. */
+    requestInfo?: { headers?: Record<string, string | string[] | undefined> };
+    /** The SDK aborts it when the transport of the request closes. */
+    signal?: AbortSignal;
+  };
 };
+
+/**
+ * The id under which Sentry counts the user of a tool call (#118, ADR 008). Behind the hosted
+ * gateway, `x-mcpal-user-id` names the signed-in user. Sentry gets 16 hex characters of an
+ * HMAC of it, not the id itself. Without SENTRY_USER_HASH_SECRET there is no id. Only the
+ * gateway reaches the HTTP listener, so the server trusts the header, as with `x-request-id`.
+ */
+function sentryUserId({ extra }: ToolCall): string | undefined {
+  const secret = process.env.SENTRY_USER_HASH_SECRET;
+  const header = extra.requestInfo?.headers?.['x-mcpal-user-id'];
+  if (!secret || typeof header !== 'string' || header === '') return undefined;
+  return createHmac('sha256', secret).update(header).digest('hex').slice(0, 16);
+}
 
 /** Widgets mark their own tool calls with this `_meta` key (see ui/shared/widgetCall.ts). */
 const WIDGET_SOURCE_META_KEY = 'transcriptor/source';
@@ -545,6 +564,30 @@ async function withToolErrorHandling(
     };
     if (outcome === 'ok') log.info(line, 'MCP tool call');
     else log.warn(line, 'MCP tool call');
+    // Sentry counts users from these logs (#118). The user id goes on this log only. On the
+    // request scope it also reaches error events, whose breadcrumbs hold the requested
+    // addresses, and the Release Health session of the whole process. The log holds no
+    // address and no video id: those stay on stdout. It also starts its own trace: with the
+    // trace id of the call, Sentry links it to the error event and the trace of that call.
+    const userId = sentryUserId(call);
+    if (userId) {
+      // A closed transport means that the caller never got the answer: a proxy cut the call,
+      // or the client left.
+      const cancelled = call.extra.signal?.aborted === true;
+      const failure = cancelled ? 'cancelled' : reason;
+      Sentry.startNewTrace(() =>
+        Sentry.logger.info('MCP tool call', {
+          'user.id': userId,
+          tool: line.tool,
+          outcome: failure ? 'error' : 'ok',
+          source: line.source,
+          // Sentry sends an undefined attribute as an empty string, so these keys stay out.
+          ...(failure ? { reason: failure } : {}),
+          ...(answer ? { answer } : {}),
+          ...(line.platform ? { platform: line.platform } : {}),
+        })
+      );
+    }
   }
 }
 
