@@ -10,6 +10,7 @@ import { parseIntEnv } from './env.js';
 import {
   HttpError,
   ServerBusyError,
+  VIDEO_GONE_REASONS,
   YT_DLP_INFRA_REASONS,
   YtDlpError,
   type YtDlpFailureReason,
@@ -265,7 +266,7 @@ function rethrowRefusalWarning(data: YtDlpVideoInfo, stderr: string): void {
     .filter((l) => !/no video formats found|requested format is not available/i.test(l))
     .join('\n');
   const reason = classifyYtDlpFailure({ message: '', stderr: own });
-  if (reason === 'private' || reason === 'unavailable' || YT_DLP_INFRA_REASONS.has(reason)) {
+  if (VIDEO_GONE_REASONS.has(reason) || YT_DLP_INFRA_REASONS.has(reason)) {
     throw new YtDlpError(reason);
   }
 }
@@ -458,8 +459,9 @@ async function runYtDlpAndExtractSubtitles(
     return (await readAndReturnSubtitleIfValid(subtitleFile)) ?? '';
   } catch (error: unknown) {
     if (error instanceof HttpError) throw error;
+    const details = collectExecFileErrorDetails(error);
     logger?.error(
-      { ...execDetailsToLogFields(collectExecFileErrorDetails(error)), type, lang },
+      { ...execDetailsToLogFields(details), type, lang },
       `Error downloading ${type} subtitles`
     );
 
@@ -476,7 +478,13 @@ async function runYtDlpAndExtractSubtitles(
         logger?.error({ error: readError, subtitleFile }, 'Error reading subtitle file');
       }
     }
-    rethrowInfra(error);
+    // A private or removed video fails the audio and info runs the same way. Before #117, null
+    // here started both: 3 runs and 4.3 s (median) per call in a burst of 49 private videos
+    // (production logs, measured 2026-11-12).
+    const { reason } = details;
+    if (reason && (YT_DLP_INFRA_REASONS.has(reason) || VIDEO_GONE_REASONS.has(reason))) {
+      throw new YtDlpError(reason);
+    }
     return null;
   }
 }

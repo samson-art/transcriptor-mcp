@@ -851,6 +851,30 @@ describe('validation', () => {
       ).rejects.toMatchObject({ name: 'YtDlpError', reason: 'private' });
     });
 
+    // #117: this flow must pass the caption run's verdict through. The run that produces it,
+    // from yt-dlp stderr, is tested in youtube.test.ts ('should throw %s from the caption run').
+    it.each(['private', 'unavailable'] as const)(
+      'should stop after the caption run says %s: no audio run, no info run',
+      async (reason) => {
+        (whisper.getWhisperConfig as jest.Mock).mockReturnValue({
+          mode: 'local',
+          timeout: 600_000,
+        });
+        jest.spyOn(youtube, 'downloadSubtitles').mockRejectedValue(new YtDlpError(reason));
+        const jsonSpy = jest.spyOn(youtube, 'fetchYtDlpJson');
+
+        await expect(
+          validateAndDownloadSubtitles({
+            url: 'https://vimeo.com/123',
+            type: 'auto',
+            lang: 'en',
+          } as any)
+        ).rejects.toMatchObject({ name: 'YtDlpError', reason, statusCode: 404 });
+        expect(whisperJobs.startOrReuseWhisperJob).not.toHaveBeenCalled();
+        expect(jsonSpy).not.toHaveBeenCalled();
+      }
+    );
+
     describe('auto-discover (lang omitted)', () => {
       const youtubeUrl = 'https://www.youtube.com/watch?v=dQw4w9WgXcQ';
 
@@ -1747,6 +1771,24 @@ describe('an omitted lang means the original language', () => {
   beforeEach(() => {
     (whisperJobs.startOrReuseWhisperJob as jest.Mock).mockResolvedValue(null);
   });
+
+  // The metadata run read the video, so a "gone" verdict from the track run is about the track
+  // or a stray stderr line. The list still lets the caller pick another track (#117 review).
+  it.each(['private', 'unavailable'] as const)(
+    'answers with the list when the track run says %s after the listing worked',
+    async (reason) => {
+      listing(['en'], ['de'], 'en');
+      const download = jest
+        .spyOn(youtube, 'downloadSubtitles')
+        .mockRejectedValue(new YtDlpError(reason));
+
+      const error = await failureOf({ url });
+
+      expect(download).toHaveBeenCalledTimes(1);
+      expect(error).toBeInstanceOf(NotFoundError);
+      expect(error).toMatchObject({ answer: 'list' });
+    }
+  );
 
   /** A cache that keeps what the server stores, as Redis would within the TTL. */
   const memoryCache = (): void => {

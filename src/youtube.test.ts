@@ -422,6 +422,28 @@ today to pay our respects to MCP, which
       await unlink(subtitleFilePath).catch(() => {});
     });
 
+    // #117: a null here started speech-to-text and an info run, both failing the same way.
+    it.each([
+      ['private', 'ERROR: [youtube] p1: Private video. Sign in if you have access'],
+      ['unavailable', 'ERROR: [youtube] u1: Video unavailable. This video has been removed'],
+    ])('should throw %s from the caption run instead of returning null', async (reason, stderr) => {
+      execFileMock.mockImplementation(
+        (
+          _file: string,
+          _args: string[],
+          _options: unknown,
+          callback: (error: Error | null, result: { stdout: string; stderr: string }) => void
+        ) => {
+          const error = Object.assign(new Error('yt-dlp failed'), { stdout: '', stderr, code: 1 });
+          callback(error, { stdout: '', stderr });
+        }
+      );
+
+      await expect(
+        downloadSubtitles('https://www.youtube.com/watch?v=gone', 'auto', 'en')
+      ).rejects.toMatchObject({ name: 'YtDlpError', reason });
+    });
+
     it('should still return content when yt-dlp fails but file exists', async () => {
       const url = 'https://www.youtube.com/watch?v=video123';
       const content = 'subtitle content after error';
