@@ -526,7 +526,7 @@ async function downloadWithAutoDiscover(
         const payload = JSON.stringify(heard(text));
         const ttl = getCacheConfig().ttlSubtitlesSeconds;
         for (const key of whisperKeys) void set(key, payload, ttl);
-      });
+      }, ignoreLateFailure);
     } else if (outcome.content?.trim()) {
       return heard(outcome.content);
     }
@@ -655,6 +655,12 @@ async function loadAvailableSubtitles(
  * loser has to be cleaned up: an uncleared WHISPER_TIMEOUT timer holds its callback — and
  * the event loop — for the full ten minutes after the job already answered.
  */
+/**
+ * For a speech-to-text job that the caller stopped waiting for. Since #104 the audio run throws
+ * on a platform failure, and that run already wrote the log line.
+ */
+const ignoreLateFailure = (): void => {};
+
 async function raceWhisperJob<T>(
   job: Promise<T>,
   timeoutMs: number
@@ -926,7 +932,7 @@ async function handleExplicitRequestFlow(
           source: 'whisper',
         };
         await set(cacheKey, JSON.stringify(whisperResult), cacheConfig.ttlSubtitlesSeconds);
-      });
+      }, ignoreLateFailure);
     } else if (outcome.content) {
       subtitlesContent = outcome.content;
       source = 'whisper';

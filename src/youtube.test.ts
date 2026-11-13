@@ -5,6 +5,7 @@ import { join, basename, dirname } from 'path';
 import { access, constants, readFile, stat, writeFile, unlink } from 'node:fs/promises';
 import * as youtube from './youtube.js';
 import {
+  assertSubtitlesNotRateLimited,
   noteSubtitlesRateLimited,
   resetSubtitleRateLimitsForTests,
 } from './subtitle-rate-limit.js';
@@ -750,6 +751,76 @@ today to pay our respects to MCP, which
       expect(capturedArgs[formatIdx + 1]).toBe(
         'bestaudio[abr<=192]/bestaudio/best*[acodec!=none]/best'
       );
+    });
+
+    describe('a failed audio run with a platform or server cause (#104)', () => {
+      const failWith = (
+        fields: { stderr?: string; signal?: string },
+        leave?: (p: string) => void
+      ) =>
+        execFileMock.mockImplementation(
+          (
+            _file: string,
+            args: string[],
+            _options: unknown,
+            callback: (error: Error | null, result: { stdout: string; stderr: string }) => void
+          ) => {
+            const partial = outputFile(args, 'm4a.part');
+            leave?.(partial);
+            void writeFile(partial, 'partial', 'utf-8').then(() =>
+              // Node puts stderr in the message of a failed run too.
+              callback(
+                Object.assign(new Error(`Command failed: yt-dlp\n${fields.stderr ?? ''}`), {
+                  code: 1,
+                  ...fields,
+                }),
+                {
+                  stdout: '',
+                  stderr: '',
+                }
+              )
+            );
+          }
+        );
+
+      it.each([
+        ['bot_check', { stderr: "ERROR: Sign in to confirm you're not a bot" }],
+        ['rate_limited', { stderr: 'ERROR: HTTP Error 429: Too Many Requests' }],
+        ['timeout', { signal: 'SIGTERM' }],
+        ['extractor', { stderr: 'ERROR: [youtube] abc: nsig extraction failed' }],
+      ])(
+        'throws the 502 error for %s after one run, and removes its files',
+        async (reason, fields) => {
+          let partial = '';
+          failWith(fields, (p) => (partial = p));
+
+          await expect(downloadAudio(url)).rejects.toMatchObject({
+            name: 'YtDlpError',
+            reason,
+            statusCode: 502,
+          });
+          expect(execFileMock).toHaveBeenCalledTimes(1);
+          await expect(access(partial, constants.F_OK)).rejects.toThrow();
+        }
+      );
+
+      it('keeps null for a failure with no known class or a cause about the video', async () => {
+        failWith({ stderr: 'ERROR: something new' });
+        expect(await downloadAudio(url)).toBeNull();
+        failWith({ stderr: 'ERROR: Private video' });
+        expect(await downloadAudio(url)).toBeNull();
+        // This video has no format the audio chain takes (#63, #108): not a broken platform.
+        failWith({ stderr: 'ERROR: [facebook] 123: Requested format is not available' });
+        expect(await downloadAudio(url)).toBeNull();
+        expect(execFileMock).toHaveBeenCalledTimes(3);
+      });
+
+      it('does not start the caption hold on a 429 (ADR 002 covers caption downloads only)', async () => {
+        resetSubtitleRateLimitsForTests();
+        failWith({ stderr: 'ERROR: HTTP Error 429: Too Many Requests' });
+        await expect(downloadAudio(url)).rejects.toMatchObject({ reason: 'rate_limited' });
+        expect(() => assertSubtitlesNotRateLimited(url)).not.toThrow();
+      });
     });
 
     it('deletes the video that a failed audio extraction leaves behind (#108)', async () => {
