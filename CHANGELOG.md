@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Terms of Service 1.3 and Privacy Policy 1.3 describe an optional paid plan for the hosted Service. They take effect on 2026-12-14, 30 days after the notice, and for a buyer from the moment of the purchase. The free allowance per UTC day stays, and it can be different for each tool. The paid plan removes the daily allowance for one person, within a fair use rule. The operator of the MCPal platform sells the plan and Stripe processes the payment. The Terms give the rules for the price, the renewal, the cancellation and a refund in the first 14 days. Self-hosting does not change.
+- Privacy Policy 1.4 says what the hosted Service sends to Sentry (#118). It sends fault reports, performance traces for a sample of requests, and usage logs with a pseudonymous user id. The log lines in reports and traces can include the submitted address and search terms. Sentry gets no request bodies, no cookies, no IP address of the request and only a few named facts from the request headers. The policy treats this data as pseudonymous, because the request id in it links to the usage records of MCPal. Version 1.4 takes effect on 2026-12-14, the same day as 1.3, and replaces it.
 
 ## [1.5.32] - 2026-11-12
 
