@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Terms of Service 1.3 and Privacy Policy 1.3 describe an optional paid plan for the hosted Service. They take effect on 2026-12-14, 30 days after the notice, and for a buyer from the moment of the purchase. The free allowance per UTC day stays, and it can be different for each tool. The paid plan removes the daily allowance for one person, within a fair use rule. The operator of the MCPal platform sells the plan and Stripe processes the payment. The Terms give the rules for the price, the renewal, the cancellation and a refund in the first 14 days. Self-hosting does not change.
 
+### Fixed
+
+- Sentry got request headers and request bodies, which the privacy policy rules out. By default, the Sentry SDK adds every request header and up to 10 KB of the request body to an error event. The span of a sampled request also holds the request headers and the caller's IP. Behind the hosted gateway, the headers include the user id (`x-mcpal-user-id`), and the body holds the tool arguments. Error events and spans now hold no request headers, no request body, no cookies and no IP address from the request, also with `SENTRY_SEND_DEFAULT_PII=true`. Two facts from the headers stay on the request span as fixed values: `mcp.protocol.version` and `mcp.client.family` (`codex`, `openai`, `claude`, `cursor`, `opencode`, `google` or `other`).
+
 ## [1.5.32] - 2026-11-12
 
 ### Fixed
