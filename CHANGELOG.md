@@ -11,10 +11,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - A transcript call for a private or removed video now stops after the first caption run (#117). Before this, the server also read the video info and, with speech-to-text on, downloaded the audio. Those runs failed for the same reason. In one burst of 49 private videos on a server with speech-to-text on, each call made three runs and took 4.3 s (median). A call without `lang` still answers with the track list when the video's listing worked. The error text, the metric reason and the outcome of the run in `subtitle_requests_total` do not change.
 
+## [1.5.33] - 2026-11-18
+
 ### Changed
 
 - Terms of Service 1.3 and Privacy Policy 1.3 describe an optional paid plan for the hosted Service. They take effect on 2026-12-14, 30 days after the notice, and for a buyer from the moment of the purchase. The free allowance per UTC day stays, and it can be different for each tool. The paid plan removes the daily allowance for one person, within a fair use rule. The operator of the MCPal platform sells the plan and Stripe processes the payment. The Terms give the rules for the price, the renewal, the cancellation and a refund in the first 14 days. Self-hosting does not change.
 - Privacy Policy 1.4 says what the hosted Service sends to Sentry (#118). It sends fault reports, performance traces for a sample of requests, and usage logs with a pseudonymous user id. The log lines in reports and traces can include the submitted address and search terms. Sentry gets no request bodies, no cookies, no IP address of the request and only a few named facts from the request headers. The policy treats this data as pseudonymous, because the request id in it links to the usage records of MCPal. Version 1.4 takes effect on 2026-12-14, the same day as 1.3, and replaces it.
+
+### Fixed
+
+- Sentry got request headers and request bodies, which the privacy policy rules out. By default, the Sentry SDK adds every request header and up to 10 KB of the request body to an error event. The span of a sampled request also holds the request headers and the caller's IP. Behind the hosted gateway, the headers include the user id (`x-mcpal-user-id`), and the body holds the tool arguments. Error events and spans now hold no request headers, no request body, no cookies and no IP address from the request, also with `SENTRY_SEND_DEFAULT_PII=true`. Two facts from the headers stay on the request span as fixed values: `mcp.protocol.version` and `mcp.client.family` (`codex`, `openai`, `claude`, `cursor`, `opencode`, `google` or `other`).
 
 ## [1.5.32] - 2026-11-12
 
