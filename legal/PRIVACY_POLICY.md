@@ -1,7 +1,7 @@
 # Privacy Policy — Transcriptor MCP (hosted service)
 
-**Version:** 1.3
-**Last updated:** November 12, 2026
+**Version:** 1.4
+**Last updated:** November 13, 2026
 **Effective date:** December 14, 2026
 
 Version 1.2 applies from December 4, 2026 until this version takes effect. If you buy the paid plan before December 14, 2026, the parts of this version about payment apply to you from the moment you buy.
@@ -29,6 +29,8 @@ The free allowance needs no payment, so no payment or billing data about you is 
 - **Per-call usage records**: one row per tool call in MCPal's ledger, with the server, the tool name, the time, success or failure, the duration, a client reference, your identifier, and technical fields about the call that the gateway sets. These records identify you.
 - **Subscription and payment data**, only if you buy the paid plan, held by MCPal and Stripe: your identifier, your email address, the identifiers of the Stripe customer and of the subscription, its status, the end of the paid period and whether you cancelled. Stripe alone holds your card details.
 - **What you send and what we return**: the addresses, search terms and other parameters you submit, and the Output we return.
+- **Your MCPal identifier on our server**: the gateway sends it to our server with each tool call. Our server does not store it and sends it to no one. Our server uses it only to make a pseudonymous identifier for the usage logs in section 6. A pseudonymous identifier is a code that only we can link back to you.
+- **Diagnostic data**: the fault reports, performance traces and usage logs that our server sends to Sentry. Section 6 says what they hold.
 
 ## 4. What happens to your requests
 
@@ -51,6 +53,7 @@ We use nothing you send or receive to train any model, and we allow no provider 
 - Give you access, run your calls, apply the daily free quota and apply a paid plan: performance of our contract, Article 6(1)(b) GDPR.
 - Record the version you accepted, with IP address and user-agent string: our legitimate interest in proving the documents were shown and accepted, Article 6(1)(f). This is your acceptance of the documents, not consent under Article 6(1)(a).
 - Keep the Service working, diagnose faults, prevent abuse and quota circumvention: our legitimate interest in a secure and reliable service, Article 6(1)(f).
+- Count how many users meet errors, from the usage logs in section 6: our legitimate interest in a reliable service, Article 6(1)(f).
 
 You may object to legitimate-interest processing at any time under Article 21 GDPR. We rely on consent for nothing described here, so there is no consent to withdraw. Our MCP endpoint accepts POST requests only and sets no cookies; any cookies at sign-in belong to MCPal.
 
@@ -60,7 +63,13 @@ MCPal (gateway, identity, metering, sale of the paid plan), Stripe (payment, onl
 
 The Output goes back to the MCP client you connected, so the company that operates that client and its AI model receives it. That company is a separate controller under its own policy, we do not choose it, and we cannot control what it keeps. Consider this before you request material about identifiable people.
 
-Our server is able to send fault reports to Sentry (Functional Software, Inc.), and you should assume that it does. A report holds the error, the tool name, the submitted address and the log lines before it in that request, which can include the command we ran and the source platform's error output. We do not enable Sentry's optional collection of IP addresses and request headers, and we send Sentry no request or response bodies.
+Our server sends diagnostic data to Sentry (Functional Software, Inc.), a service that collects errors and performance data. It sends three kinds of data:
+
+- Fault reports: our server sends a report when a call fails because of a fault in our server or a failure of the source platform. A report holds the error, the address of our endpoint with any query string, and up to 100 log lines before the error. These are the lines of that request and lines that our server writes outside any request, such as its own checks. They can include the tool name and the video address and search terms that you submitted. They can also include the command that we ran and the error output of the source platform.
+- Performance traces: for a sample of requests, our server sends a trace of the request, whether the call succeeds or fails. A trace holds the duration of the request and of its steps. It holds the same kind of log lines as a fault report, and the commands that our server sends to its response cache. A cache command holds the video address and the request parameters, not the Output. A trace names the version of the MCP protocol and a type of MCP client from a fixed list, such as "claude".
+- Usage logs: our server sends one log for each tool call of a signed-in user, to count how many users meet errors. The log holds a pseudonymous identifier, the tool name, success or failure and the class of a failure. It also holds the kind of answer for a video without subtitles, the source platform, and whether a widget or the model made the call. The identifier is a keyed hash of your MCPal identifier, so Sentry cannot link it to you. A usage log holds no address, video identifier, search term or Output. Sentry does not link it to the fault reports and traces of the same call.
+
+Fault reports and traces do not hold your name, email address or account identifier. They hold the identifier that the gateway gives each call, which the usage records in section 3 hold as the client reference. Those records link it to your account for 45 days, so we treat all three kinds as pseudonymous personal data. We send Sentry no request or response bodies, no cookies and no IP address from your request. From the request headers, Sentry gets only technical facts that do not name you, such as the call identifier and our host name. If the gateway or your MCP client sends Sentry trace headers, our trace joins the trace of the sender.
 
 Sentry, Stripe and a hosting company may process data outside the European Economic Area, including in the United States. Where they do, the transfer is covered by the European Commission's standard contractual clauses or, where the recipient is certified, by the EU–US Data Privacy Framework. Ask us for the safeguards that apply to a given recipient and for the country its servers are in.
 
@@ -76,7 +85,7 @@ Our server requests captions, metadata, frames and audio from the source platfor
 - **Subscription and payment records**: kept by MCPal and by Stripe for the periods in their policies, which include the periods that tax and accounting law requires.
 - **Account and identity records**: kept by MCPal while your account exists, for the periods in its policy.
 - **Acceptance records, including the IP address and user-agent string captured at sign-in**: held by MCPal while your account exists and deleted with it, for the periods in its policy.
-- **Fault reports at Sentry**: no more than 90 days.
+- **Diagnostic data at Sentry**: no more than 90 days for fault reports and performance traces, and no more than 30 days for usage logs.
 - **Operational logs on our server**: no more than 30 days, then overwritten. MCPal's gateway logs follow the periods in its policy.
 - **Backups**: overwritten on a rolling cycle of no more than 35 days.
 
