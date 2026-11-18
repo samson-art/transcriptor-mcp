@@ -169,8 +169,9 @@ export type ExecFileErrorDetails = {
 
 /**
  * Ordered stderr patterns, first match wins. yt-dlp writes free-form English to
- * stderr, so this is a heuristic: a miss only costs a vaguer message and an
- * `unknown` metric label, never a change of control flow.
+ * stderr, so this is a heuristic. A miss costs a vaguer message and an `unknown`
+ * metric label. A match can end a call: the infra classes, `private` and `unavailable`
+ * stop a transcript call before its fallback (#117). Keep those patterns narrow.
  */
 const YT_DLP_FAILURE_PATTERNS: ReadonlyArray<[YtDlpFailureReason, RegExp]> = [
   ['bot_check', /sign in to confirm you.?re not a bot|confirm you.?re not a bot/i],
@@ -500,6 +501,8 @@ async function runYtDlpAndExtractSubtitles(
  * @param format - subtitle format: srt, vtt, ass, lrc (default from YT_DLP_SUB_FORMAT or srt)
  * @param logger - Fastify logger instance for structured logging
  * @returns the text; '' when the run went through with no text; null when the run failed
+ * @throws YtDlpError when the run failed with an infra class, or said that the video is private
+ *   or removed (#117)
  */
 export async function downloadSubtitles(
   url: string,
@@ -570,7 +573,11 @@ export async function downloadSubtitles(
     return content;
   } catch (error) {
     const limited = noteIfRateLimited(url, error);
-    recordSubtitleRequest(platform, limited ? 'rate_limited' : 'error');
+    // An answer about the video counted as `ok` when the caption run returned null for it. The
+    // run now throws it (#117), and the count stays: `error` is a run that the server could not
+    // complete.
+    const gone = error instanceof YtDlpError && VIDEO_GONE_REASONS.has(error.reason);
+    recordSubtitleRequest(platform, limited ? 'rate_limited' : gone ? 'ok' : 'error');
     rethrowInfra(error);
     logger?.error({ error }, 'Error downloading subtitles');
     return null;

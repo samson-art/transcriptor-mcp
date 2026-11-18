@@ -472,8 +472,11 @@ async function downloadWithAutoDiscover(
         false
       );
       if (cached) return cached;
-      // The metadata run just read this video, so a "private" or "removed" from the track run is
-      // about the track, or a stray stderr line: the list is still the useful answer.
+      // The list says that the platform showed this video, so a "private" or "removed" from the
+      // track run is about the track, or a stray stderr line: the list is still the useful answer.
+      // ponytail: a list from the cache can be as old as the metadata TTL. If the video became
+      // private after that, the caller gets the list and learns the fact from its next call, as
+      // before #117. Tell a cached list from a fresh one here if that second call shows in logs.
       const content = await downloadTrack(url, track, format, logger).catch((err: unknown) => {
         if (err instanceof YtDlpError && VIDEO_GONE_REASONS.has(err.reason)) return null;
         throw err;
