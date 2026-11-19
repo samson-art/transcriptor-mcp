@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `subtitle_requests_total` now counts the caption requests of `get_playlist_transcripts` (#105). Before this, a playlist run could start the caption hold and leave the counter unchanged. `subtitle_rate_limit_strikes` then went up with no `rate_limited` request to explain it. Playlist runs use the new label value `path="playlist"`. Each track that a run delivers adds 1 to `outcome="ok"`. A run that gets a 429 adds 1 to `outcome="rate_limited"`. A run that fails for another reason adds 1 to `outcome="error"`. A run that stops at `maxItems` is not a failure. yt-dlp does not report how many tracks a run asked for, so `ok` is a lower limit. Each platform gets the three new series at zero before its first caption request. `path="yt_dlp"` keeps its meaning: one track run. A query that sums over all paths now also counts playlist runs.
+
 ## [1.5.33] - 2026-11-18
 
 ### Changed

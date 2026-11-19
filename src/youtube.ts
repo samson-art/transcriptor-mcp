@@ -742,19 +742,25 @@ async function handlePlaylistDownloadError(
 ): Promise<PlaylistSubtitlesResult[]> {
   const details = collectExecFileErrorDetails(error);
   const partial = await readResults().catch(() => []);
+  const limited = details.reason === 'rate_limited';
   // A track clears the hold, also from a run that did not exit 0 (ADR 002). A 429 in this run
   // has just set the hold, and it stays.
-  if (partial.length > 0 && details.reason !== 'rate_limited') clearSubtitlesRateLimit(url);
+  if (partial.length > 0 && !limited) clearSubtitlesRateLimit(url);
 
   // Exit 101 is yt-dlp cancelling the queue on purpose: `--max-downloads` reached, which is
   // what `maxItems` asks for. It says so on stdout only and `--quiet` swallows that, which
   // is why this used to fail a call that had done exactly what was asked. A queue cancelled
   // with nothing written is not proof of that, though: a platform refusing every item ends
   // the same way, and a classified refusal must still be reported as one.
-  if (
+  const queueCancelled =
     details.exitCode === 101 &&
-    (partial.length > 0 || !details.reason || !YT_DLP_INFRA_REASONS.has(details.reason))
-  ) {
+    (partial.length > 0 || !details.reason || !YT_DLP_INFRA_REASONS.has(details.reason));
+  // The stop at maxItems is not a failed request. A 429 is one, whatever the exit code (#105).
+  if (limited || !queueCancelled) {
+    const platform = extractPlatformFromUrl(url);
+    recordSubtitleRequest(platform, limited ? 'rate_limited' : 'error', 'playlist');
+  }
+  if (queueCancelled) {
     logger?.info({ count: partial.length, tempDir }, 'yt-dlp cancelled the playlist queue');
     return partial;
   }
@@ -802,6 +808,8 @@ export async function downloadPlaylistSubtitles(
   // One playlist run asks for as many tracks as it has items: the heaviest caller of the
   // caption endpoint must be the first to stop while the platform is refusing.
   assertSubtitlesNotRateLimited(url);
+  const platform = extractPlatformFromUrl(url);
+  primeSubtitleRequests(platform);
   const tempDir = join(tmpdir(), uniqueTempName('playlist_subs'));
   const outputTemplate = join(tempDir, '%(id)s.%(ext)s');
   const { jsRuntimes, remoteComponents, cookiesFilePathFromEnv } = getYtDlpEnv();
@@ -823,7 +831,11 @@ export async function downloadPlaylistSubtitles(
     const subtitleFiles = files
       .filter((f) => SUB_EXTENSIONS.some((e) => f.endsWith(e)))
       .sort((a, b) => Number(b.endsWith(asked)) - Number(a.endsWith(asked)));
-    return collectSubtitleResults(subtitleFiles, tempDir, logger);
+    const results = await collectSubtitleResults(subtitleFiles, tempDir, logger);
+    // Each delivered track is one request that the caption endpoint answered (#105). The read
+    // deletes the files, so a second read in the error path cannot count a track twice.
+    recordSubtitleRequest(platform, 'ok', 'playlist', results.length);
+    return results;
   };
 
   try {

@@ -3073,6 +3073,138 @@ today to pay our respects to MCP, which
         delete process.env.YT_DLP_VERBOSE_ON_ERROR;
       }
     });
+
+    describe('caption request counter (#105)', () => {
+      const playlistUrl = 'https://www.youtube.com/playlist?list=PLxxx';
+      const refused = 'ERROR: Unable to download video subtitles: HTTP Error 429';
+
+      /** The value of one series, or undefined when the series does not exist. */
+      const requests = async (path: string, outcome: string, platform = 'youtube') => {
+        const series = `subtitle_requests_total{platform="${platform}",path="${path}",outcome="${outcome}"`;
+        const line = (await renderPrometheus()).split('\n').find((l) => l.startsWith(series));
+        return line === undefined ? undefined : Number(line.split(' ').pop());
+      };
+
+      const snapshot = async () => ({
+        ok: await requests('playlist', 'ok'),
+        rateLimited: await requests('playlist', 'rate_limited'),
+        error: await requests('playlist', 'error'),
+        singleOk: await requests('yt_dlp', 'ok'),
+        singleRateLimited: await requests('yt_dlp', 'rate_limited'),
+      });
+
+      /** The difference of each series against `before`. */
+      const spent = async (before: Awaited<ReturnType<typeof snapshot>>) => {
+        const after = await snapshot();
+        const diff = (k: keyof typeof before) => (after[k] ?? 0) - (before[k] ?? 0);
+        return {
+          ok: diff('ok'),
+          rateLimited: diff('rateLimited'),
+          error: diff('error'),
+          single: diff('singleOk') + diff('singleRateLimited'),
+        };
+      };
+
+      it('gives the playlist path every outcome at zero before its first run', async () => {
+        // No other case in this file uses Bilibili, so the series cannot exist yet. A series
+        // that is born at 1 gives increase() no step, and the alert on it stays silent.
+        const bilibili = 'https://www.bilibili.com/list/1';
+        const outcomes = ['ok', 'rate_limited', 'error'];
+        for (const o of outcomes) expect(await requests('playlist', o, 'bilibili')).toBeUndefined();
+
+        mockExecFileFailure(refused);
+        await expect(downloadPlaylistSubtitles(bilibili, { lang: 'en' })).rejects.toMatchObject({
+          reason: 'rate_limited',
+        });
+
+        expect(await requests('playlist', 'ok', 'bilibili')).toBe(0);
+        expect(await requests('playlist', 'rate_limited', 'bilibili')).toBe(1);
+        expect(await requests('playlist', 'error', 'bilibili')).toBe(0);
+      });
+
+      it('counts each track that a run delivers as one answered request', async () => {
+        const before = await snapshot();
+        execFileMock.mockImplementation(
+          (
+            _file: string,
+            args: string[],
+            _options: unknown,
+            callback: (error: Error | null, result?: { stdout: string; stderr: string }) => void
+          ) => {
+            const dir = dirname(args[args.indexOf('--output') + 1]);
+            void Promise.all([
+              writeFile(join(dir, 'vid1.en.srt'), srtTrack),
+              writeFile(join(dir, 'vid2.en.srt'), srtTrack),
+            ]).then(() => callback(null, { stdout: '', stderr: '' }));
+          }
+        );
+
+        const results = await downloadPlaylistSubtitles(playlistUrl, { lang: 'en' });
+
+        expect(results).toHaveLength(2);
+        expect(await spent(before)).toEqual({ ok: 2, rateLimited: 0, error: 0, single: 0 });
+      });
+
+      it('counts a 429 as one refused request, and a run that the hold stops as none', async () => {
+        const before = await snapshot();
+        mockExecFileFailure(refused);
+
+        await expect(downloadPlaylistSubtitles(playlistUrl, { lang: 'en' })).rejects.toMatchObject({
+          reason: 'rate_limited',
+        });
+        expect(await spent(before)).toEqual({ ok: 0, rateLimited: 1, error: 0, single: 0 });
+
+        // The hold refuses the next run before yt-dlp starts, so no request leaves the server.
+        execFileMock.mockClear();
+        await expect(downloadPlaylistSubtitles(playlistUrl, { lang: 'en' })).rejects.toMatchObject({
+          reason: 'rate_limited',
+        });
+        expect(execFileMock).not.toHaveBeenCalled();
+        expect(await spent(before)).toEqual({ ok: 0, rateLimited: 1, error: 0, single: 0 });
+      });
+
+      it.each([
+        [
+          'yt-dlp cancelled the queue at maxItems',
+          () => failAfterWriting(cancelledAtMaxItems()),
+          { ok: 1, rateLimited: 0, error: 0, single: 0 },
+        ],
+        [
+          'the run got a 429 and the deadline stopped it',
+          () => failAfterWriting(killedAtDeadline(refused)),
+          { ok: 1, rateLimited: 1, error: 0, single: 0 },
+        ],
+        [
+          'the run failed on a private video',
+          () =>
+            failAfterWriting(
+              Object.assign(new Error('Command failed: yt-dlp'), {
+                code: 1,
+                stderr: 'ERROR: [youtube] abc: Private video',
+              })
+            ),
+          { ok: 1, rateLimited: 0, error: 1, single: 0 },
+        ],
+      ])('counts the tracks and the failure when %s', async (_case, mock, expected) => {
+        const before = await snapshot();
+        mock();
+
+        const results = await downloadPlaylistSubtitles(playlistUrl, { lang: 'en' });
+
+        expect(results.map((r) => r.videoId)).toEqual(['vid1']);
+        expect(await spent(before)).toEqual(expected);
+      });
+
+      it('counts a failed run that delivered nothing as one error', async () => {
+        const before = await snapshot();
+        mockExecFileFailure('ERROR: [youtube] abc: Private video');
+
+        await expect(downloadPlaylistSubtitles(playlistUrl, { lang: 'en' })).rejects.toMatchObject({
+          reason: 'private',
+        });
+        expect(await spent(before)).toEqual({ ok: 0, rateLimited: 0, error: 1, single: 0 });
+      });
+    });
   });
 
   describe('captureVideoFrame', () => {
