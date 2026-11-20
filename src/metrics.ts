@@ -71,14 +71,14 @@ export const subtitlesExtractionFailuresTotal = new Counter({
  * Requests this server makes to a platform's caption endpoint. The 429 that takes subtitles
  * down for a day is a budget on exactly these requests, and the budget is not documented
  * anywhere: counting them is the only way to learn how many fit in a day. `path="yt_dlp"` is
- * one track run (the direct fetch went in 1.5.8). `path="playlist"` is a playlist run (#105):
- * `ok` counts each track that it delivered, and `rate_limited` or `error` counts one failed
- * run. yt-dlp does not report how many tracks a run asked for, so `ok` is a lower limit.
- * `outcome=error` includes a yt-dlp run that failed before it reached the endpoint.
+ * one track run (the direct fetch went in 1.5.8). `outcome=error` includes a yt-dlp run that
+ * failed before it reached the endpoint. `path="playlist"` is a playlist run (#105). The rules
+ * for it are in `countPlaylistRun` in youtube.ts. yt-dlp does not report how many tracks a
+ * run asked for, so `ok` there is a lower limit.
  */
 export const subtitleRequestsTotal = new Counter({
   name: 'subtitle_requests_total',
-  help: 'Requests to a platform caption endpoint, by path (yt_dlp: one track; playlist: delivered tracks, one per failed run) and outcome',
+  help: 'Requests to a platform caption endpoint, by path and outcome. Path yt_dlp is one track run. Path playlist counts each delivered track and each failed run.',
   labelNames: ['platform', 'path', 'outcome'],
   registers: [register],
 });

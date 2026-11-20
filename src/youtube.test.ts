@@ -2,7 +2,7 @@ import { execFile } from 'node:child_process';
 import { writeFileSync } from 'node:fs';
 import { tmpdir } from 'os';
 import { join, basename, dirname } from 'path';
-import { access, constants, readFile, stat, writeFile, unlink } from 'node:fs/promises';
+import { access, constants, readFile, rm, stat, writeFile, unlink } from 'node:fs/promises';
 import * as youtube from './youtube.js';
 import {
   noteSubtitlesRateLimited,
@@ -3091,6 +3091,7 @@ today to pay our respects to MCP, which
         error: await requests('playlist', 'error'),
         singleOk: await requests('yt_dlp', 'ok'),
         singleRateLimited: await requests('yt_dlp', 'rate_limited'),
+        singleError: await requests('yt_dlp', 'error'),
       });
 
       /** The difference of each series against `before`. */
@@ -3101,9 +3102,13 @@ today to pay our respects to MCP, which
           ok: diff('ok'),
           rateLimited: diff('rateLimited'),
           error: diff('error'),
-          single: diff('singleOk') + diff('singleRateLimited'),
+          single: diff('singleOk') + diff('singleRateLimited') + diff('singleError'),
         };
       };
+
+      /** yt-dlp exits non-zero with this code and stderr. */
+      const exitWith = (code: number, stderr: string) =>
+        Object.assign(new Error('Command failed: yt-dlp'), { code, stderr });
 
       it('gives the playlist path every outcome at zero before its first run', async () => {
         // No other case in this file uses Bilibili, so the series cannot exist yet. A series
@@ -3175,14 +3180,22 @@ today to pay our respects to MCP, which
           { ok: 1, rateLimited: 1, error: 0, single: 0 },
         ],
         [
-          'the run failed on a private video',
+          // The private video sent no caption request, and every other request was answered.
+          'one video of the run is private',
+          () => failAfterWriting(exitWith(1, 'ERROR: [youtube] abc: Private video')),
+          { ok: 1, rateLimited: 0, error: 0, single: 0 },
+        ],
+        [
+          'the run met a bot check and then stopped at maxItems',
           () =>
             failAfterWriting(
-              Object.assign(new Error('Command failed: yt-dlp'), {
-                code: 1,
-                stderr: 'ERROR: [youtube] abc: Private video',
-              })
+              exitWith(101, "ERROR: [youtube] abc: Sign in to confirm you're not a bot")
             ),
+          { ok: 1, rateLimited: 0, error: 1, single: 0 },
+        ],
+        [
+          'the deadline stopped the run',
+          () => failAfterWriting(killedAtDeadline()),
           { ok: 1, rateLimited: 0, error: 1, single: 0 },
         ],
       ])('counts the tracks and the failure when %s', async (_case, mock, expected) => {
@@ -3203,6 +3216,75 @@ today to pay our respects to MCP, which
           reason: 'private',
         });
         expect(await spent(before)).toEqual({ ok: 0, rateLimited: 0, error: 1, single: 0 });
+      });
+
+      it('counts no failure when yt-dlp stopped at maxItems before any track', async () => {
+        // For example, the first videos have no track in this language.
+        const before = await snapshot();
+        failAfterWriting(cancelledAtMaxItems(), {});
+
+        await expect(
+          downloadPlaylistSubtitles(playlistUrl, { lang: 'en', maxItems: 1 })
+        ).resolves.toEqual([]);
+        expect(await spent(before)).toEqual({ ok: 0, rateLimited: 0, error: 0, single: 0 });
+      });
+
+      it('counts no failure when the read fails after yt-dlp exited 0', async () => {
+        const before = await snapshot();
+        execFileMock.mockImplementation(
+          (
+            _file: string,
+            args: string[],
+            _options: unknown,
+            callback: (error: Error | null, result?: { stdout: string; stderr: string }) => void
+          ) => {
+            // The folder is gone, so the read of the results throws.
+            const dir = dirname(args[args.indexOf('--output') + 1]);
+            void rm(dir, { recursive: true, force: true }).then(() =>
+              callback(null, { stdout: '', stderr: '' })
+            );
+          }
+        );
+
+        await expect(downloadPlaylistSubtitles(playlistUrl, { lang: 'en' })).rejects.toMatchObject({
+          name: 'YtDlpError',
+        });
+        expect(execFileMock).toHaveBeenCalledTimes(1);
+        expect(await spent(before)).toEqual({ ok: 0, rateLimited: 0, error: 0, single: 0 });
+      });
+
+      it('counts the verbose replay as one more run', async () => {
+        process.env.YT_DLP_VERBOSE_ON_ERROR = '1';
+        const before = await snapshot();
+        let runs = 0;
+        execFileMock.mockImplementation(
+          (
+            _file: string,
+            args: string[],
+            _options: unknown,
+            callback: (error: Error | null, result?: { stdout: string; stderr: string }) => void
+          ) => {
+            runs += 1;
+            if (runs === 1) {
+              setImmediate(() => callback(exitWith(1, 'ERROR: [youtube] abc: Private video')));
+              return;
+            }
+            // The replay asks for every item again, and this time a track comes back.
+            const dir = dirname(args[args.indexOf('--output') + 1]);
+            void writeFile(join(dir, 'vid1.en.srt'), srtTrack).then(() =>
+              callback(null, { stdout: '', stderr: '' })
+            );
+          }
+        );
+        try {
+          await expect(
+            downloadPlaylistSubtitles(playlistUrl, { lang: 'en' })
+          ).rejects.toMatchObject({ reason: 'private' });
+          expect(runs).toBe(2);
+          expect(await spent(before)).toEqual({ ok: 1, rateLimited: 0, error: 1, single: 0 });
+        } finally {
+          delete process.env.YT_DLP_VERBOSE_ON_ERROR;
+        }
       });
     });
   });

@@ -17,7 +17,7 @@ From 1.5.2 a direct 429 held the whole platform, yt-dlp included. On 2026-09-24 
 - `downloadSubtitles` in `src/youtube.ts` runs only yt-dlp, with the server's cookies.
 - The browser impersonation comes from yt-dlp, not from a server flag. Its YouTube extractor marks each caption track `impersonate: true`, and yt-dlp uses `curl_cffi` for it. The Docker image must keep `yt-dlp[default,curl-cffi]`, and the publish workflow checks that impersonation targets exist.
 - The explicit `type`/`lang` path does not run the metadata JSON before the track. For YouTube the id comes from the URL. For other platforms the JSON run comes after the track.
-- `subtitle_requests_total` keeps its `path` label, now always `yt_dlp`, so dashboards and queries keep working.
+- `subtitle_requests_total` keeps its `path` label, so dashboards and queries keep working. A one-track run is `yt_dlp`. Since #105, a playlist run is `playlist`. Both paths run only yt-dlp.
 
 ## Alternatives
 
