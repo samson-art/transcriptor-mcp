@@ -1159,6 +1159,22 @@ export async function downloadAudio(
     for (const f of leftovers) {
       if (f.startsWith(`${baseName}.`)) await unlink(join(tempDir, f)).catch(() => {});
     }
+    // A platform or server failure is not "no subtitles" (#104). A 429 here does not start the
+    // caption hold: ADR 002 covers caption downloads only. "Requested format is not available"
+    // means that this video has no format the audio chain takes (#63, #108), not a broken
+    // platform, so it does not count as `extractor` here. Node puts stderr in the message too.
+    const ownLines = (text?: string) =>
+      text
+        ?.split('\n')
+        .filter((l) => !/requested format is not available/i.test(l))
+        .join('\n');
+    const { message, stderr, signal } = collectExecFileErrorDetails(error);
+    const reason = classifyYtDlpFailure({
+      message: ownLines(message) ?? '',
+      stderr: ownLines(stderr),
+      signal,
+    });
+    if (YT_DLP_INFRA_REASONS.has(reason)) throw new YtDlpError(reason);
     return null;
   } finally {
     await cookiesCleanup?.();
