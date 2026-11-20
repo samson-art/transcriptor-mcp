@@ -720,15 +720,44 @@ function maskFfmpegLogText(text: string): string {
   );
 }
 
+/**
+ * Counts one playlist run in `subtitle_requests_total{path="playlist"}` (#105). Each delivered
+ * track is one answered request. Pass `failure` for a run that did not exit 0. A 429 is one
+ * refused request, whatever the exit code. Any other infra failure is one error. A failure
+ * that is not infra counts only when the run delivered no track and did not stop at maxItems
+ * (exit 101). In a run that delivered tracks, such a failure is one item, for example a
+ * private or removed video, and that item sent no caption request.
+ */
+function countPlaylistRun(
+  platform: string,
+  delivered: number,
+  failure?: ExecFileErrorDetails
+): void {
+  recordSubtitleRequest(platform, 'ok', 'playlist', delivered);
+  if (!failure) return;
+  const { reason, exitCode } = failure;
+  if (reason === 'rate_limited') {
+    recordSubtitleRequest(platform, 'rate_limited', 'playlist');
+  } else if (
+    (reason && YT_DLP_INFRA_REASONS.has(reason)) ||
+    (delivered === 0 && exitCode !== 101)
+  ) {
+    recordSubtitleRequest(platform, 'error', 'playlist');
+  }
+}
+
 async function runPlaylistVerboseReplay(
   url: string,
+  platform: string,
   buildFullArgs: (quiet: boolean, verbose: boolean) => string[],
+  readResults: () => Promise<PlaylistSubtitlesResult[]>,
   deadline: number,
   logger?: FastifyBaseLogger
 ): Promise<void> {
   if (process.env.YT_DLP_VERBOSE_ON_ERROR !== '1') {
     return;
   }
+  let replayDetails: ExecFileErrorDetails | undefined;
   try {
     // A hold means that the platform just refused. A replay would ask for every item again
     // (ADR 002).
@@ -741,13 +770,18 @@ async function runPlaylistVerboseReplay(
   } catch (replayErr: unknown) {
     // A hold, a full queue and a late slot start no run, so there is no stderr to log.
     if (replayErr instanceof HttpError) return;
-    const replayDetails = collectExecFileErrorDetails(replayErr);
+    replayDetails = collectExecFileErrorDetails(replayErr);
     logger?.error(execDetailsToLogFields(replayDetails), 'yt-dlp playlist verbose replay stderr');
   }
+  // The replay asks for every item again. The call does not return its tracks, but the
+  // caption endpoint got the requests (#105).
+  const replayed = await readResults().catch(() => []);
+  countPlaylistRun(platform, replayed.length, replayDetails);
 }
 
 async function handlePlaylistDownloadError(
   url: string,
+  platform: string,
   error: unknown,
   readResults: () => Promise<PlaylistSubtitlesResult[]>,
   buildFullArgs: (quiet: boolean, verbose: boolean) => string[],
@@ -757,6 +791,7 @@ async function handlePlaylistDownloadError(
 ): Promise<PlaylistSubtitlesResult[]> {
   const details = collectExecFileErrorDetails(error);
   const partial = await readResults().catch(() => []);
+  countPlaylistRun(platform, partial.length, details);
   // A track clears the hold, also from a run that did not exit 0 (ADR 002). A 429 in this run
   // has just set the hold, and it stays.
   if (partial.length > 0 && details.reason !== 'rate_limited') clearSubtitlesRateLimit(url);
@@ -783,7 +818,7 @@ async function handlePlaylistDownloadError(
     return partial;
   }
 
-  await runPlaylistVerboseReplay(url, buildFullArgs, deadline, logger);
+  await runPlaylistVerboseReplay(url, platform, buildFullArgs, readResults, deadline, logger);
   const reason = details.reason ?? 'unknown';
   // A run that the deadline killed wrote nothing because time ran out (#89). With
   // --ignore-errors, stderr can still name an error on one item, such as a private video, or a
@@ -817,6 +852,8 @@ export async function downloadPlaylistSubtitles(
   // One playlist run asks for as many tracks as it has items: the heaviest caller of the
   // caption endpoint must be the first to stop while the platform is refusing.
   assertSubtitlesNotRateLimited(url);
+  const platform = extractPlatformFromUrl(url);
+  primeSubtitleRequests(platform);
   const tempDir = join(tmpdir(), uniqueTempName('playlist_subs'));
   const outputTemplate = join(tempDir, '%(id)s.%(ext)s');
   const { jsRuntimes, remoteComponents, cookiesFilePathFromEnv } = getYtDlpEnv();
@@ -893,15 +930,12 @@ export async function downloadPlaylistSubtitles(
         strictDeadline: deadline,
       });
       logger?.debug({ tempDir }, 'yt-dlp playlist subtitles completed');
-
-      const results = await readPlaylistSubtitleResults();
-      if (results.length > 0) clearSubtitlesRateLimit(url);
-      return results;
     } catch (error: unknown) {
       if (error instanceof HttpError) throw error;
       noteIfRateLimited(url, error);
       return await handlePlaylistDownloadError(
         url,
+        platform,
         error,
         readPlaylistSubtitleResults,
         buildFullArgs,
@@ -910,10 +944,17 @@ export async function downloadPlaylistSubtitles(
         logger
       );
     }
+
+    // Outside the catch above: a read that fails after yt-dlp exited 0 is not a failed run, so
+    // it must not count as a failed caption request or start the verbose replay (#105).
+    const results = await readPlaylistSubtitleResults();
+    countPlaylistRun(platform, results.length);
+    if (results.length > 0) clearSubtitlesRateLimit(url);
+    return results;
   } catch (outerError: unknown) {
     if (outerError instanceof HttpError) throw outerError;
     const details = collectExecFileErrorDetails(outerError);
-    logger?.error(execDetailsToLogFields(details), 'Error preparing playlist subtitle download');
+    logger?.error(execDetailsToLogFields(details), 'Error preparing or reading playlist subtitles');
     throw new YtDlpError(details.reason ?? 'unknown');
   } finally {
     await cookiesCleanup?.();

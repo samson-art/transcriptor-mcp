@@ -70,13 +70,15 @@ export const subtitlesExtractionFailuresTotal = new Counter({
 /**
  * Requests this server makes to a platform's caption endpoint. The 429 that takes subtitles
  * down for a day is a budget on exactly these requests, and the budget is not documented
- * anywhere: counting them is the only way to learn how many fit in a day. `path` is always
- * `yt_dlp` since 1.5.8 and stays so the series continue. `outcome=error` includes a yt-dlp
- * run that failed before it reached the endpoint.
+ * anywhere: counting them is the only way to learn how many fit in a day. `path="yt_dlp"` is
+ * one track run (the direct fetch went in 1.5.8). `outcome=error` includes a yt-dlp run that
+ * failed before it reached the endpoint. `path="playlist"` is a playlist run (#105). The rules
+ * for it are in `countPlaylistRun` in youtube.ts. yt-dlp does not report how many tracks a
+ * run asked for, so `ok` there is a lower limit.
  */
 export const subtitleRequestsTotal = new Counter({
   name: 'subtitle_requests_total',
-  help: 'Requests to a platform caption endpoint, by outcome; path is yt_dlp (the direct fetch went in 1.5.8)',
+  help: 'Requests to a platform caption endpoint, by path and outcome. Path yt_dlp is one track run. Path playlist counts each delivered track and each failed run.',
   labelNames: ['platform', 'path', 'outcome'],
   registers: [register],
 });
@@ -226,27 +228,33 @@ export function recordUntriedTracks(platform: string, count: number): void {
   if (count > 0) subtitleTracksUntriedTotal.inc({ platform }, count);
 }
 
+const SUBTITLE_PATHS = ['yt_dlp', 'playlist'] as const;
 const SUBTITLE_OUTCOMES = ['ok', 'rate_limited', 'error'] as const;
 
 /**
- * Gives a platform all three series at zero before its first request goes out. A counter
- * that first appears already holding the value it was incremented to leaves `increase()`
- * nothing to diff against, so the first 429 after a restart produces no step and an alert
+ * Gives a platform all six series (two paths by three outcomes) at zero before its first
+ * request goes out, whichever path sends it. A counter that first appears already holding
+ * the value it was incremented to leaves `increase()` nothing to diff against, so the
+ * first 429 after a restart produces no step and an alert
  * built on it stays silent — which is the one moment the alert exists for. Measured on
  * 2026-09-23: a refusal at 15:00 UTC raised the series from nothing straight to 1, and the
  * rule saw a flat line.
  */
 export function primeSubtitleRequests(platform: string): void {
-  for (const outcome of SUBTITLE_OUTCOMES) {
-    subtitleRequestsTotal.inc({ platform, path: 'yt_dlp', outcome }, 0);
+  for (const path of SUBTITLE_PATHS) {
+    for (const outcome of SUBTITLE_OUTCOMES) {
+      subtitleRequestsTotal.inc({ platform, path, outcome }, 0);
+    }
   }
 }
 
 export function recordSubtitleRequest(
   platform: string,
-  outcome: 'ok' | 'rate_limited' | 'error'
+  outcome: (typeof SUBTITLE_OUTCOMES)[number],
+  path: (typeof SUBTITLE_PATHS)[number] = 'yt_dlp',
+  count = 1
 ): void {
-  subtitleRequestsTotal.inc({ platform, path: 'yt_dlp', outcome });
+  subtitleRequestsTotal.inc({ platform, path, outcome }, count);
 }
 
 export function setSubtitleRateLimitStrikes(platform: string, strikes: number): void {
