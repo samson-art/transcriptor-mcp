@@ -1174,6 +1174,22 @@ export async function downloadAudio(
     for (const f of leftovers) {
       if (f.startsWith(`${baseName}.`)) await unlink(join(tempDir, f)).catch(() => {});
     }
+    // A platform or server failure is not "no subtitles" (#104). A 429 here does not start the
+    // caption hold: ADR 002 covers caption downloads only. "Requested format is not available"
+    // means that this video has no format the audio chain takes (#63, #108), not a broken
+    // platform, so it does not count as `extractor` here. Node puts stderr in the message too.
+    const ownLines = (text?: string) =>
+      text
+        ?.split('\n')
+        .filter((l) => !/requested format is not available/i.test(l))
+        .join('\n');
+    const { message, stderr, signal } = collectExecFileErrorDetails(error);
+    const reason = classifyYtDlpFailure({
+      message: ownLines(message) ?? '',
+      stderr: ownLines(stderr),
+      signal,
+    });
+    if (YT_DLP_INFRA_REASONS.has(reason)) throw new YtDlpError(reason);
     return null;
   } finally {
     await cookiesCleanup?.();
@@ -1210,9 +1226,24 @@ type VideoStreamInfo = {
   streamUrls: string[];
 };
 
-/** Prefers a single mp4 video stream no wider than the requested frame; falls back to best. */
+/**
+ * Prefers an H.264 video stream no wider than the requested frame. The next choices take a
+ * stream that is not HLS: first mp4, then any. The last choices are the old ones.
+ *
+ * yt-dlp ranks VP9 and AV1 above H.264, and YouTube marks its HLS VP9 formats (602 to 628)
+ * as mp4. So the old first choice, mp4 alone, took format 605 over the H.264 format 230 of
+ * the same size. The ffmpeg of the image (5.1.9) has the VP9 and AV1 decoders, but it finds
+ * no video stream in HLS VP9: the direct read fails, and the clip of the section download is
+ * a 262-byte mp4 without a stream (run in the image, 2026-11-12). H.264 over HLS gave a frame
+ * in the same run. In the first 11.5 hours of 1.5.32, 7 of 13 failed captures were HLS VP9
+ * on YouTube, and none was H.264 (#116).
+ *
+ * Four more failures were AV1 on Bilibili. Their cause is not known: no run reproduced them.
+ */
 function buildFrameFormatSelector(width: number): string {
-  return `bv*[width<=?${width}][ext=mp4]/bv*[width<=?${width}]/bv*/b`;
+  const fits = `bv*[width<=?${width}]`;
+  const notHls = `${fits}[protocol!*=m3u8]`;
+  return `${fits}[vcodec~='^(avc|h264)']/${notHls}[ext=mp4]/${notHls}/${fits}/bv*/b`;
 }
 
 /** ffmpeg scale filter: cap width without upscaling, keep height even (comma escaped for filtergraph). */

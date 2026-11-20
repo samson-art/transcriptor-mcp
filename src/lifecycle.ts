@@ -20,6 +20,15 @@ export type LifecycleOptions = {
 let isShuttingDown = false;
 
 /**
+ * Sentry sends its log buffer every 5 s, and an event a moment after its capture. Its own
+ * flush runs on `beforeExit`, which `process.exit` skips. Without this, each restart lost the
+ * tool-call logs of its last seconds (#118) and the event of a failed shutdown.
+ */
+async function flushSentry(): Promise<void> {
+  await Sentry.flush(2000);
+}
+
+/**
  * Registers process signal handlers (SIGTERM, SIGINT) and error handlers
  * (unhandledRejection, uncaughtException). Returns a shutdown function.
  */
@@ -40,7 +49,9 @@ export function setupLifecycle(options: LifecycleOptions): (signal: string) => P
 
     const forceShutdownTimer = setTimeout(() => {
       log.warn('Shutdown timeout reached, forcing exit...');
-      process.exit(1);
+      // A long tool call holds the close past the timeout, and the calls that ended before it
+      // still have their logs in the Sentry buffer.
+      void flushSentry().finally(() => process.exit(1));
     }, shutdownTimeout);
 
     try {
@@ -48,6 +59,7 @@ export function setupLifecycle(options: LifecycleOptions): (signal: string) => P
       await closeCache();
       clearTimeout(forceShutdownTimer);
       log.info(shutdownSuccessMessage);
+      await flushSentry();
       process.exit(0);
     } catch (err) {
       clearTimeout(forceShutdownTimer);
@@ -61,6 +73,7 @@ export function setupLifecycle(options: LifecycleOptions): (signal: string) => P
       } else {
         Sentry.captureException(error);
       }
+      await flushSentry();
       process.exit(1);
     }
   };

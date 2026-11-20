@@ -32,7 +32,7 @@ The `change` skill runs the full cycle: interview → intent issue → plan → 
 - Env vars: added, changed or removed.
 - Caption rate limit, retry, cache or strike logic: `src/subtitle-rate-limit.ts`, `execFileAsync` and `downloadSubtitles` in `src/youtube.ts`, auto-discovery in `src/validation.ts`, `src/cache.ts`, `src/canary.ts`.
 - Release plumbing: `Dockerfile`, `server.json`, `.github/workflows/`, Makefile publish targets.
-- Metrics names or labels, or the fields of the "MCP tool call" log line.
+- Metrics names or labels, or the fields of the "MCP tool call" log line or of the Sentry log of the same name.
 - Widgets: `ui/`, `vite.config.ts`, the widget CSP and `ui://` URIs.
 
 For anything else that fits in one sentence, edit, run the gate and open the PR.
@@ -50,7 +50,7 @@ For anything else that fits in one sentence, edit, run the gate and open the PR.
 - stdout is JSON-RPC in stdio mode. Log to stderr. `createLoggerWithSentryBreadcrumbs` writes to stdout, so never give it to the stdio server.
 - Relative imports in `src/` end in `.js` (nodenext). `ui/` imports have no extension.
 - HTTP MCP is stateless. The server builds a new `McpServer` for each request, so shared state lives at module level. The process has no auth.
-- External contracts: metric names and labels, the per-call log line fields, cache key shapes, `ui://` URIs and the widget CSP. The widget CSP is in both `ui.csp` and `openai/widgetCSP`. A change to any of them silently breaks dashboards, alerts, analytics, cached entries or the published ChatGPT app. Never log raw URLs in the per-call line.
+- External contracts: metric names and labels, the per-call log line fields, the attributes of the Sentry log "MCP tool call" (ADR 008), cache key shapes, `ui://` URIs and the widget CSP. The widget CSP is in both `ui.csp` and `openai/widgetCSP`. A change to any of them silently breaks dashboards, alerts, analytics, cached entries or the published ChatGPT app. Never log raw URLs in the per-call line.
 - Widgets must not assume YouTube. Take the page from the result: `url`, or `webpageUrl` for `get_video_info`. Never build it from a YouTube id.
 - `ui/` and `web/` are outside tsc, eslint and prettier. Only `ui/shared/*.test.ts` runs in Jest, so check widget changes by hand.
 - `legal/*.md` says "provided on request" for the address and the tax ID of the provider. Never add a name, address or tax ID.
@@ -78,6 +78,7 @@ Read the ADR before you change the code it names. If you make or reverse a decis
 - [005](docs/adr/005-captions-via-yt-dlp-only.md): caption tracks through yt-dlp only.
 - [006](docs/adr/006-original-language-without-lang.md): an omitted `lang` means the video's original language: one track request, or the track list.
 - [007](docs/adr/007-frame-stream-lookup-reuse.md): a frame call reuses the stream lookup of the same URL and width for 5 minutes, in process memory only.
+- [008](docs/adr/008-sentry-user-from-gateway-id.md): Sentry counts users from one Sentry log per tool call, with an HMAC of the gateway user id. No Sentry event gets the id. Off without `SENTRY_USER_HASH_SECRET`.
 
 ## Autonomy
 

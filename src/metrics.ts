@@ -125,10 +125,15 @@ export const ytDlpQueueLength = new Gauge({
 });
 
 // MCP metrics (labels set when used from MCP)
+/**
+ * `source` is the field of the same name in the "MCP tool call" log line. A deploy deletes
+ * the container log, so the log alone lost the widget/model split: on 2026-11-11 four
+ * releases in 80 minutes left 27 minutes of it (#115).
+ */
 export const mcpToolCallsTotal = new Counter({
   name: 'mcp_tool_calls_total',
-  help: 'MCP tool calls, counted when the call starts (failed calls included)',
-  labelNames: ['tool'],
+  help: 'MCP tool calls, counted when the call starts (failed calls included); source is widget or model',
+  labelNames: ['tool', 'source'],
   registers: [register],
 });
 
@@ -273,8 +278,20 @@ export function setYtDlpProcessGauges(active: number, queued: number): void {
   ytDlpQueueLength.set(queued);
 }
 
-export function recordMcpToolCall(tool: string): void {
-  mcpToolCallsTotal.inc({ tool });
+export function recordMcpToolCall(tool: string, source: 'widget' | 'model'): void {
+  mcpToolCallsTotal.inc({ tool, source });
+}
+
+/**
+ * Gives every tool both source series at zero when the server starts. A widget series
+ * that first appears at 1 after a deploy leaves `increase()` nothing to diff against, so
+ * the first widget call of each tool after each deploy would be lost: the window an
+ * operator reads to judge a widget release (#115). Same reason as primeSubtitleRequests.
+ */
+export function primeMcpToolCalls(tools: readonly string[]): void {
+  for (const tool of tools) {
+    for (const source of ['widget', 'model']) mcpToolCallsTotal.inc({ tool, source }, 0);
+  }
 }
 
 export function recordMcpToolError(tool: string, reason: string): void {
