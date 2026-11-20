@@ -7,9 +7,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.39] - 2026-11-20
+
 ### Fixed
 
 - `subtitle_requests_total` now counts the caption requests of `get_playlist_transcripts` (#105). Before this, a playlist run could start the caption hold and leave the counter unchanged. `subtitle_rate_limit_strikes` then went up with no `rate_limited` request to explain it. Playlist runs use the new label value `path="playlist"`. Each track that a run delivers adds 1 to `outcome="ok"`. A run that gets a 429 adds 1 to `outcome="rate_limited"`. A run with a bot check, a timeout or an extractor failure adds 1 to `outcome="error"`. A run that fails for another reason adds 1 to `outcome="error"` only when it delivered no track. In a run that delivered tracks, such a failure comes from one item, for example a private video, and that item sent no caption request. A run that stops at `maxItems` is not a failure. The verbose replay of a failed run (`YT_DLP_VERBOSE_ON_ERROR=1`) counts as a run too. yt-dlp does not report how many tracks a run asked for, so `ok` is a lower limit. Each platform gets the three new series at zero before its first caption request. `path="yt_dlp"` keeps its meaning: one track run. A query that sums over all paths now also counts playlist runs.
+
+## [1.5.38] - 2026-11-20
+
+### Fixed
+
+- A transcript call for a private or removed video now stops after the first caption run (#117). Before this, the server also read the video info and, with speech-to-text on, downloaded the audio. Those runs failed for the same reason. In one burst of 49 private videos on a server with speech-to-text on, each call made three runs and took 4.3 s (median). A call without `lang` still answers with the track list when the video's listing worked. The error text, the metric reason and the outcome of the run in `subtitle_requests_total` do not change.
+
+## [1.5.37] - 2026-11-20
+
+### Added
+
+- Sentry can count the users who meet errors (#118). Set the new `SENTRY_USER_HASH_SECRET` behind a gateway that sends `x-mcpal-user-id` on each tool call. Each tool call then sends one Sentry log, "MCP tool call", with a user id: 16 hex characters of an HMAC of the gateway id. The log also holds the tool, the outcome, the reason, the "no subtitles" answer, the platform and the source. A call whose caller left before the answer has `cancelled: true` and keeps its own reason. The log holds no address and no video id. It has its own trace id, so Sentry does not link it to the error report or the trace of the call. No Sentry event gets the user id.
+
+### Fixed
+
+- A restart lost the Sentry logs and events of its last seconds, because `process.exit` skips the flush of the Sentry SDK. The server now waits up to 2 s for Sentry before it exits, also when the shutdown timeout forces the exit.
+
+## [1.5.36] - 2026-11-20
+
+### Changed
+
+- `mcp_tool_calls_total` has a new `source` label (#115). Its value is `widget` for a call from a widget and `model` for all other calls, the same as the `source` field of the "MCP tool call" log line. Before this, only the log line had the source, and a deploy deletes the container log: after four releases in 80 minutes on 2026-11-11, the log showed the source for the last 27 minutes only. Both series of every tool are there at 0 from the start of the server, so `increase()` also counts the first call after a deploy. A query that does not aggregate this counter now gets two series for each tool. To get one series for each tool, use `sum by (tool) (...)`.
+
+## [1.5.35] - 2026-11-20
+
+### Fixed
+
+- When the audio download for speech-to-text fails because of a bot check, a rate limit, a timeout or an extractor error, `get_transcript`, `get_raw_subtitles` and REST `/subtitles` now answer with the 502 error for that class (#104). Before this, the caller got the 404 "no subtitles" answer with `answer=stt_failed`, which is wrong information about the video. The "MCP tool call" log line now has the matching `reason` and no `answer`. A rate limit here does not start the caption hold (ADR 002). The server makes the same yt-dlp runs as before. Other failed downloads, a video that is too long, and speech-to-text that gives no text keep their current answers. This includes a video with no format that the audio download can take (#63, #108): it is about the video, not the platform.
+
+## [1.5.34] - 2026-11-20
+
+### Fixed
+
+- `get_video_frame` now asks for an H.264 stream first (#116). Before this, the server could select a VP9 stream that YouTube sends over HLS (for example formats 605, 606, 612 and 616), although the video had an H.264 stream of the same size. The capture then ended with the 404 answer "Could not capture a frame". In the first 11.5 hours of 1.5.32, 7 of 13 failed captures had this pattern, and none had an H.264 stream. The ffmpeg of the image has the VP9 decoder, but it finds no video stream in HLS VP9.
+- When no H.264 stream fits the width, the server now asks for a stream that is not HLS before it takes an HLS stream. A video that has only HLS streams without H.264 gets the same choice as before.
+- The same change selects H.264 instead of AV1 on Bilibili, where 4 more captures failed. The cause of those failures is not known, so this release does not claim to fix them.
+- The number of runs for each call does not change.
 
 ## [1.5.33] - 2026-11-18
 

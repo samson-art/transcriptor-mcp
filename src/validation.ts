@@ -7,6 +7,7 @@ import {
   NotFoundError,
   UNKNOWN_FAILURE_MESSAGE,
   ValidationError,
+  VIDEO_GONE_REASONS,
   YtDlpError,
 } from './errors.js';
 import {
@@ -471,7 +472,15 @@ async function downloadWithAutoDiscover(
         false
       );
       if (cached) return cached;
-      const content = await downloadTrack(url, track, format, logger);
+      // The list says that the platform showed this video, so a "private" or "removed" from the
+      // track run is about the track, or a stray stderr line: the list is still the useful answer.
+      // ponytail: a list from the cache can be as old as the metadata TTL. If the video became
+      // private after that, the caller gets the list and learns the fact from its next call, as
+      // before #117. Tell a cached list from a fresh one here if that second call shows in logs.
+      const content = await downloadTrack(url, track, format, logger).catch((err: unknown) => {
+        if (err instanceof YtDlpError && VIDEO_GONE_REASONS.has(err.reason)) return null;
+        throw err;
+      });
       if (content && content.trim().length > 0) {
         return { videoId, ...track, subtitlesContent: content, source: platform };
       }
@@ -526,7 +535,7 @@ async function downloadWithAutoDiscover(
         const payload = JSON.stringify(heard(text));
         const ttl = getCacheConfig().ttlSubtitlesSeconds;
         for (const key of whisperKeys) void set(key, payload, ttl);
-      });
+      }, ignoreLateFailure);
     } else if (outcome.content?.trim()) {
       return heard(outcome.content);
     }
@@ -655,6 +664,12 @@ async function loadAvailableSubtitles(
  * loser has to be cleaned up: an uncleared WHISPER_TIMEOUT timer holds its callback — and
  * the event loop — for the full ten minutes after the job already answered.
  */
+/**
+ * For a speech-to-text job that the caller stopped waiting for. Since #104 the audio run throws
+ * on a platform failure, and that run already wrote the log line.
+ */
+const ignoreLateFailure = (): void => {};
+
 async function raceWhisperJob<T>(
   job: Promise<T>,
   timeoutMs: number
@@ -926,7 +941,7 @@ async function handleExplicitRequestFlow(
           source: 'whisper',
         };
         await set(cacheKey, JSON.stringify(whisperResult), cacheConfig.ttlSubtitlesSeconds);
-      });
+      }, ignoreLateFailure);
     } else if (outcome.content) {
       subtitlesContent = outcome.content;
       source = 'whisper';

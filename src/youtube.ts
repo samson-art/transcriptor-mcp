@@ -10,6 +10,7 @@ import { parseIntEnv } from './env.js';
 import {
   HttpError,
   ServerBusyError,
+  VIDEO_GONE_REASONS,
   YT_DLP_INFRA_REASONS,
   YtDlpError,
   type YtDlpFailureReason,
@@ -168,8 +169,9 @@ export type ExecFileErrorDetails = {
 
 /**
  * Ordered stderr patterns, first match wins. yt-dlp writes free-form English to
- * stderr, so this is a heuristic: a miss only costs a vaguer message and an
- * `unknown` metric label, never a change of control flow.
+ * stderr, so this is a heuristic. A miss costs a vaguer message and an `unknown`
+ * metric label. A match can end a call: the infra classes, `private` and `unavailable`
+ * stop a transcript call before its fallback (#117). Keep those patterns narrow.
  */
 const YT_DLP_FAILURE_PATTERNS: ReadonlyArray<[YtDlpFailureReason, RegExp]> = [
   ['bot_check', /sign in to confirm you.?re not a bot|confirm you.?re not a bot/i],
@@ -265,7 +267,7 @@ function rethrowRefusalWarning(data: YtDlpVideoInfo, stderr: string): void {
     .filter((l) => !/no video formats found|requested format is not available/i.test(l))
     .join('\n');
   const reason = classifyYtDlpFailure({ message: '', stderr: own });
-  if (reason === 'private' || reason === 'unavailable' || YT_DLP_INFRA_REASONS.has(reason)) {
+  if (VIDEO_GONE_REASONS.has(reason) || YT_DLP_INFRA_REASONS.has(reason)) {
     throw new YtDlpError(reason);
   }
 }
@@ -458,8 +460,9 @@ async function runYtDlpAndExtractSubtitles(
     return (await readAndReturnSubtitleIfValid(subtitleFile)) ?? '';
   } catch (error: unknown) {
     if (error instanceof HttpError) throw error;
+    const details = collectExecFileErrorDetails(error);
     logger?.error(
-      { ...execDetailsToLogFields(collectExecFileErrorDetails(error)), type, lang },
+      { ...execDetailsToLogFields(details), type, lang },
       `Error downloading ${type} subtitles`
     );
 
@@ -476,7 +479,13 @@ async function runYtDlpAndExtractSubtitles(
         logger?.error({ error: readError, subtitleFile }, 'Error reading subtitle file');
       }
     }
-    rethrowInfra(error);
+    // A private or removed video fails the audio and info runs the same way. Before #117, null
+    // here started both: 3 runs and 4.3 s (median) per call in a burst of 49 private videos
+    // (production logs, measured 2026-11-12).
+    const { reason } = details;
+    if (reason && (YT_DLP_INFRA_REASONS.has(reason) || VIDEO_GONE_REASONS.has(reason))) {
+      throw new YtDlpError(reason);
+    }
     return null;
   }
 }
@@ -492,6 +501,8 @@ async function runYtDlpAndExtractSubtitles(
  * @param format - subtitle format: srt, vtt, ass, lrc (default from YT_DLP_SUB_FORMAT or srt)
  * @param logger - Fastify logger instance for structured logging
  * @returns the text; '' when the run went through with no text; null when the run failed
+ * @throws YtDlpError when the run failed with an infra class, or said that the video is private
+ *   or removed (#117)
  */
 export async function downloadSubtitles(
   url: string,
@@ -562,7 +573,11 @@ export async function downloadSubtitles(
     return content;
   } catch (error) {
     const limited = noteIfRateLimited(url, error);
-    recordSubtitleRequest(platform, limited ? 'rate_limited' : 'error');
+    // An answer about the video counted as `ok` when the caption run returned null for it. The
+    // run now throws it (#117), and the count stays: `error` is a run that the server could not
+    // complete.
+    const gone = error instanceof YtDlpError && VIDEO_GONE_REASONS.has(error.reason);
+    recordSubtitleRequest(platform, limited ? 'rate_limited' : gone ? 'ok' : 'error');
     rethrowInfra(error);
     logger?.error({ error }, 'Error downloading subtitles');
     return null;
@@ -1200,6 +1215,22 @@ export async function downloadAudio(
     for (const f of leftovers) {
       if (f.startsWith(`${baseName}.`)) await unlink(join(tempDir, f)).catch(() => {});
     }
+    // A platform or server failure is not "no subtitles" (#104). A 429 here does not start the
+    // caption hold: ADR 002 covers caption downloads only. "Requested format is not available"
+    // means that this video has no format the audio chain takes (#63, #108), not a broken
+    // platform, so it does not count as `extractor` here. Node puts stderr in the message too.
+    const ownLines = (text?: string) =>
+      text
+        ?.split('\n')
+        .filter((l) => !/requested format is not available/i.test(l))
+        .join('\n');
+    const { message, stderr, signal } = collectExecFileErrorDetails(error);
+    const reason = classifyYtDlpFailure({
+      message: ownLines(message) ?? '',
+      stderr: ownLines(stderr),
+      signal,
+    });
+    if (YT_DLP_INFRA_REASONS.has(reason)) throw new YtDlpError(reason);
     return null;
   } finally {
     await cookiesCleanup?.();
@@ -1236,9 +1267,24 @@ type VideoStreamInfo = {
   streamUrls: string[];
 };
 
-/** Prefers a single mp4 video stream no wider than the requested frame; falls back to best. */
+/**
+ * Prefers an H.264 video stream no wider than the requested frame. The next choices take a
+ * stream that is not HLS: first mp4, then any. The last choices are the old ones.
+ *
+ * yt-dlp ranks VP9 and AV1 above H.264, and YouTube marks its HLS VP9 formats (602 to 628)
+ * as mp4. So the old first choice, mp4 alone, took format 605 over the H.264 format 230 of
+ * the same size. The ffmpeg of the image (5.1.9) has the VP9 and AV1 decoders, but it finds
+ * no video stream in HLS VP9: the direct read fails, and the clip of the section download is
+ * a 262-byte mp4 without a stream (run in the image, 2026-11-12). H.264 over HLS gave a frame
+ * in the same run. In the first 11.5 hours of 1.5.32, 7 of 13 failed captures were HLS VP9
+ * on YouTube, and none was H.264 (#116).
+ *
+ * Four more failures were AV1 on Bilibili. Their cause is not known: no run reproduced them.
+ */
 function buildFrameFormatSelector(width: number): string {
-  return `bv*[width<=?${width}][ext=mp4]/bv*[width<=?${width}]/bv*/b`;
+  const fits = `bv*[width<=?${width}]`;
+  const notHls = `${fits}[protocol!*=m3u8]`;
+  return `${fits}[vcodec~='^(avc|h264)']/${notHls}[ext=mp4]/${notHls}/${fits}/bv*/b`;
 }
 
 /** ffmpeg scale filter: cap width without upscaling, keep height even (comma escaped for filtergraph). */

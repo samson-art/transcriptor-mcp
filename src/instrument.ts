@@ -41,6 +41,8 @@ Sentry.init({
     ? Number(process.env.SENTRY_TRACES_SAMPLE_RATE)
     : 0.1,
   sendDefaultPii: process.env.SENTRY_SEND_DEFAULT_PII === 'true',
+  // For the log per tool call of a known user (#118). Nothing else calls Sentry.logger.
+  enableLogs: true,
   integrations: [
     // With tracing on, this integration sends a route's error before the app's error handler
     // runs, without the handler's `route` tag and `requestUrl`. The handler's own capture of

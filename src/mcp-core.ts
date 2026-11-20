@@ -4,7 +4,7 @@ import {
   RESOURCE_MIME_TYPE,
 } from '@modelcontextprotocol/ext-apps/server';
 import { McpServer, ResourceTemplate } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { createHash } from 'node:crypto';
+import { createHash, createHmac } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 // IMPORTANT: use Zod v3 schemas for MCP JSON Schema compatibility.
@@ -51,7 +51,12 @@ import {
   FRAME_MIN_WIDTH,
   FRAME_MAX_WIDTH,
 } from './validation.js';
-import { recordMcpRequestDuration, recordMcpToolCall, recordMcpToolError } from './metrics.js';
+import {
+  primeMcpToolCalls,
+  recordMcpRequestDuration,
+  recordMcpToolCall,
+  recordMcpToolError,
+} from './metrics.js';
 import { version } from './version.js';
 
 const TOOL_GET_TRANSCRIPT = 'get_transcript';
@@ -62,6 +67,18 @@ const TOOL_GET_VIDEO_CHAPTERS = 'get_video_chapters';
 const TOOL_GET_VIDEO_FRAME = 'get_video_frame';
 const TOOL_GET_PLAYLIST_TRANSCRIPTS = 'get_playlist_transcripts';
 const TOOL_SEARCH_VIDEOS = 'search_videos';
+
+// At import, so both source series of every tool are in the first scrape (#115).
+primeMcpToolCalls([
+  TOOL_GET_TRANSCRIPT,
+  TOOL_GET_RAW_SUBTITLES,
+  TOOL_GET_AVAILABLE_SUBTITLES,
+  TOOL_GET_VIDEO_INFO,
+  TOOL_GET_VIDEO_CHAPTERS,
+  TOOL_GET_VIDEO_FRAME,
+  TOOL_GET_PLAYLIST_TRANSCRIPTS,
+  TOOL_SEARCH_VIDEOS,
+]);
 
 const SEARCH_UI_URI = 'ui://search-videos/app.html';
 const TRANSCRIPT_UI_URI = 'ui://get-transcript/app.html';
@@ -430,11 +447,35 @@ function trackHint(details?: NotFoundDetails): string {
 /** What a tool was called with, as far as the per-call log line needs it. */
 type ToolCall = {
   args: Record<string, unknown>;
-  extra: { _meta?: Record<string, unknown> };
+  extra: {
+    _meta?: Record<string, unknown>;
+    /** Only over HTTP. The SDK gives the request headers with lowercase names. */
+    requestInfo?: { headers?: Record<string, string | string[] | undefined> };
+    /** The SDK aborts it when the transport of the request closes. */
+    signal?: AbortSignal;
+  };
 };
+
+/**
+ * The id under which Sentry counts the user of a tool call (#118, ADR 008). Behind the hosted
+ * gateway, `x-mcpal-user-id` names the signed-in user. Sentry gets 16 hex characters of an
+ * HMAC of it, not the id itself. Without SENTRY_USER_HASH_SECRET there is no id. Only the
+ * gateway reaches the HTTP listener, so the server trusts the header, as with `x-request-id`.
+ */
+function sentryUserId({ extra }: ToolCall): string | undefined {
+  const secret = process.env.SENTRY_USER_HASH_SECRET;
+  const header = extra.requestInfo?.headers?.['x-mcpal-user-id'];
+  if (!secret || typeof header !== 'string' || header === '') return undefined;
+  return createHmac('sha256', secret).update(header).digest('hex').slice(0, 16);
+}
 
 /** Widgets mark their own tool calls with this `_meta` key (see ui/shared/widgetCall.ts). */
 const WIDGET_SOURCE_META_KEY = 'transcriptor/source';
+
+/** The `source` of the log line and of `mcp_tool_calls_total`: two values only. */
+function toolCallSource(extra: ToolCall['extra']): 'widget' | 'model' {
+  return extra._meta?.[WIDGET_SOURCE_META_KEY] === 'widget' ? 'widget' : 'model';
+}
 
 /** For an input that is neither a URL nor an id: the host it would have, or `invalid`. */
 function hostOfSchemeless(input: string): string {
@@ -472,7 +513,7 @@ function toolCallLogFields({ args, extra }: ToolCall) {
     explicit: args.type !== undefined || args.lang !== undefined,
     addr: url ? createHash('sha256').update(url).digest('hex').slice(0, 12) : undefined,
     vid: videoId ? createHash('sha256').update(videoId).digest('hex').slice(0, 12) : undefined,
-    source: extra._meta?.[WIDGET_SOURCE_META_KEY] === 'widget' ? 'widget' : 'model',
+    source: toolCallSource(extra),
   };
 }
 
@@ -517,7 +558,7 @@ async function withToolErrorHandling(
   fn: () => Promise<ToolSuccessResult>
 ): Promise<ToolResult> {
   const start = performance.now();
-  recordMcpToolCall(toolName);
+  recordMcpToolCall(toolName, toolCallSource(call.extra));
   let reason: string | undefined;
   let answer: NoSubtitlesAnswer | undefined;
   try {
@@ -545,6 +586,31 @@ async function withToolErrorHandling(
     };
     if (outcome === 'ok') log.info(line, 'MCP tool call');
     else log.warn(line, 'MCP tool call');
+    // Sentry counts users from these logs (#118). The user id goes on this log only. On the
+    // request scope it also reaches error events, whose breadcrumbs hold the requested
+    // addresses, and the Release Health session of the whole process. The log holds no
+    // address and no video id: those stay on stdout. It also starts its own trace: with the
+    // trace id of the call, Sentry links it to the error event and the trace of that call.
+    const userId = sentryUserId(call);
+    if (userId) {
+      // A closed transport means that the caller never got the answer: a proxy cut the call,
+      // or the client left. The call keeps its own reason: a slow call that the edge cut and
+      // that then timed out is still a timeout.
+      const cancelled = call.extra.signal?.aborted === true;
+      Sentry.startNewTrace(() =>
+        Sentry.logger.info('MCP tool call', {
+          'user.id': userId,
+          tool: line.tool,
+          outcome: reason || cancelled ? 'error' : 'ok',
+          source: line.source,
+          // Sentry sends an undefined attribute as an empty string, so these keys stay out.
+          ...(reason ? { reason } : {}),
+          ...(cancelled ? { cancelled: true } : {}),
+          ...(answer ? { answer } : {}),
+          ...(line.platform ? { platform: line.platform } : {}),
+        })
+      );
+    }
   }
 }
 
