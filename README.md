@@ -244,7 +244,7 @@ The server starts with no environment variables. Each variable below is optional
 | `CANARY_INTERVAL_MS` | `900000` | How often the HTTP server fetches one transcript to prove the path still works. `0` turns it off; `CANARY_URL` picks the video |
 | `YT_DLP_*` | — | Timeouts, proxy, and JS runtimes. See [.env.example](.env.example) |
 
-The same port serves `GET /health` and `GET /metrics`. The metrics are in Prometheus format and include the `mcp_*` counters.
+The same port serves `GET /health` and `GET /metrics`. The metrics are in Prometheus format and include the `mcp_*` counters. `mcp_tool_calls_total` counts calls by `tool` and `source`. The source is `widget` when a widget made the call, and `model` for all other calls.
 
 <details>
 <summary><b>Transport, REST API, and development</b></summary>

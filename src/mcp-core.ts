@@ -51,7 +51,12 @@ import {
   FRAME_MIN_WIDTH,
   FRAME_MAX_WIDTH,
 } from './validation.js';
-import { recordMcpRequestDuration, recordMcpToolCall, recordMcpToolError } from './metrics.js';
+import {
+  primeMcpToolCalls,
+  recordMcpRequestDuration,
+  recordMcpToolCall,
+  recordMcpToolError,
+} from './metrics.js';
 import { version } from './version.js';
 
 const TOOL_GET_TRANSCRIPT = 'get_transcript';
@@ -62,6 +67,18 @@ const TOOL_GET_VIDEO_CHAPTERS = 'get_video_chapters';
 const TOOL_GET_VIDEO_FRAME = 'get_video_frame';
 const TOOL_GET_PLAYLIST_TRANSCRIPTS = 'get_playlist_transcripts';
 const TOOL_SEARCH_VIDEOS = 'search_videos';
+
+// At import, so both source series of every tool are in the first scrape (#115).
+primeMcpToolCalls([
+  TOOL_GET_TRANSCRIPT,
+  TOOL_GET_RAW_SUBTITLES,
+  TOOL_GET_AVAILABLE_SUBTITLES,
+  TOOL_GET_VIDEO_INFO,
+  TOOL_GET_VIDEO_CHAPTERS,
+  TOOL_GET_VIDEO_FRAME,
+  TOOL_GET_PLAYLIST_TRANSCRIPTS,
+  TOOL_SEARCH_VIDEOS,
+]);
 
 const SEARCH_UI_URI = 'ui://search-videos/app.html';
 const TRANSCRIPT_UI_URI = 'ui://get-transcript/app.html';
@@ -436,6 +453,11 @@ type ToolCall = {
 /** Widgets mark their own tool calls with this `_meta` key (see ui/shared/widgetCall.ts). */
 const WIDGET_SOURCE_META_KEY = 'transcriptor/source';
 
+/** The `source` of the log line and of `mcp_tool_calls_total`: two values only. */
+function toolCallSource(extra: ToolCall['extra']): 'widget' | 'model' {
+  return extra._meta?.[WIDGET_SOURCE_META_KEY] === 'widget' ? 'widget' : 'model';
+}
+
 /** For an input that is neither a URL nor an id: the host it would have, or `invalid`. */
 function hostOfSchemeless(input: string): string {
   try {
@@ -472,7 +494,7 @@ function toolCallLogFields({ args, extra }: ToolCall) {
     explicit: args.type !== undefined || args.lang !== undefined,
     addr: url ? createHash('sha256').update(url).digest('hex').slice(0, 12) : undefined,
     vid: videoId ? createHash('sha256').update(videoId).digest('hex').slice(0, 12) : undefined,
-    source: extra._meta?.[WIDGET_SOURCE_META_KEY] === 'widget' ? 'widget' : 'model',
+    source: toolCallSource(extra),
   };
 }
 
@@ -517,7 +539,7 @@ async function withToolErrorHandling(
   fn: () => Promise<ToolSuccessResult>
 ): Promise<ToolResult> {
   const start = performance.now();
-  recordMcpToolCall(toolName);
+  recordMcpToolCall(toolName, toolCallSource(call.extra));
   let reason: string | undefined;
   let answer: NoSubtitlesAnswer | undefined;
   try {

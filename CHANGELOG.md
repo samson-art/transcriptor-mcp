@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.36] - 2026-11-20
+
+### Changed
+
+- `mcp_tool_calls_total` has a new `source` label (#115). Its value is `widget` for a call from a widget and `model` for all other calls, the same as the `source` field of the "MCP tool call" log line. Before this, only the log line had the source, and a deploy deletes the container log: after four releases in 80 minutes on 2026-11-11, the log showed the source for the last 27 minutes only. Both series of every tool are there at 0 from the start of the server, so `increase()` also counts the first call after a deploy. A query that does not aggregate this counter now gets two series for each tool. To get one series for each tool, use `sum by (tool) (...)`.
+
 ## [1.5.35] - 2026-11-20
 
 ### Fixed
