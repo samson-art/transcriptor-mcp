@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+import type { AddressInfo } from 'node:net';
 import Fastify, { type FastifyInstance } from 'fastify';
 import * as Sentry from '@sentry/node';
 import { YtDlpError } from './errors.js';
@@ -8,9 +10,11 @@ import {
   resetSubtitleRateLimitsForTests,
 } from './subtitle-rate-limit.js';
 
-// The events the real SDK sends, with the options instrument.ts gives it. Only the DSN and
-// the transport are the test's: the transport keeps each event here and sends nothing.
+// The events and transactions the real SDK sends, with the options instrument.ts gives it.
+// Only the DSN and the transport are the test's: the transport keeps each item here and
+// sends nothing.
 const mockSent: Sentry.Event[] = [];
+const mockTransactions: Sentry.Event[] = [];
 jest.mock('@sentry/node', () => {
   const actual = jest.requireActual<typeof Sentry>('@sentry/node');
   return {
@@ -23,6 +27,7 @@ jest.mock('@sentry/node', () => {
           send: (envelope: [unknown, Array<[{ type: string }, unknown]>]) => {
             for (const [item, payload] of envelope[1]) {
               if (item.type === 'event') mockSent.push(payload as Sentry.Event);
+              if (item.type === 'transaction') mockTransactions.push(payload as Sentry.Event);
             }
             return Promise.resolve({});
           },
@@ -40,6 +45,8 @@ let app: FastifyInstance;
 beforeAll(async () => {
   // Tracing on: this is what adds Sentry's Fastify integration.
   process.env.SENTRY_TRACES_SAMPLE_RATE = '1';
+  // The PII switch must not change what the privacy test below sees.
+  delete process.env.SENTRY_SEND_DEFAULT_PII;
   await import('./instrument.js');
   app = Fastify();
   app.setErrorHandler(restErrorHandler);
@@ -65,6 +72,7 @@ afterAll(async () => {
 beforeEach(() => {
   resetSubtitleRateLimitsForTests();
   mockSent.length = 0;
+  mockTransactions.length = 0;
 });
 
 const post = (url: string, videoUrl: string) =>
@@ -92,5 +100,66 @@ describe('Sentry events', () => {
     expect(mockSent).toHaveLength(1);
     expect(mockSent[0].tags).toMatchObject({ route: '/fails' });
     expect(mockSent[0].contexts?.request).toMatchObject({ requestUrl: VIDEO_URL });
+  });
+
+  it('sends no request headers and no request body, as the privacy policy says', async () => {
+    // A real socket: Sentry's HTTP integration reads headers and the body only from one, and
+    // app.inject does not go through it.
+    const listener = Fastify();
+    listener.setErrorHandler(restErrorHandler);
+    listener.post('/fails', () => {
+      throw new Error('Unplanned fault.');
+    });
+    await listener.listen({ port: 0, host: '127.0.0.1' });
+    // Random, so that they cannot reach the event as a source line of this file (ContextLines).
+    const userId = `sub-${randomUUID()}`;
+    const cookie = `sid-${randomUUID()}`;
+    try {
+      const { port } = listener.server.address() as AddressInfo;
+      const response = await fetch(`http://127.0.0.1:${port}/fails`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-mcpal-user-id': userId,
+          'cf-connecting-ip': '203.0.113.7',
+          'x-forwarded-for': '198.51.100.9',
+          'user-agent': 'openai-mcp/1.0.0 (Codex)',
+          'mcp-protocol-version': '2025-11-25',
+          cookie: `session=${cookie}`,
+        },
+        body: JSON.stringify({ url: VIDEO_URL }),
+      });
+      expect(response.status).toBe(500);
+      await Sentry.flush();
+
+      expect(mockSent).toHaveLength(1);
+      // Only the method and the URL of the request stay: no headers, body, cookies or IP.
+      expect(mockSent[0].request).toEqual({
+        method: 'POST',
+        url: `http://127.0.0.1:${port}/fails`,
+      });
+      expect(mockSent[0].user?.ip_address).toBeUndefined();
+      for (const value of [userId, cookie]) {
+        expect(JSON.stringify(mockSent[0])).not.toContain(value);
+      }
+      // The span of the request, sampled here at 1, keeps neither the headers nor the IP.
+      const [transaction] = mockTransactions;
+      expect(transaction?.transaction).toBe('POST /fails');
+      const rootData = transaction?.contexts?.trace?.data ?? {};
+      expect(rootData).toMatchObject({
+        'sentry.op': 'http.server',
+        'http.response.status_code': 500,
+        'mcp.protocol.version': '2025-11-25',
+        'mcp.client.family': 'codex',
+      });
+      expect(Object.keys(rootData)).not.toContain('net.peer.ip');
+      const spanData = JSON.stringify(transaction);
+      for (const value of [userId, cookie, '203.0.113.7', '198.51.100.9', 'openai-mcp']) {
+        expect(spanData).not.toContain(value);
+      }
+      expect(spanData).not.toContain('http.request.header.');
+    } finally {
+      await listener.close();
+    }
   });
 });
