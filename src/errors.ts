@@ -101,6 +101,15 @@ export const YT_DLP_INFRA_REASONS: ReadonlySet<YtDlpFailureReason> = new Set<YtD
 ]);
 
 /**
+ * Classes that say the video itself cannot be read by anyone: every other run for it fails the
+ * same way, so a caller with a fallback stops instead (#117).
+ */
+export const VIDEO_GONE_REASONS: ReadonlySet<YtDlpFailureReason> = new Set<YtDlpFailureReason>([
+  'private',
+  'unavailable',
+]);
+
+/**
  * One answer for "the server could not read this and cannot say why". Shared by the
  * yt-dlp `unknown` class and by the places that reach the same dead end without a
  * classified failure, so the caller cannot tell them apart — because they are not.

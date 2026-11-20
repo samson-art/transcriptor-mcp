@@ -423,6 +423,41 @@ today to pay our respects to MCP, which
       await unlink(subtitleFilePath).catch(() => {});
     });
 
+    // #117: a null here started speech-to-text and an info run, both failing the same way.
+    it.each([
+      ['private', 'ERROR: [youtube] p1: Private video. Sign in if you have access'],
+      ['unavailable', 'ERROR: [youtube] u1: Video unavailable. This video has been removed'],
+    ])('should throw %s from the caption run instead of returning null', async (reason, stderr) => {
+      execFileMock.mockImplementation(
+        (
+          _file: string,
+          _args: string[],
+          _options: unknown,
+          callback: (error: Error | null, result: { stdout: string; stderr: string }) => void
+        ) => {
+          const error = Object.assign(new Error('yt-dlp failed'), { stdout: '', stderr, code: 1 });
+          callback(error, { stdout: '', stderr });
+        }
+      );
+
+      await expect(
+        downloadSubtitles('https://www.youtube.com/watch?v=gone', 'auto', 'en')
+      ).rejects.toMatchObject({ name: 'YtDlpError', reason });
+    });
+
+    // Unchanged on purpose (#117): the audio run can still work for these videos, so the caller
+    // keeps its fallback.
+    it.each([
+      ['age_restricted', 'ERROR: [youtube] a1: Sign in to confirm your age'],
+      ['geo_blocked', 'ERROR: The uploader has not made this video available in your country'],
+    ])('should still return null when the caption run says %s', async (_reason, stderr) => {
+      mockExecFileFailure(stderr);
+
+      await expect(
+        downloadSubtitles('https://www.youtube.com/watch?v=abc', 'auto', 'en')
+      ).resolves.toBeNull();
+    });
+
     it('should still return content when yt-dlp fails but file exists', async () => {
       const url = 'https://www.youtube.com/watch?v=video123';
       const content = 'subtitle content after error';
@@ -552,6 +587,26 @@ today to pay our respects to MCP, which
         .catch(() => undefined);
       expect(await captionRequests(ytDlp429)).toBe(before.refused + 1);
       expect(await captionRequests(ytDlpOk)).toBe(before.ok + 1);
+    });
+
+    // #117: this run now throws. Before, it returned null and counted as `ok`, the same as every
+    // other answer about the video. Dashboards read `error` as a run that the server could not
+    // complete, so the count stays where it was.
+    it.each([
+      ['private', 'ERROR: [youtube] p1: Private video. Sign in if you have access'],
+      ['unavailable', 'ERROR: [youtube] u1: Video unavailable. This video has been removed'],
+    ])('counts a caption run that says %s as ok, as before', async (_reason, stderr) => {
+      const ok = 'platform="youtube",path="yt_dlp",outcome="ok"';
+      const failed = 'platform="youtube",path="yt_dlp",outcome="error"';
+      const before = { ok: await captionRequests(ok), failed: await captionRequests(failed) };
+
+      mockExecFileFailure(stderr);
+      await youtube
+        .downloadSubtitles('https://www.youtube.com/watch?v=gone', 'auto', 'en')
+        .catch(() => undefined);
+
+      expect(await captionRequests(ok)).toBe(before.ok + 1);
+      expect(await captionRequests(failed)).toBe(before.failed);
     });
 
     it('answers the next call for that platform without spending a request', async () => {
