@@ -33,3 +33,10 @@ description use `assets/logo-small.webp` instead: at 1024px the logo
 filled half the Docker Hub page, and Docker Hub's markdown gives no way
 to size an image down. The Docker Hub account avatar is separate and is uploaded by hand
 (`assets/store/logo-mark-512.png` is kept ready for that).
+
+The rasters above have a white background behind the disc. On a dark page
+that background shows as light corners. `assets/logo-transparent.webp` is
+the 1024px mark with transparent corners, for pages that put the logo on
+their own background, such as the mcpal account page and sign-in screen.
+Render it like the other icons, but add `--default-background-color=00000000`
+to the Chrome command and encode the PNG with `cwebp -lossless -exact`.
