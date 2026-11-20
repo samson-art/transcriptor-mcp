@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.37] - 2026-11-20
+
 ### Added
 
 - Sentry can count the users who meet errors (#118). Set the new `SENTRY_USER_HASH_SECRET` behind a gateway that sends `x-mcpal-user-id` on each tool call. Each tool call then sends one Sentry log, "MCP tool call", with a user id: 16 hex characters of an HMAC of the gateway id. The log also holds the tool, the outcome, the reason, the "no subtitles" answer, the platform and the source. A call whose caller left before the answer has `cancelled: true` and keeps its own reason. The log holds no address and no video id. It has its own trace id, so Sentry does not link it to the error report or the trace of the call. No Sentry event gets the user id.
@@ -14,6 +16,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - A restart lost the Sentry logs and events of its last seconds, because `process.exit` skips the flush of the Sentry SDK. The server now waits up to 2 s for Sentry before it exits, also when the shutdown timeout forces the exit.
+
+## [1.5.36] - 2026-11-20
+
+### Changed
+
+- `mcp_tool_calls_total` has a new `source` label (#115). Its value is `widget` for a call from a widget and `model` for all other calls, the same as the `source` field of the "MCP tool call" log line. Before this, only the log line had the source, and a deploy deletes the container log: after four releases in 80 minutes on 2026-11-11, the log showed the source for the last 27 minutes only. Both series of every tool are there at 0 from the start of the server, so `increase()` also counts the first call after a deploy. A query that does not aggregate this counter now gets two series for each tool. To get one series for each tool, use `sum by (tool) (...)`.
+
+## [1.5.35] - 2026-11-20
+
+### Fixed
+
+- When the audio download for speech-to-text fails because of a bot check, a rate limit, a timeout or an extractor error, `get_transcript`, `get_raw_subtitles` and REST `/subtitles` now answer with the 502 error for that class (#104). Before this, the caller got the 404 "no subtitles" answer with `answer=stt_failed`, which is wrong information about the video. The "MCP tool call" log line now has the matching `reason` and no `answer`. A rate limit here does not start the caption hold (ADR 002). The server makes the same yt-dlp runs as before. Other failed downloads, a video that is too long, and speech-to-text that gives no text keep their current answers. This includes a video with no format that the audio download can take (#63, #108): it is about the video, not the platform.
+
+## [1.5.34] - 2026-11-20
+
+### Fixed
+
+- `get_video_frame` now asks for an H.264 stream first (#116). Before this, the server could select a VP9 stream that YouTube sends over HLS (for example formats 605, 606, 612 and 616), although the video had an H.264 stream of the same size. The capture then ended with the 404 answer "Could not capture a frame". In the first 11.5 hours of 1.5.32, 7 of 13 failed captures had this pattern, and none had an H.264 stream. The ffmpeg of the image has the VP9 decoder, but it finds no video stream in HLS VP9.
+- When no H.264 stream fits the width, the server now asks for a stream that is not HLS before it takes an HLS stream. A video that has only HLS streams without H.264 gets the same choice as before.
+- The same change selects H.264 instead of AV1 on Bilibili, where 4 more captures failed. The cause of those failures is not known, so this release does not claim to fix them.
+- The number of runs for each call does not change.
 
 ## [1.5.33] - 2026-11-18
 

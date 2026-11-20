@@ -245,7 +245,7 @@ The server starts with no environment variables. Each variable below is optional
 | `SENTRY_USER_HASH_SECRET` | — | Behind a gateway that sends `x-mcpal-user-id`: each tool call sends one Sentry log with a hashed user id, so that Sentry counts the users who meet errors. Needs `SENTRY_DSN`. See [ADR 008](docs/adr/008-sentry-user-from-gateway-id.md) |
 | `YT_DLP_*` | — | Timeouts, proxy, and JS runtimes. See [.env.example](.env.example) |
 
-The same port serves `GET /health` and `GET /metrics`. The metrics are in Prometheus format and include the `mcp_*` counters.
+The same port serves `GET /health` and `GET /metrics`. The metrics are in Prometheus format and include the `mcp_*` counters. `mcp_tool_calls_total` counts calls by `tool` and `source`. The source is `widget` when a widget made the call, and `model` for all other calls.
 
 <details>
 <summary><b>Transport, REST API, and development</b></summary>
