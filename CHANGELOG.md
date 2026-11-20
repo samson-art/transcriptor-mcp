@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.34] - 2026-11-20
+
+### Fixed
+
+- `get_video_frame` now asks for an H.264 stream first (#116). Before this, the server could select a VP9 stream that YouTube sends over HLS (for example formats 605, 606, 612 and 616), although the video had an H.264 stream of the same size. The capture then ended with the 404 answer "Could not capture a frame". In the first 11.5 hours of 1.5.32, 7 of 13 failed captures had this pattern, and none had an H.264 stream. The ffmpeg of the image has the VP9 decoder, but it finds no video stream in HLS VP9.
+- When no H.264 stream fits the width, the server now asks for a stream that is not HLS before it takes an HLS stream. A video that has only HLS streams without H.264 gets the same choice as before.
+- The same change selects H.264 instead of AV1 on Bilibili, where 4 more captures failed. The cause of those failures is not known, so this release does not claim to fix them.
+- The number of runs for each call does not change.
+
 ## [1.5.33] - 2026-11-18
 
 ### Changed
