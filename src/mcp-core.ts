@@ -572,17 +572,18 @@ async function withToolErrorHandling(
     const userId = sentryUserId(call);
     if (userId) {
       // A closed transport means that the caller never got the answer: a proxy cut the call,
-      // or the client left.
+      // or the client left. The call keeps its own reason: a slow call that the edge cut and
+      // that then timed out is still a timeout.
       const cancelled = call.extra.signal?.aborted === true;
-      const failure = cancelled ? 'cancelled' : reason;
       Sentry.startNewTrace(() =>
         Sentry.logger.info('MCP tool call', {
           'user.id': userId,
           tool: line.tool,
-          outcome: failure ? 'error' : 'ok',
+          outcome: reason || cancelled ? 'error' : 'ok',
           source: line.source,
           // Sentry sends an undefined attribute as an empty string, so these keys stay out.
-          ...(failure ? { reason: failure } : {}),
+          ...(reason ? { reason } : {}),
+          ...(cancelled ? { cancelled: true } : {}),
           ...(answer ? { answer } : {}),
           ...(line.platform ? { platform: line.platform } : {}),
         })

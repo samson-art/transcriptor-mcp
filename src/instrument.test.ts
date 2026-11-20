@@ -51,6 +51,7 @@ jest.mock('node:child_process', () => {
 
 type MockLog = {
   body: string;
+  level: string;
   trace_id?: string;
   attributes: Record<string, { value: unknown }>;
 };
@@ -232,6 +233,7 @@ describe('Sentry user from the gateway (#118)', () => {
   const SECRET = 'a-test-secret-of-some-length';
   const INFO_URL = 'https://www.youtube.com/watch?v=sentryUser1';
   const SLOW_URL = 'https://www.youtube.com/watch?v=sentryUser2';
+  const SLOW_FAIL_URL = 'https://www.youtube.com/watch?v=sentryUser3';
   const VIDEO_JSON = { id: 'sentryUser1', title: 'A video', duration: 60, formats: [{}] };
   const execFileMock = execFile as unknown as jest.Mock;
   // The default of the mock above: platform commands fail, other commands run for real.
@@ -302,7 +304,10 @@ describe('Sentry user from the gateway (#118)', () => {
     await callTool('get_video_info', { url: 'not a video address' }, userId);
     await Sentry.flush();
 
-    expect(mockLogs.map((log) => log.body)).toEqual(['MCP tool call', 'MCP tool call']);
+    expect(mockLogs.map((log) => [log.body, log.level])).toEqual([
+      ['MCP tool call', 'info'],
+      ['MCP tool call', 'info'],
+    ]);
     const [ok, failed] = mockLogs.map(attributesOf);
     expect(ok).toMatchObject({
       tool: 'get_video_info',
@@ -311,7 +316,7 @@ describe('Sentry user from the gateway (#118)', () => {
       source: 'model',
       'user.id': hashOf(userId),
     });
-    expect(ok).not.toHaveProperty('reason');
+    for (const key of ['reason', 'answer', 'cancelled']) expect(ok).not.toHaveProperty(key);
     expect(failed).toMatchObject({
       tool: 'get_video_info',
       outcome: 'error',
@@ -372,25 +377,44 @@ describe('Sentry user from the gateway (#118)', () => {
     ]);
   });
 
-  it('logs a call whose caller left before the answer as cancelled', async () => {
+  it('logs a call whose caller left before the answer as cancelled, with its own reason', async () => {
     const userId = `sub-${randomUUID()}`;
+    // Both runs end 300 ms after they start. The one for SLOW_FAIL_URL fails.
+    answerYtDlp((args, callback) => {
+      setTimeout(() => {
+        if (args.includes(SLOW_FAIL_URL)) {
+          const stderr = "ERROR: [youtube] x: Sign in to confirm you're not a bot";
+          callback(Object.assign(new Error('Command failed: yt-dlp'), { code: 1, stderr }));
+        } else callback(null, { stdout: JSON.stringify(VIDEO_JSON), stderr: '' });
+      }, 300);
+    });
     const controller = new AbortController();
-    const call = callTool('get_video_chapters', { url: SLOW_URL }, userId, controller.signal);
+    const calls = [
+      callTool('get_video_chapters', { url: SLOW_URL }, userId, controller.signal),
+      callTool('get_video_info', { url: SLOW_FAIL_URL }, userId, controller.signal),
+    ];
     await pause(50);
     controller.abort();
-    await expect(call).rejects.toThrow();
-    // The run still ends 300 ms after it started, and the log comes then.
+    for (const call of calls) await expect(call).rejects.toThrow();
+    // The runs still end, and the logs come then.
     await pause(400);
     await Sentry.flush();
 
-    expect(mockLogs.map(attributesOf)).toEqual([
-      expect.objectContaining({
-        tool: 'get_video_chapters',
-        outcome: 'error',
-        reason: 'cancelled',
-        'user.id': hashOf(userId),
-      }),
-    ]);
+    const logs = Object.fromEntries(mockLogs.map(attributesOf).map((log) => [log.tool, log]));
+    expect(Object.keys(logs).sort()).toEqual(['get_video_chapters', 'get_video_info']);
+    // The run worked, but the caller got no answer.
+    expect(logs.get_video_chapters).toMatchObject({
+      outcome: 'error',
+      cancelled: true,
+      'user.id': hashOf(userId),
+    });
+    expect(logs.get_video_chapters).not.toHaveProperty('reason');
+    // A cut call that failed keeps the reason, so the server-fixable count still sees it.
+    expect(logs.get_video_info).toMatchObject({
+      outcome: 'error',
+      reason: 'bot_check',
+      cancelled: true,
+    });
   });
 
   it('keeps the user id off the error event of a failed call', async () => {

@@ -13,11 +13,11 @@ The gateway in front of the hosted server sends the id of its signed-in user on 
 ## Decision
 
 - `src/mcp-core.ts`, `sentryUserId`: the id is the first 16 hex characters of HMAC-SHA256 of the header value, with the secret in `SENTRY_USER_HASH_SECRET`. The header comes from the request headers that the MCP SDK gives each tool call. Without the secret or the header, there is no id.
-- `src/mcp-core.ts`, `withToolErrorHandling`: a call with an id sends one Sentry log, "MCP tool call". Its attributes are `user.id`, `tool`, `outcome` and `source`, and also `reason`, `answer` and `platform` when they exist. It holds no address, address hash or video id.
+- `src/mcp-core.ts`, `withToolErrorHandling`: a call with an id sends one Sentry log, "MCP tool call". Its attributes are `user.id`, `tool`, `outcome` and `source`, and also `reason`, `answer`, `platform` and `cancelled` when they exist. It holds no address, address hash or video id.
 - The log starts its own trace (`Sentry.startNewTrace`). With the trace id of the call, Sentry links the log to the error event and the sampled trace of that call, and their breadcrumbs hold the requested address.
-- A call whose transport closed before the answer gets `outcome: error` and `reason: cancelled`. A proxy cut the call, or the client left.
+- A call whose transport closed before the answer gets `outcome: error` and `cancelled: true`. A proxy cut the call, or the client left. The call keeps its own `reason`: a slow call that the edge cut and that then timed out still counts as a timeout. A cut call that worked on the server has no `reason`.
 - `src/instrument.ts`: `enableLogs: true`. Nothing else calls `Sentry.logger`.
-- `src/lifecycle.ts`: shutdown waits up to 2 s for Sentry, because `process.exit` skips the flush of the SDK.
+- `src/lifecycle.ts`: shutdown waits up to 2 s for Sentry, because `process.exit` skips the flush of the SDK. A shutdown that reaches `SHUTDOWN_TIMEOUT` also waits.
 - The server trusts the header for the same reason as `x-request-id` in ADR 001: only the gateway reaches the listener.
 
 Queries in Sentry Explore, Logs, with `message:"MCP tool call"`:
@@ -25,6 +25,7 @@ Queries in Sentry Explore, Logs, with `message:"MCP tool call"`:
 - All users: `count_unique(user.id)`.
 - Users with any failure: the same query with `outcome:error`.
 - Users with a failure that the server can fix: `reason:[busy,timeout,rate_limited,bot_check,extractor,unknown]`, plus `reason:not_found` without `answer`. The second part covers the failures where the server cannot tell the cause.
+- Users whose call was cut but worked on the server: `cancelled:true` without `reason`. Most of these are slow calls that the edge cut. The server can make them faster, but it cannot tell them apart from a client that left, so the query above does not count them.
 
 ## Alternatives
 

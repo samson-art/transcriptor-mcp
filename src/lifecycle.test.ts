@@ -13,10 +13,13 @@ jest.mock('@sentry/node', () => ({
 const log = { info: jest.fn(), warn: jest.fn(), error: jest.fn() } as unknown as FastifyBaseLogger;
 
 /** Runs one shutdown with a fresh module (it keeps a "shutting down" flag) and no real exit. */
-async function shutdownWith(close: () => Promise<void>): Promise<string[]> {
+async function shutdownWith(close: () => Promise<void>, shutdownTimeout = 5000): Promise<string[]> {
   mockOrder.length = 0;
+  let exited: () => void = () => undefined;
+  const exitCalled = new Promise<void>((resolve) => (exited = resolve));
   const exit = jest.spyOn(process, 'exit').mockImplementation(((code?: number) => {
     mockOrder.push(`exit ${code}`);
+    exited();
   }) as never);
   const events = ['SIGTERM', 'SIGINT', 'unhandledRejection', 'uncaughtException'] as const;
   const before = events.map((event) => process.listeners(event));
@@ -27,9 +30,11 @@ async function shutdownWith(close: () => Promise<void>): Promise<string[]> {
         server: { close },
         closeCache: () => Promise.resolve(),
         log,
-        shutdownTimeout: 5000,
+        shutdownTimeout,
       });
-      await shutdown('SIGTERM');
+      // A forced exit leaves the shutdown pending, so wait for the exit, not for the shutdown.
+      void shutdown('SIGTERM');
+      await exitCalled;
     });
   } finally {
     exit.mockRestore();
@@ -53,5 +58,9 @@ describe('setupLifecycle shutdown', () => {
       'flush',
       'exit 1',
     ]);
+  });
+
+  it('also sends it when a long call holds the close past the shutdown timeout', async () => {
+    expect(await shutdownWith(() => new Promise(() => undefined), 10)).toEqual(['flush', 'exit 1']);
   });
 });

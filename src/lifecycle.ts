@@ -49,7 +49,9 @@ export function setupLifecycle(options: LifecycleOptions): (signal: string) => P
 
     const forceShutdownTimer = setTimeout(() => {
       log.warn('Shutdown timeout reached, forcing exit...');
-      process.exit(1);
+      // A long tool call holds the close past the timeout, and the calls that ended before it
+      // still have their logs in the Sentry buffer.
+      void flushSentry().finally(() => process.exit(1));
     }, shutdownTimeout);
 
     try {
