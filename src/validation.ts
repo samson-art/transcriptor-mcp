@@ -57,8 +57,6 @@ export const ALLOWED_VIDEO_DOMAINS = [
   'www.vimeo.com',
   'facebook.com',
   'www.facebook.com',
-  'fb.watch',
-  'fb.com',
   'm.facebook.com',
   'bilibili.com',
   'www.bilibili.com',
@@ -72,7 +70,6 @@ export const ALLOWED_VIDEO_DOMAINS = [
   'reddit.com',
   'www.reddit.com',
   'old.reddit.com',
-  'v.redd.it',
 ] as const;
 
 /**

@@ -168,8 +168,6 @@ describe('validation', () => {
         // Facebook
         'https://facebook.com/watch?v=1',
         'https://www.facebook.com/watch?v=1',
-        'https://fb.watch/abc',
-        'https://fb.com/watch?v=1',
         'https://m.facebook.com/watch?v=1',
         // Bilibili
         'https://bilibili.com/video/av1',
@@ -186,7 +184,6 @@ describe('validation', () => {
         // Reddit
         'https://www.reddit.com/r/subreddit/comments/abc123/title/',
         'https://old.reddit.com/r/videos/comments/xyz456/post_title/',
-        'https://v.redd.it/video_id',
       ];
       supportedPlatformUrls.forEach((url) => {
         expect(isValidSupportedUrl(url)).toBe(true);
@@ -196,6 +193,16 @@ describe('validation', () => {
     it('should return true for subdomain of allowed domain', () => {
       expect(isValidSupportedUrl('https://sub.youtube.com/watch?v=id')).toBe(true);
       expect(isValidSupportedUrl('https://api.vimeo.com/videos/123')).toBe(true);
+    });
+
+    it('refuses short links that only the generic extractor opens (ADR 009)', () => {
+      for (const url of [
+        'https://fb.watch/abc',
+        'https://fb.com/watch?v=1',
+        'https://v.redd.it/abc',
+      ]) {
+        expect([url, isValidSupportedUrl(url)]).toEqual([url, false]);
+      }
     });
 
     it('should return false for unsupported domains and invalid input', () => {
@@ -223,7 +230,6 @@ describe('validation', () => {
         ['https://twitch.tv/videos/1', 'https://twitch.tv/videos/1'],
         ['https://vimeo.com/123', 'https://vimeo.com/123'],
         ['https://www.facebook.com/watch?v=1', 'https://www.facebook.com/watch?v=1'],
-        ['https://fb.watch/abc', 'https://fb.watch/abc'],
         ['https://bilibili.com/video/av1', 'https://bilibili.com/video/av1'],
         ['https://vk.com/video123', 'https://vk.com/video123'],
         [
@@ -235,7 +241,6 @@ describe('validation', () => {
           'https://www.reddit.com/r/subreddit/comments/abc123/title/',
           'https://www.reddit.com/r/subreddit/comments/abc123/title/',
         ],
-        ['https://v.redd.it/video_id', 'https://v.redd.it/video_id'],
       ];
       platformUrls.forEach(([input, expected]) => {
         expect(normalizeVideoInput(input)).toBe(expected);

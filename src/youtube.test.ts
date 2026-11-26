@@ -11,6 +11,8 @@ import {
   subtitlesRefusedSinceTrack,
 } from './subtitle-rate-limit.js';
 import { renderPrometheus } from './metrics.js';
+import { extractPlatformFromUrl } from './platform.js';
+import { ALLOWED_VIDEO_DOMAINS } from './validation.js';
 
 // The file that yt-dlp writes for an `--output` template. Names are unique per call, so a
 // test can learn the name only from the args of the run.
@@ -1256,6 +1258,80 @@ today to pay our respects to MCP, which
     });
   });
 
+  describe('supported extractors only (ADR 009)', () => {
+    afterEach(() => {
+      delete process.env.YT_DLP_EXTRA_ARGS;
+    });
+
+    const limitOf = (args: string[]) => args.slice(args.lastIndexOf('--use-extractors'));
+
+    it('limits every run to the extractors of the supported platforms, after YT_DLP_EXTRA_ARGS', () => {
+      process.env.YT_DLP_EXTRA_ARGS = '--use-extractors all';
+      const optionalArgs: string[] = [];
+      appendYtDlpEnvArgs(optionalArgs, {});
+      expect(optionalArgs.slice(-2)).toEqual(['--use-extractors', youtube.SUPPORTED_EXTRACTORS]);
+    });
+
+    it('allows an extractor family for each platform of ALLOWED_VIDEO_DOMAINS', () => {
+      const families = youtube.SUPPORTED_EXTRACTORS.split(',').map(
+        (r) => new RegExp(`^(?:${r})$`, 'i')
+      );
+      for (const domain of ALLOWED_VIDEO_DOMAINS) {
+        const platform = extractPlatformFromUrl(`https://${domain}/`);
+        expect([domain, platform, families.some((f) => f.test(platform))]).toEqual([
+          domain,
+          platform,
+          true,
+        ]);
+      }
+      // The generic extractor follows a page to any host. It must never load.
+      expect(families.some((f) => f.test('generic'))).toBe(false);
+    });
+
+    const runs: Array<[string, () => Promise<unknown>]> = [
+      ['metadata', () => fetchYtDlpJson('https://www.youtube.com/watch?v=dQw4w9WgXcQ')],
+      [
+        'track',
+        () => downloadSubtitles('https://www.youtube.com/watch?v=dQw4w9WgXcQ', 'official', 'en'),
+      ],
+      [
+        'playlist',
+        () =>
+          downloadPlaylistSubtitles('https://www.youtube.com/playlist?list=PLx', { lang: 'en' }),
+      ],
+      ['search', () => searchVideos('mcp', 3)],
+      ['audio', () => downloadAudio('https://www.youtube.com/watch?v=dQw4w9WgXcQ')],
+      ['frame', () => captureVideoFrame('https://www.youtube.com/watch?v=dQw4w9WgXcQ', 5)],
+    ];
+
+    it.each(runs)('passes the extractor limit to the %s run', async (_kind, run) => {
+      const seen: string[][] = [];
+      execFileMock.mockImplementation(
+        (
+          file: string,
+          args: string[],
+          _options: unknown,
+          callback: (error: Error | null) => void
+        ) => {
+          if (file === 'yt-dlp') seen.push(args);
+          const error = Object.assign(new Error('Command failed: yt-dlp'), {
+            code: 1,
+            stderr: 'ERROR: something we have never seen',
+          });
+          callback(error);
+        }
+      );
+      await run().catch(() => undefined);
+      expect(seen.length).toBeGreaterThan(0);
+      for (const args of seen) {
+        expect(limitOf(args).slice(0, 2)).toEqual([
+          '--use-extractors',
+          youtube.SUPPORTED_EXTRACTORS,
+        ]);
+      }
+    });
+  });
+
   describe('getYtDlpEnv and appendYtDlpEnvArgs', () => {
     afterEach(() => {
       delete process.env.YT_DLP_JS_RUNTIMES;
@@ -1322,6 +1398,8 @@ today to pay our respects to MCP, which
         'node',
         '--remote-components',
         'ejs:github',
+        '--use-extractors',
+        youtube.SUPPORTED_EXTRACTORS,
         'https://example.com',
       ]);
     });
@@ -1395,6 +1473,8 @@ today to pay our respects to MCP, which
         '--quiet',
         '--proxy',
         'http://user:pass@proxy:8080',
+        '--use-extractors',
+        youtube.SUPPORTED_EXTRACTORS,
         'https://example.com',
       ]);
 
@@ -1404,6 +1484,8 @@ today to pay our respects to MCP, which
         '--skip-download',
         '--no-progress',
         '--quiet',
+        '--use-extractors',
+        youtube.SUPPORTED_EXTRACTORS,
         'https://example.com',
       ]);
     });
@@ -2174,6 +2256,8 @@ today to pay our respects to MCP, which
       ],
       ['ERROR: [TikTok] 123: Your IP address is blocked from accessing this post', 'geo_blocked'],
       ['ERROR: [youtube:tab] UCx: This channel does not have a videos tab', 'unavailable'],
+      // A run limited to SUPPORTED_EXTRACTORS (ADR 009) that meets a URL outside them.
+      ['ERROR: No suitable extractor (Generic) found for URL https://example.com/x', 'unavailable'],
       ['ERROR: [youtube:tab] UCx: This channel does not have a shorts tab', 'unavailable'],
       // Texts from the hosted service's logs, 2026-11 (#128). They matched nothing before.
       [
