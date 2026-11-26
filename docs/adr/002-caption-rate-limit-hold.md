@@ -20,6 +20,7 @@ From 1.5.2 to 1.5.7, a refusal counted as a repeat strike only under one conditi
 - Only a download that returns a track clears the hold. A run that found nothing proves nothing.
 - The state is process-local on purpose. A restart re-checks the platform.
 - The gauge `subtitle_rate_limit_strikes{platform}` exposes the count. 2 or more means a ban on a platform the canary probes (YouTube by default). Elsewhere the count does not decay, so two refusals far apart also read as 2.
+- A refusal counts as a 429 when yt-dlp's text has the class `rate_limited`. This includes Instagram's login-page rate limit (#128): Instagram limits anonymous access per address too, so a retry makes its limit last longer in the same way.
 - `SUBTITLES_RATE_LIMIT_HOLD_MS=0` turns off both the hold and the count. The `rate_limited` text says not to retry.
 
 ## Alternatives

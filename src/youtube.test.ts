@@ -624,6 +624,23 @@ today to pay our respects to MCP, which
       expect(execFileMock).toHaveBeenCalledTimes(1);
     });
 
+    it('holds Instagram captions after its login-page rate limit, and only Instagram (#128)', async () => {
+      mockExecFileFailure(
+        'ERROR: [Instagram] DQx: The webpage request was redirected to the login page. You have exceeded the rate-limit for accessing posts anonymously.'
+      );
+
+      await expect(
+        youtube.downloadSubtitles('https://www.instagram.com/reel/DQx/', 'auto', 'en')
+      ).rejects.toMatchObject({ name: 'YtDlpError', reason: 'rate_limited', statusCode: 502 });
+      await expect(
+        youtube.downloadSubtitles('https://www.instagram.com/p/DQy/', 'auto', 'en')
+      ).rejects.toMatchObject({ name: 'YtDlpError', reason: 'rate_limited' });
+      expect(execFileMock).toHaveBeenCalledTimes(1);
+      expect(() =>
+        assertSubtitlesNotRateLimited('https://www.youtube.com/watch?v=x')
+      ).not.toThrow();
+    });
+
     it('clears the limit only when yt-dlp brings back a track', async () => {
       const t0 = 1_700_000_000_000;
       const minute = 60 * 1000;
@@ -2125,6 +2142,17 @@ today to pay our respects to MCP, which
       ['ERROR: [TikTok] 123: Your IP address is blocked from accessing this post', 'geo_blocked'],
       ['ERROR: [youtube:tab] UCx: This channel does not have a videos tab', 'unavailable'],
       ['ERROR: [youtube:tab] UCx: This channel does not have a shorts tab', 'unavailable'],
+      // Texts from the hosted service's logs, 2026-11 (#128). They matched nothing before.
+      [
+        'ERROR: [Instagram] DQx: The webpage request was redirected to the login page. You have exceeded the rate-limit for accessing posts anonymously.',
+        'rate_limited',
+      ],
+      [
+        "ERROR: [Instagram] DQx: This content isn't available to everyone: It can't be seen by certain audiences.",
+        'age_restricted',
+      ],
+      ['ERROR: [Instagram] DQx: There is no video in this post', 'unavailable'],
+      ['ERROR: [TikTok] 7300: Video not available, status code 10204', 'unavailable'],
     ];
 
     it.each(cases)('should classify %s as %s', (stderr, expected) => {
