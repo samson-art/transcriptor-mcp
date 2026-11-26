@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.40] - 2026-11-26
+
 ### Fixed
 
 - Four failure texts from Instagram and TikTok now get a class (#128). Before this, they got `unknown`, and the caller heard "Retry once". Instagram's "You have exceeded the rate-limit for accessing posts anonymously" is now `rate_limited`: the caller hears "do not retry" and gets a 502. On a caption download it also starts the caption hold for Instagram, the same as a 429 (ADR 002). The hold is per platform, so YouTube and the other platforms are not held. Off YouTube, an audio download for speech-to-text now also clears the caption hold of its platform. Before this, only a caption track cleared it, and most Instagram posts have none, so an Instagram hold would have grown to an hour and stayed there. Instagram's "This content isn't available to everyone" is now `age_restricted`. Instagram's "There is no video in this post" and TikTok's "Video not available, status code <n>" are now `unavailable`. The caller texts of the classes do not change. In metrics these failures now count under their class instead of `not_found`.
