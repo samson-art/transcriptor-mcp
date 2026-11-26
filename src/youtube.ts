@@ -1179,6 +1179,14 @@ export async function downloadAudio(
         f.startsWith(baseName) && (f.endsWith('.m4a') || f.endsWith('.webm') || f.endsWith('.mp3'))
     );
     if (audioFile) {
+      // Off YouTube a rate limit covers the whole page (Instagram sends the client to its login
+      // page, #128), so audio from the platform proves that it answers this server again. Most
+      // Instagram posts have no caption track, and without this the hold would never clear and
+      // would grow to an hour. YouTube limits its caption endpoint alone (ADR 002), so audio
+      // proves nothing there.
+      // ponytail: "every platform but YouTube" is a guess; add a platform when its caption
+      // limit is shown to be separate from its pages.
+      if (extractPlatformFromUrl(url) !== 'youtube') clearSubtitlesRateLimit(url);
       const audioPath = join(tempDir, audioFile);
       if (maxDuration > 0) {
         const duration = await probeDurationSeconds(audioPath, logger);

@@ -8,6 +8,7 @@ import {
   assertSubtitlesNotRateLimited,
   noteSubtitlesRateLimited,
   resetSubtitleRateLimitsForTests,
+  subtitlesRefusedSinceTrack,
 } from './subtitle-rate-limit.js';
 import { renderPrometheus } from './metrics.js';
 
@@ -766,6 +767,38 @@ today to pay our respects to MCP, which
       await unlink(first as string).catch(() => {});
       await unlink(second as string).catch(() => {});
       dateSpy.mockRestore();
+    });
+
+    it('clears the caption hold off YouTube when the platform hands over audio (#128)', async () => {
+      // Most Instagram posts have no caption track, so without this the hold never clears.
+      execFileMock.mockImplementation(
+        (
+          _file: string,
+          args: string[],
+          _options: unknown,
+          cb: (err: null, result: { stdout: string; stderr: string }) => void
+        ) => {
+          void writeFile(outputFile(args, 'm4a'), 'fake audio', 'utf-8').then(() =>
+            cb(null, { stdout: '', stderr: '' })
+          );
+        }
+      );
+      const reel = 'https://www.instagram.com/reel/DQx/';
+      resetSubtitleRateLimitsForTests();
+      noteSubtitlesRateLimited(reel);
+      noteSubtitlesRateLimited(url);
+
+      const fromReel = await downloadAudio(reel);
+      const fromWatch = await downloadAudio(url);
+
+      expect(fromReel).not.toBeNull();
+      expect(subtitlesRefusedSinceTrack(reel)).toBe(false);
+      // On YouTube the caption limit leaves pages and media working (ADR 002): audio proves nothing.
+      expect(fromWatch).not.toBeNull();
+      expect(subtitlesRefusedSinceTrack(url)).toBe(true);
+      await unlink(fromReel as string).catch(() => {});
+      await unlink(fromWatch as string).catch(() => {});
+      resetSubtitleRateLimitsForTests();
     });
 
     it('should pass format and audio-quality to yt-dlp and return path to audio file', async () => {
