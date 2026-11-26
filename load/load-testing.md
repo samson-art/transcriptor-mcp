@@ -160,7 +160,7 @@ RATE_LIMIT_MAX=1000
 YT_DLP_TIMEOUT=90000
 ```
 
-See [configuration.md](configuration.md) for all options.
+See [.env.example](../.env.example) for all options.
 
 ## Visualizing results in Grafana (VPS)
 
