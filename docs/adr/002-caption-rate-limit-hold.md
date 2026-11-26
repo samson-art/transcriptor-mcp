@@ -17,9 +17,10 @@ From 1.5.2 to 1.5.7, a refusal counted as a repeat strike only under one conditi
 - After a 429 on a caption download, the server holds that platform's caption path before anything leaves the server. The check runs after the cache lookup and before the metadata run, so the server still serves cached transcripts.
 - The hold covers every caption download path: `get_transcript`, `get_raw_subtitles`, `get_playlist_transcripts`, the transcript resource, REST `/subtitles` and `/subtitles/raw`, and the canary. A hold also skips the Whisper fallback. The hold never covers metadata, the track list, chapters, frames and search.
 - Calls in flight that report the same limit count once. Any refusal after the end of a wait is the next strike, however late it comes. The wait doubles 10 → 20 → 40 minutes, capped at 60 (at the default base).
-- Only a download that returns a track clears the hold. A run that found nothing proves nothing.
+- Only a download that returns a track clears the hold. A run that found nothing proves nothing. Off YouTube, an audio download for speech-to-text also clears it (#128): there a limit covers the whole page, so audio proves that the platform answers again. Most Instagram posts have no caption track, and without this an Instagram hold would never clear.
 - The state is process-local on purpose. A restart re-checks the platform.
 - The gauge `subtitle_rate_limit_strikes{platform}` exposes the count. 2 or more means a ban on a platform the canary probes (YouTube by default). Elsewhere the count does not decay, so two refusals far apart also read as 2.
+- A refusal on a caption download counts as a 429 when yt-dlp's text has the class `rate_limited`. This includes Instagram's login-page rate limit (#128): Instagram limits anonymous access per address too, so a retry makes its limit last longer in the same way. The same refusal on the metadata run in front of a track (a call without `lang`) gets `rate_limited` but does not start the hold.
 - `SUBTITLES_RATE_LIMIT_HOLD_MS=0` turns off both the hold and the count. The `rate_limited` text says not to retry.
 
 ## Alternatives
@@ -41,5 +42,5 @@ From 1.5.2 to 1.5.7, a refusal counted as a repeat strike only under one conditi
 ## Do not
 
 - Do not add a time decay to the strike count. The missing decay looks like a bug, but a decay brings back the pre-1.5.8 blindness.
-- Do not clear the hold on any successful exit, or count parallel 429s as separate strikes. Do not move the state to Redis, or extend the hold to metadata. Do not soften the text to "try again in a few minutes".
+- Do not clear the hold on any successful exit (an audio download off YouTube is the one exception, see above), or count parallel 429s as separate strikes. Do not move the state to Redis, or extend the hold to metadata. Do not soften the text to "try again in a few minutes".
 - Guarded by `src/subtitle-rate-limit.test.ts`.

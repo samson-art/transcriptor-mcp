@@ -177,12 +177,17 @@ const YT_DLP_FAILURE_PATTERNS: ReadonlyArray<[YtDlpFailureReason, RegExp]> = [
   ['bot_check', /sign in to confirm you.?re not a bot|confirm you.?re not a bot/i],
   // YouTube says "…This content isn't available, try again later" and names the session
   // throttle; without these the message falls through to `unavailable` and reads as deleted.
+  // Instagram sends an anonymous client that asks too often to its login page (#128).
   [
     'rate_limited',
-    /http error 429|too many requests|rate-limited by youtube|content isn.?t available, try again later/i,
+    /http error 429|too many requests|rate-limited by youtube|content isn.?t available, try again later|exceeded the rate.?limit for accessing posts/i,
   ],
   ['private', /private video|this video is private/i],
-  ['age_restricted', /sign in to confirm your age|age.?restricted|inappropriate for some users/i],
+  // Instagram: "This content isn't available to everyone: It can't be seen by certain audiences."
+  [
+    'age_restricted',
+    /sign in to confirm your age|age.?restricted|inappropriate for some users|isn.?t available to everyone/i,
+  ],
   [
     'geo_blocked',
     /available in your country|geo.?restricted|blocked it in your country|ip address is blocked/i,
@@ -192,9 +197,10 @@ const YT_DLP_FAILURE_PATTERNS: ReadonlyArray<[YtDlpFailureReason, RegExp]> = [
     /nsig extraction failed|unable to extract|requested format is not available|unable to download (?:webpage|api page)|failed to parse json|unexpected response from webpage/i,
   ],
   // "This channel does not have a videos tab": a channel URL with no uploads of that kind.
+  // Instagram "There is no video in this post"; TikTok "Video not available, status code <n>" (#128).
   [
     'unavailable',
-    /video (?:is )?unavailable|this video is not available|has been removed|does not exist|no longer available|unsupported url|does not have an? \w+ tab/i,
+    /video (?:is )?unavailable|this video is not available|has been removed|does not exist|no longer available|unsupported url|does not have an? \w+ tab|there is no video in this post|video not available, status code \d+/i,
   ],
   // Last on purpose: stderr includes warnings, and this one also appears next to
   // failures with a real cause above (a removed video must stay `unavailable`).
@@ -1173,6 +1179,14 @@ export async function downloadAudio(
         f.startsWith(baseName) && (f.endsWith('.m4a') || f.endsWith('.webm') || f.endsWith('.mp3'))
     );
     if (audioFile) {
+      // Off YouTube a rate limit covers the whole page (Instagram sends the client to its login
+      // page, #128), so audio from the platform proves that it answers this server again. Most
+      // Instagram posts have no caption track, and without this the hold would never clear and
+      // would grow to an hour. YouTube limits its caption endpoint alone (ADR 002), so audio
+      // proves nothing there.
+      // ponytail: "every platform but YouTube" is a guess; add a platform when its caption
+      // limit is shown to be separate from its pages.
+      if (extractPlatformFromUrl(url) !== 'youtube') clearSubtitlesRateLimit(url);
       const audioPath = join(tempDir, audioFile);
       if (maxDuration > 0) {
         const duration = await probeDurationSeconds(audioPath, logger);

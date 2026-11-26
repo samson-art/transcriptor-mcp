@@ -8,6 +8,7 @@ import {
   assertSubtitlesNotRateLimited,
   noteSubtitlesRateLimited,
   resetSubtitleRateLimitsForTests,
+  subtitlesRefusedSinceTrack,
 } from './subtitle-rate-limit.js';
 import { renderPrometheus } from './metrics.js';
 
@@ -624,6 +625,23 @@ today to pay our respects to MCP, which
       expect(execFileMock).toHaveBeenCalledTimes(1);
     });
 
+    it('holds Instagram captions after its login-page rate limit, and only Instagram (#128)', async () => {
+      mockExecFileFailure(
+        'ERROR: [Instagram] DQx: The webpage request was redirected to the login page. You have exceeded the rate-limit for accessing posts anonymously.'
+      );
+
+      await expect(
+        youtube.downloadSubtitles('https://www.instagram.com/reel/DQx/', 'auto', 'en')
+      ).rejects.toMatchObject({ name: 'YtDlpError', reason: 'rate_limited', statusCode: 502 });
+      await expect(
+        youtube.downloadSubtitles('https://www.instagram.com/p/DQy/', 'auto', 'en')
+      ).rejects.toMatchObject({ name: 'YtDlpError', reason: 'rate_limited' });
+      expect(execFileMock).toHaveBeenCalledTimes(1);
+      expect(() =>
+        assertSubtitlesNotRateLimited('https://www.youtube.com/watch?v=x')
+      ).not.toThrow();
+    });
+
     it('clears the limit only when yt-dlp brings back a track', async () => {
       const t0 = 1_700_000_000_000;
       const minute = 60 * 1000;
@@ -749,6 +767,38 @@ today to pay our respects to MCP, which
       await unlink(first as string).catch(() => {});
       await unlink(second as string).catch(() => {});
       dateSpy.mockRestore();
+    });
+
+    it('clears the caption hold off YouTube when the platform hands over audio (#128)', async () => {
+      // Most Instagram posts have no caption track, so without this the hold never clears.
+      execFileMock.mockImplementation(
+        (
+          _file: string,
+          args: string[],
+          _options: unknown,
+          cb: (err: null, result: { stdout: string; stderr: string }) => void
+        ) => {
+          void writeFile(outputFile(args, 'm4a'), 'fake audio', 'utf-8').then(() =>
+            cb(null, { stdout: '', stderr: '' })
+          );
+        }
+      );
+      const reel = 'https://www.instagram.com/reel/DQx/';
+      resetSubtitleRateLimitsForTests();
+      noteSubtitlesRateLimited(reel);
+      noteSubtitlesRateLimited(url);
+
+      const fromReel = await downloadAudio(reel);
+      const fromWatch = await downloadAudio(url);
+
+      expect(fromReel).not.toBeNull();
+      expect(subtitlesRefusedSinceTrack(reel)).toBe(false);
+      // On YouTube the caption limit leaves pages and media working (ADR 002): audio proves nothing.
+      expect(fromWatch).not.toBeNull();
+      expect(subtitlesRefusedSinceTrack(url)).toBe(true);
+      await unlink(fromReel as string).catch(() => {});
+      await unlink(fromWatch as string).catch(() => {});
+      resetSubtitleRateLimitsForTests();
     });
 
     it('should pass format and audio-quality to yt-dlp and return path to audio file', async () => {
@@ -2125,6 +2175,17 @@ today to pay our respects to MCP, which
       ['ERROR: [TikTok] 123: Your IP address is blocked from accessing this post', 'geo_blocked'],
       ['ERROR: [youtube:tab] UCx: This channel does not have a videos tab', 'unavailable'],
       ['ERROR: [youtube:tab] UCx: This channel does not have a shorts tab', 'unavailable'],
+      // Texts from the hosted service's logs, 2026-11 (#128). They matched nothing before.
+      [
+        'ERROR: [Instagram] DQx: The webpage request was redirected to the login page. You have exceeded the rate-limit for accessing posts anonymously.',
+        'rate_limited',
+      ],
+      [
+        "ERROR: [Instagram] DQx: This content isn't available to everyone: It can't be seen by certain audiences.",
+        'age_restricted',
+      ],
+      ['ERROR: [Instagram] DQx: There is no video in this post', 'unavailable'],
+      ['ERROR: [TikTok] 7300: Video not available, status code 10204', 'unavailable'],
     ];
 
     it.each(cases)('should classify %s as %s', (stderr, expected) => {
