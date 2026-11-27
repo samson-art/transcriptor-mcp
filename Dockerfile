@@ -18,7 +18,7 @@ RUN npm run build
 # ============================================
 FROM node:22-bookworm-slim AS base
 
-# Системные зависимости для yt-dlp и JS runtime (ffmpeg для постобработки аудио)
+# System dependencies for yt-dlp and the JS runtime. ffmpeg handles audio post-processing.
 RUN apt-get update && apt-get install -y \
     python3 \
     python3-pip \
@@ -30,12 +30,12 @@ RUN apt-get update && apt-get install -y \
 # Ensure Node/npm are on PATH (avoid 127 when building api/mcp stages)
 ENV PATH="/usr/local/bin:${PATH}"
 
-# Deno (js runtime для yt-dlp)
+# Deno (JS runtime for yt-dlp)
 ENV DENO_INSTALL=/usr/local
 RUN curl -fsSL https://deno.land/x/install/install.sh | sh
 
-# yt-dlp через pip (последняя стабильная версия); curl-cffi даёт имперсонацию браузера,
-# без неё не открываются TikTok и часть видео Dailymotion
+# Install the latest stable yt-dlp from pip. curl-cffi adds browser impersonation.
+# Without curl-cffi, TikTok and some Dailymotion videos fail to open.
 RUN pip3 install --no-cache-dir --break-system-packages -U "yt-dlp[default,curl-cffi]"
 
 ENV YT_DLP_JS_RUNTIMES="deno,node"

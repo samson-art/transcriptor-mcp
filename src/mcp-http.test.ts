@@ -34,6 +34,8 @@ jest.mock('@sentry/node', () => ({
 }));
 
 import { execFile } from 'node:child_process';
+import { readFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import * as Sentry from '@sentry/node';
 import type { FastifyBaseLogger } from 'fastify';
@@ -135,6 +137,26 @@ describe('POST /mcp', () => {
     );
   });
 
+  // The tools/list answer is the contract that clients read (#80: one schema label made
+  // some Claude apps refuse every call). A planned change shows as a diff of the JSON file.
+  // To accept a change: UPDATE_TOOLS_CONTRACT=1 npx jest src/mcp-http.test.ts -t 'tool contract'
+  // ponytail: the ext-apps mock above passes _meta through as written, so keys that the
+  // real registerAppTool adds are not in the file. Pin those when ts-jest can load ESM.
+  it('keeps the tool contract equal to src/mcp-tools-contract.json', async () => {
+    const response = await postMcp({ jsonrpc: '2.0', id: 3, method: 'tools/list' });
+    expect(response.status).toBe(200);
+    const body = await readMcpBody(response);
+    const actual = body.result?.tools;
+    // A failed answer must not overwrite the stored file in update mode.
+    expect(Array.isArray(actual)).toBe(true);
+    const file = join(process.cwd(), 'src', 'mcp-tools-contract.json');
+
+    if (process.env.UPDATE_TOOLS_CONTRACT === '1') {
+      writeFileSync(file, `${JSON.stringify(actual, null, 2)}\n`);
+    }
+    expect(actual).toEqual(JSON.parse(readFileSync(file, 'utf8')));
+  });
+
   it('handles consecutive requests, each with a fresh transport', async () => {
     // A hoisted/reused stateless transport makes the SDK throw on the second request.
     const first = await postMcp(initializeBody(10));
@@ -173,6 +195,22 @@ describe('POST /mcp', () => {
     expect(response.status).toBe(400);
     const body = await readMcpBody(response);
     expect(body.error?.code).toBe(-32700);
+  });
+
+  // GHSA-f897-62hf-6gxq (#130): before SDK 1.30.1, one long batch was able to block the server
+  // for every caller. Fastify parses the body here, so this test makes sure that the SDK counts.
+  it('refuses a JSON-RPC batch of more than 100 messages', async () => {
+    const batch = Array.from({ length: 101 }, (_, i) => ({
+      jsonrpc: '2.0',
+      id: i,
+      method: 'tools/list',
+    }));
+    const response = await postMcp(batch);
+    // Read first: an unread stream of answers keeps the server from closing.
+    const body = await readMcpBody(response);
+
+    expect(response.status).toBe(400);
+    expect(body.error?.code).toBe(-32600);
   });
 });
 
