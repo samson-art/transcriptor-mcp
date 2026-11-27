@@ -4,8 +4,11 @@
  */
 
 // k6 sets __ENV; verify-pool.js imports this file in Node, where __ENV does not exist.
-export const BASE_URL =
-  (typeof __ENV !== 'undefined' && __ENV.BASE_URL) || 'http://127.0.0.1:3000';
+// The scripts append paths that start with "/", so a trailing slash would give "//health".
+export const BASE_URL = (
+  (typeof __ENV !== 'undefined' && __ENV.BASE_URL) ||
+  'http://127.0.0.1:3000'
+).replace(/\/+$/, '');
 
 /**
  * Video pool entry: id, duration (seconds), optional subtitle language codes.
