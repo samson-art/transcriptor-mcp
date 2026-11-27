@@ -200,7 +200,7 @@ const YT_DLP_FAILURE_PATTERNS: ReadonlyArray<[YtDlpFailureReason, RegExp]> = [
   // Instagram "There is no video in this post"; TikTok "Video not available, status code <n>" (#128).
   [
     'unavailable',
-    /video (?:is )?unavailable|this video is not available|has been removed|does not exist|no longer available|unsupported url|does not have an? \w+ tab|there is no video in this post|video not available, status code \d+/i,
+    /video (?:is )?unavailable|this video is not available|has been removed|does not exist|no longer available|unsupported url|no suitable extractor|does not have an? \w+ tab|there is no video in this post|video not available, status code \d+/i,
   ],
   // Last on purpose: stderr includes warnings, and this one also appears next to
   // failures with a real cause above (a removed video must stay `unavailable`).
@@ -1911,6 +1911,15 @@ export type AppendYtDlpEnvArgsOptions = {
   keepWarnings?: boolean;
 };
 
+/**
+ * The yt-dlp extractors that a run may load: the families of the 11 supported platforms
+ * (`--use-extractors`, ADR 009). yt-dlp matches each
+ * comma-separated regex against the whole extractor name, without case. `vm.tiktok` is the
+ * TikTok short-link extractor, whose name does not start with its family.
+ */
+export const SUPPORTED_EXTRACTORS =
+  '(?:youtube|twitter|instagram|tiktok|twitch|vimeo|facebook|bilibili|vk|dailymotion|reddit).*,vm\\.tiktok';
+
 // Exported for testing.
 export function appendYtDlpEnvArgs(
   out: string[],
@@ -1981,6 +1990,9 @@ export function appendYtDlpEnvArgs(
     const parts = extraArgs.split(/\s+/).filter((p) => p.length > 0);
     out.push(...parts);
   }
+
+  // Last on purpose: yt-dlp takes the last --use-extractors, so YT_DLP_EXTRA_ARGS cannot widen it.
+  out.push('--use-extractors', SUPPORTED_EXTRACTORS);
 }
 
 /**

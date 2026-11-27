@@ -620,6 +620,10 @@ export type CreateMcpServerOptions = {
 
 export function createMcpServer(opts?: CreateMcpServerOptions) {
   const log = opts?.logger ?? createDefaultLogger();
+  // ponytail: maxToolInputElements is not set (GHSA-46jr-4wx8-v453, #130). No tool input has an
+  // array or a record, and Fastify refuses a body over 1 MiB. On 2026-11-27, a 1 MiB call used at
+  // most 37 MB of heap for 86 ms, with or without the option. If a tool input gets an array or a
+  // record, set the option just above the largest input that the tool needs.
   const server = new McpServer({
     name: 'transcriptor-mcp',
     version,

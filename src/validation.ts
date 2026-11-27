@@ -57,8 +57,6 @@ export const ALLOWED_VIDEO_DOMAINS = [
   'www.vimeo.com',
   'facebook.com',
   'www.facebook.com',
-  'fb.watch',
-  'fb.com',
   'm.facebook.com',
   'bilibili.com',
   'www.bilibili.com',
@@ -72,7 +70,6 @@ export const ALLOWED_VIDEO_DOMAINS = [
   'reddit.com',
   'www.reddit.com',
   'old.reddit.com',
-  'v.redd.it',
 ] as const;
 
 /**
@@ -176,6 +173,18 @@ export function isValidYouTubeUrl(url: string): boolean {
 }
 
 /**
+ * Share links that yt-dlp opens only through the generic extractor, which no run loads
+ * (ADR 009): Facebook `/share/v/…` and `/share/r/…`, Reddit `/r/<sub>/s/<id>`. Refused here,
+ * so that the caller gets the invalid-URL text, which asks for the full page link.
+ */
+function isGenericOnlyShareLink(hostname: string, pathname: string): boolean {
+  const platform = extractPlatformFromUrl(`https://${hostname}/`);
+  if (platform === 'facebook') return /^\/share\//i.test(pathname);
+  if (platform === 'reddit') return /^\/r\/[^/]+\/s\//i.test(pathname);
+  return false;
+}
+
+/**
  * Checks if the input is a supported video URL or a bare YouTube-like ID.
  * For strings without a scheme, treats as YouTube ID only if it looks like one (safe chars, length).
  */
@@ -191,8 +200,10 @@ export function isValidSupportedUrl(url: string): boolean {
     try {
       const urlObj = new URL(trimmed);
       const hostname = urlObj.hostname.toLowerCase();
-      return ALLOWED_VIDEO_DOMAINS.some(
-        (domain) => hostname === domain || hostname.endsWith(`.${domain}`)
+      return (
+        ALLOWED_VIDEO_DOMAINS.some(
+          (domain) => hostname === domain || hostname.endsWith(`.${domain}`)
+        ) && !isGenericOnlyShareLink(hostname, urlObj.pathname)
       );
     } catch {
       return false;
