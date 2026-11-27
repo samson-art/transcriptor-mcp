@@ -276,7 +276,7 @@ You need Node.js 22 or later (20 still works, but it reached end of life in Apri
 
 **Releases.** The maintainer cuts them. The steps are in [.claude/skills/release/SKILL.md](.claude/skills/release/SKILL.md). The version comes from `package.json` at runtime, through [src/version.ts](src/version.ts). Pushing a `v*` tag makes CI build both images and publish the [MCP Registry](https://registry.modelcontextprotocol.io) entry from [server.json](server.json).
 
-**Layout.** `src/mcp.ts` (stdio entry), `src/mcp-http.ts` (Streamable HTTP), `src/mcp-core.ts` (tools, prompts, widgets), `src/youtube.ts` (yt-dlp), `src/whisper.ts`, `src/cache.ts`, `src/index.ts` (REST API), `load/` (k6), and `src/e2e/` (Docker smoke tests).
+**Layout.** `src/mcp.ts` (stdio entry), `src/mcp-http.ts` (Streamable HTTP), `src/mcp-core.ts` (tools, prompts, widgets), `src/youtube.ts` (yt-dlp), `src/whisper.ts`, `src/cache.ts`, `src/rest-app.ts` (REST API), `load/` (k6), and `src/e2e/` (Docker smoke tests).
 
 </details>
 

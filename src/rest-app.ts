@@ -96,6 +96,20 @@ const VideoChaptersResponseSchema = Type.Object({
  * Throws when RATE_LIMIT_TIME_WINDOW is not a time window.
  */
 export function buildRestApp() {
+  // Read with the plugin's own parser, so that the start fails here, before anything is built.
+  // Given a value it cannot read ("1 minute" with the quotes, which `docker run --env-file`
+  // keeps), the plugin answered 500 to every limited request. Below 1 ms the plugin truncates the
+  // window to 0, and 0 resets the counter on every request. Keep @lukeed/ms on the major that
+  // @fastify/rate-limit uses.
+  const rawTimeWindow = process.env.RATE_LIMIT_TIME_WINDOW || '1 minute';
+  const timeWindow = parseDuration(rawTimeWindow) ?? 0;
+  if (timeWindow < 1) {
+    throw new Error(
+      `RATE_LIMIT_TIME_WINDOW=${JSON.stringify(rawTimeWindow)} is not a time window. ` +
+        'Set a number of milliseconds or a duration such as 1 minute, without quotes.'
+    );
+  }
+
   const fastify = Fastify({
     loggerInstance: createLoggerWithSentryBreadcrumbs(),
   }).withTypeProvider<TypeBoxTypeProvider>();
@@ -112,18 +126,6 @@ export function buildRestApp() {
     origin: corsAllowedOrigins && corsAllowedOrigins.length > 0 ? corsAllowedOrigins : true,
   });
 
-  // Read with the plugin's own parser, so that the start fails here. Given a value it cannot read
-  // ("1 minute" with the quotes, which `docker run --env-file` keeps), the plugin answered 500 to
-  // every limited request. Below 1 ms the plugin truncates the window to 0, and 0 resets the counter
-  // on every request. Keep @lukeed/ms on the major that @fastify/rate-limit uses.
-  const rawTimeWindow = process.env.RATE_LIMIT_TIME_WINDOW || '1 minute';
-  const timeWindow = parseDuration(rawTimeWindow) ?? 0;
-  if (timeWindow < 1) {
-    throw new Error(
-      `RATE_LIMIT_TIME_WINDOW=${JSON.stringify(rawTimeWindow)} is not a time window. ` +
-        'Set a number of milliseconds or a duration such as 1 minute, without quotes.'
-    );
-  }
   fastify.register(rateLimit, { max: parseIntEnv('RATE_LIMIT_MAX', 100), timeWindow });
 
   // The rate-limit plugin loads after this synchronous code; routes declared before that miss its

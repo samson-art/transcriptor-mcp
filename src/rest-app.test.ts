@@ -165,6 +165,23 @@ it('limits every other route', async () => {
 });
 
 describe('tool routes', () => {
+  // A test that fails before its request reaches the service leaves its Once answer queued.
+  // Drop it, so the next test gets the real service and fails for its own reason only.
+  const actual = jest.requireActual<typeof import('./validation.js')>('./validation.js');
+  afterEach(() => {
+    for (const name of [
+      'validateAndDownloadSubtitles',
+      'validateAndFetchAvailableSubtitles',
+      'validateAndFetchVideoInfo',
+      'validateAndFetchVideoChapters',
+    ] as const) {
+      jest
+        .requireMock<Record<string, jest.Mock>>('./validation.js')
+        [name].mockReset()
+        .mockImplementation(actual[name]);
+    }
+  });
+
   // The limit is MAX requests per address, so each request comes from a new one.
   let address = 0;
   const post = (url: string, payload: object) =>
