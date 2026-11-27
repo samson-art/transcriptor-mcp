@@ -7,7 +7,7 @@ transcriptor-mcp is an MCP server (8 tools, 4 widgets) and a REST API. Both wrap
 ## Commands
 
 - `npm ci` installs dependencies and the husky pre-commit hook. Run it in every clone and every git worktree. Without it, git runs no pre-commit hook in that checkout.
-- `make check-no-smoke` is the gate: format-check, lint, typecheck, Jest, build. CI, pre-commit and the publish workflow all run it. It must be green before you say you are done.
+- `make check-no-smoke` is the gate: format-check, lint, typecheck, Jest with coverage, build. Coverage below the floor in `jest.config.cjs` fails it. CI, pre-commit and the publish workflow all run it. It must be green before you say you are done.
 - `npx jest src/youtube.test.ts -t '<name>'` runs one suite or one test.
 - `npm run build` runs `tsc` to `dist/`, then four vite builds to `dist/ui/<app>.html`. The server reads those HTML files at runtime.
 - To run locally: `npm run build`, then `npm run --silent start:mcp` (stdio), `start:mcp:http` (port 4200) or `start` (REST, port 3000). You need `yt-dlp` on `PATH`, `ffmpeg` for frames, and `ffprobe` for `WHISPER_MAX_DURATION_SECONDS`. The `dev`, `dev:mcp` and `dev:mcp:http` scripts currently fail: `ts-node-dev` cannot load this ESM package.
@@ -16,7 +16,7 @@ transcriptor-mcp is an MCP server (8 tools, 4 widgets) and a REST API. Both wrap
 ## Map
 
 - `src/mcp-core.ts`: the whole MCP surface (tools, prompts, resources, widget resources and CSP, `withToolErrorHandling`, the per-call log line).
-- `src/mcp.ts` is the stdio entry. `src/mcp-http.ts` is stateless Streamable HTTP ([ADR 001](docs/adr/001-stateless-streamable-http.md)). `src/index.ts` is the REST API (5 of the 8 tools).
+- `src/mcp.ts` is the stdio entry. `src/mcp-http.ts` is stateless Streamable HTTP ([ADR 001](docs/adr/001-stateless-streamable-http.md)). `src/rest-app.ts` is the REST API (5 of the 8 tools), built by `buildRestApp()`. `src/index.ts` starts it.
 - `src/validation.ts`: the service layer shared by MCP and REST (URL and language checks, cache, auto-discovery in the original language, Whisper fallback, in-flight dedupe).
 - `src/youtube.ts`: the `yt-dlp`/`ffmpeg` runs, failure classification, cookies copies. The startup `yt-dlp --version` check is in `src/yt-dlp-check.ts`.
 - `src/errors.ts` (typed errors and caller texts), `src/subtitle-rate-limit.ts` (429 hold), `src/canary.ts`, `src/metrics.ts`, `src/cache.ts` (optional Redis), `src/whisper*.ts`.
@@ -28,11 +28,11 @@ Do not edit generated files by hand. They are `dist/`, `dist-site/`, `web/widget
 
 The `change` skill runs the full cycle: interview → intent issue → plan → test first → checks → PR → review. If a change touches any of these areas, use it:
 
-- MCP tool contract: tool names, input/output schemas, descriptions, annotations, `_meta`, error texts and shapes. The code is in `src/mcp-core.ts`, `src/errors.ts`, and `LANG_PATTERN` and `ALLOWED_VIDEO_DOMAINS` in `src/validation.ts`. Mirrors that must follow: `src/e2e/mcp-smoke.ts`, `web/clients.mjs`, the README tool reference, `ui/`.
+- MCP tool contract: tool names, input/output schemas, descriptions, annotations, `_meta`, error texts and shapes. The code is in `src/mcp-core.ts`, `src/errors.ts`, and `LANG_PATTERN` and `ALLOWED_VIDEO_DOMAINS` in `src/validation.ts`. Mirrors that must follow: `src/mcp-tools-contract.json` (the stored `tools/list` answer; a test in `src/mcp-http.test.ts` fails when it differs, and `UPDATE_TOOLS_CONTRACT=1` rewrites it), `src/e2e/mcp-smoke.ts`, `web/clients.mjs`, the README tool reference, `ui/`.
 - Env vars: added, changed or removed.
 - Caption rate limit, retry, cache or strike logic: `src/subtitle-rate-limit.ts`, `execFileAsync` and `downloadSubtitles` in `src/youtube.ts`, auto-discovery in `src/validation.ts`, `src/cache.ts`, `src/canary.ts`.
 - Release plumbing: `Dockerfile`, `server.json`, `.github/workflows/`, Makefile publish targets.
-- Metrics names or labels, or the fields of the "MCP tool call" log line or of the Sentry log of the same name.
+- Metrics names or labels (the stored list is `CONTRACT` in `src/metrics.test.ts`; a change fails that test until you edit the list), or the fields of the "MCP tool call" log line or of the Sentry log of the same name.
 - Widgets: `ui/`, `vite.config.ts`, the widget CSP and `ui://` URIs.
 
 For anything else that fits in one sentence, edit, run the gate and open the PR.
@@ -43,6 +43,7 @@ For anything else that fits in one sentence, edit, run the gate and open the PR.
 - Tracks come through yt-dlp only. Node never fetches them ([ADR 005](docs/adr/005-captions-via-yt-dlp-only.md)).
 - Every `yt-dlp`/`ffmpeg` run that reaches a platform goes through `execFileAsync` in `src/youtube.ts`. It enforces the process cap and queue, and it throws `ServerBusyError` (503) above them. Two exceptions are deliberate. The local `ffprobe` length probe skips the queue, because a full queue made short videos read as "too long" (1.5.0). The startup `yt-dlp --version` check in `src/yt-dlp-check.ts` has its own `execFileAsync`.
 - Never give `COOKIES_FILE_PATH` itself to yt-dlp. Pass a copy from `copyCookiesFile` ([ADR 004](docs/adr/004-private-cookies-copy.md)).
+- Every yt-dlp run loads only the extractors in `SUPPORTED_EXTRACTORS` (`--use-extractors`, last in `appendYtDlpEnvArgs`). Never add `generic`. A new platform changes `ALLOWED_VIDEO_DOMAINS`, `extractPlatformFromUrl` and `SUPPORTED_EXTRACTORS` together ([ADR 009](docs/adr/009-supported-extractors-only.md)).
 - yt-dlp exit codes are not reliable in either direction. With `--ignore-no-formats-error`, it exits 0 on private or removed videos. Exit 101 at `--max-downloads` is a normal playlist end. In a `try/finally` that deletes a temp dir, use `return await`.
 - Infra failures are not "no subtitles". `bot_check`, `rate_limited`, `timeout` and `extractor` become 502. They must not start Whisper.
 - Caller-facing error texts reach users verbatim through MCP and REST. Never put these items in them: a command line, stderr, a cookies path, a proxy URL, an env var name or a route. Never put the words yt-dlp, ffmpeg, Whisper or Redis in them. Each text names exactly one next step. `src/errors.test.ts` checks part of this.
@@ -79,6 +80,7 @@ Read the ADR before you change the code it names. If you make or reverse a decis
 - [006](docs/adr/006-original-language-without-lang.md): an omitted `lang` means the video's original language: one track request, or the track list.
 - [007](docs/adr/007-frame-stream-lookup-reuse.md): a frame call reuses the stream lookup of the same URL and width for 5 minutes, in process memory only.
 - [008](docs/adr/008-sentry-user-from-gateway-id.md): Sentry counts users from one Sentry log per tool call, with an HMAC of the gateway user id. No Sentry event gets the id. Off without `SENTRY_USER_HASH_SECRET`.
+- [009](docs/adr/009-supported-extractors-only.md): each yt-dlp run loads only the extractors of the 11 supported platforms. Short links that only the generic extractor opens are not accepted.
 
 ## Autonomy
 

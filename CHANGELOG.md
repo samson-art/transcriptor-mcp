@@ -15,6 +15,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- yt-dlp now loads only the extractors of the 11 supported platforms (ADR 009). A post on a supported site that points to a video on another site, such as Imgur or Streamable, now fails as `unavailable`.
+- Links on `fb.watch`, `fb.com` and `v.redd.it`, and the share links `facebook.com/share/…` and `reddit.com/r/<sub>/s/…`, are no longer accepted. The caller gets the invalid-URL text, which asks for the full page link. In yt-dlp, only the generic extractor opens these links. If `CANARY_URL` is such a link, set it to a full link before the upgrade, or every probe fails.
+- `YT_DLP_EXTRA_ARGS` can no longer change the extractor list. The server adds `--use-extractors` after it.
+- "No suitable extractor" from yt-dlp now gets the class `unavailable`. Before this, it got `unknown`, and the caller heard "retry once".
 - The MCP server answers some malformed requests in a new way, because of the new SDK, `@hono/node-server` and fastify:
   - A `tools/call` or `prompts/get` without `arguments` now gets the same answer as one with empty arguments. The text "Required" is now "Required at url". `search_videos` now answers "Query is required for search.", and the call counts in the tool metrics and the "MCP tool call" logs.
   - The empty 202 answer to a notification has no `Content-Type` header.
