@@ -174,6 +174,22 @@ describe('POST /mcp', () => {
     const body = await readMcpBody(response);
     expect(body.error?.code).toBe(-32700);
   });
+
+  // GHSA-f897-62hf-6gxq (#130): before SDK 1.30.1, one long batch could block the server for
+  // every caller. Fastify parses the body here, so this test makes sure that the SDK still counts.
+  it('refuses a JSON-RPC batch of more than 100 messages', async () => {
+    const batch = Array.from({ length: 101 }, (_, i) => ({
+      jsonrpc: '2.0',
+      id: i,
+      method: 'tools/list',
+    }));
+    const response = await postMcp(batch);
+    // Read first: an unread stream of answers would keep the server from closing.
+    const body = await readMcpBody(response);
+
+    expect(response.status).toBe(400);
+    expect(body.error?.code).toBe(-32600);
+  });
 });
 
 describe('tools/call', () => {

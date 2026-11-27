@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- The MCP SDK is now 1.32.2, up from 1.30.0 (#130). The MCP HTTP server now refuses a JSON-RPC batch of more than 100 messages with HTTP 400 and code -32600. Before this, a batch had no length limit, so one long batch was able to block the server for all other callers (GHSA-f897-62hf-6gxq). The `initialize` and `tools/list` answers and the other error answers do not change. The empty 202 answer to a notification no longer has a `Content-Type` header.
+- Other production dependencies are now on fixed versions too: zod 4.6.7, fastify 5.12.8 and `@sentry/node` 10.78.0, with the packages under them and under the SDK. On 2026-11-26, `npm audit --omit=dev` reported 30 advisories: 1 critical, 12 high and 17 moderate. It now reports 4: 1 high and 3 moderate. All 4 are in `@fastify/swagger-ui` 5.2.5, which serves the `/docs` page of the REST API, and in the packages under it. They need a route guard, an `allowedPath` filter, a glob walk that an AbortSignal stops, or a glob pattern from a caller. This server has none of these, and the MCP server does not load these packages.
+
+### Changed
+
+- Each widget is about 123 KB larger, 32 KB with gzip, because the widgets bundle zod, and zod 4.6.7 is larger than 4.3.6. The widgets work the same.
+- In Sentry, the span of an HTTP request also gets `url.full` and `url.path`, with the same values as `http.url` and `http.target`. The request handler span is now `request_handler.fastify`, not `request-handler.fastify`. The hook spans now name `@sentry/instrumentation-fastify`. Each Sentry log also gets the SDK attribute `sentry.timestamp.sequence`. The attributes that the server sets on the "MCP tool call" log do not change. As before, no request header and no IP address goes to Sentry.
+
 ## [1.5.40] - 2026-11-26
 
 ### Fixed
