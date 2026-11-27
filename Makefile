@@ -58,7 +58,7 @@ test: ## Run Jest tests
 test-watch: ## Run Jest in watch mode
 	npm run test:watch
 
-test-coverage: ## Run Jest with coverage
+test-coverage: ## Run Jest with coverage; fails below the floor in jest.config.cjs
 	npm run test:coverage
 
 smoke: docker-smoke-api-local docker-smoke-mcp-local ## Run all Docker-based smoke tests
@@ -67,26 +67,30 @@ LOAD_BASE_URL ?= http://127.0.0.1:3000
 # Optional: send k6 metrics to InfluxDB (e.g. http://your-vps:8086/k6) for Grafana
 LOAD_INFLUXDB_URL ?=
 K6_OUT_INFLUXDB := $(if $(LOAD_INFLUXDB_URL),--out influxdb=$(LOAD_INFLUXDB_URL),)
+# k6 runs in a container, where localhost is the container itself. Point it at the host instead.
+# --add-host makes host.docker.internal resolve on Linux too; Docker Desktop already has it.
+K6_BASE_URL = $(subst //localhost,//host.docker.internal,$(subst //127.0.0.1,//host.docker.internal,$(LOAD_BASE_URL)))
+K6_DOCKER = docker run -i --rm --add-host=host.docker.internal:host-gateway -v "$(CURDIR)/load:/scripts" -e BASE_URL="$(K6_BASE_URL)" grafana/k6 run $(K6_OUT_INFLUXDB)
 
 load-test: load-test-health load-test-subtitles load-test-mixed ## Run all load tests (requires API at LOAD_BASE_URL)
 load-test-health: ## Light load: GET /health only
-	docker run -i --rm -v "$(CURDIR)/load:/scripts" -e BASE_URL="$(LOAD_BASE_URL)" grafana/k6 run $(K6_OUT_INFLUXDB) /scripts/health.js
+	$(K6_DOCKER) /scripts/health.js
 load-test-subtitles: ## Heavy load: POST /subtitles
-	docker run -i --rm -v "$(CURDIR)/load:/scripts" -e BASE_URL="$(LOAD_BASE_URL)" grafana/k6 run $(K6_OUT_INFLUXDB) /scripts/subtitles.js
+	$(K6_DOCKER) /scripts/subtitles.js
 load-test-mixed: ## Mixed: health + available + subtitles
-	docker run -i --rm -v "$(CURDIR)/load:/scripts" -e BASE_URL="$(LOAD_BASE_URL)" grafana/k6 run $(K6_OUT_INFLUXDB) /scripts/mixed.js
+	$(K6_DOCKER) /scripts/mixed.js
 load-test-10vu-1min: ## 10 VU, 1 min: each user requests one video at a time until minute ends
-	docker run -i --rm -v "$(CURDIR)/load:/scripts" -e BASE_URL="$(LOAD_BASE_URL)" grafana/k6 run $(K6_OUT_INFLUXDB) /scripts/ten-users-1min.js
+	$(K6_DOCKER) /scripts/ten-users-1min.js
 load-test-podcast-2h: ## 100 VU at once, 2h podcasts (until all complete)
-	docker run -i --rm -v "$(CURDIR)/load:/scripts" -e BASE_URL="$(LOAD_BASE_URL)" grafana/k6 run $(K6_OUT_INFLUXDB) /scripts/podcast-2h-100vu.js
+	$(K6_DOCKER) /scripts/podcast-2h-100vu.js
 
 verify-pool: ## Verify VIDEO_POOL: call /subtitles/available for each video (requires API at LOAD_BASE_URL)
 	LOAD_BASE_URL="$(LOAD_BASE_URL)" node load/verify-pool.js
 
 prepare: lint-fix format ## Run lint, format
 
-check-no-smoke: format-check lint typecheck test build ## CI checks without Docker smoke (used by publish)
-check: format-check lint typecheck test build smoke ## Run CI-like checks locally
+check-no-smoke: format-check lint typecheck test-coverage build ## CI checks without Docker smoke (used by publish)
+check: format-check lint typecheck test-coverage build smoke ## Run CI-like checks locally
 
 docker-build-api: ## Build local REST API image (Dockerfile --target api)
 	docker build -t $(DOCKER_API_IMAGE):$(TAG) -f Dockerfile --target api .

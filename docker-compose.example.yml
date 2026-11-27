@@ -1,11 +1,9 @@
-version: "3.9"
-
 # Whisper fallback: when YouTube subtitles are missing, the app can transcribe via Whisper.
 # - Local: run the whisper service below and set WHISPER_MODE=local, WHISPER_BASE_URL=http://whisper:9000.
 # - API: set WHISPER_MODE=api, WHISPER_API_KEY=sk-... (and optionally WHISPER_API_BASE_URL).
 # - Off: omit or set WHISPER_MODE=off (default).
 #
-# Optional Redis cache: see docs/caching.md for CACHE_MODE=redis and CACHE_REDIS_URL.
+# Optional Redis cache: see .env.example for CACHE_MODE=redis and CACHE_REDIS_URL.
 
 services:
   transcriptor-mcp-api:
@@ -18,8 +16,8 @@ services:
       SHUTDOWN_TIMEOUT: "60000"
       YT_DLP_JS_RUNTIMES: "node"
       COOKIES_FILE_PATH: "/cookies.txt"
-      # Optional: LOG_LEVEL, YT_DLP_SKIP_VERSION_CHECK, YT_DLP_REQUIRED, CACHE_* (see .env.example and docs/configuration.md)
-      # Optional: SENTRY_DSN, SENTRY_ENVIRONMENT, SENTRY_RELEASE (see docs/sentry.md)
+      # Optional: LOG_LEVEL, YT_DLP_SKIP_VERSION_CHECK, YT_DLP_REQUIRED, CACHE_* (see .env.example)
+      # Optional: SENTRY_DSN, SENTRY_ENVIRONMENT, SENTRY_RELEASE (see .env.example)
       # Whisper fallback (local container)
       WHISPER_MODE: "local"
       WHISPER_BASE_URL: "http://whisper:9000"
@@ -49,7 +47,7 @@ services:
       COOKIES_FILE_PATH: "/cookies.txt"
       # Optional: LOG_LEVEL, CACHE_* (see .env.example). This process does not authenticate
       # requests — terminate Bearer/OAuth at a reverse proxy or gateway in front of it.
-      # Optional: SENTRY_DSN, SENTRY_ENVIRONMENT, SENTRY_RELEASE (see docs/sentry.md)
+      # Optional: SENTRY_DSN, SENTRY_ENVIRONMENT, SENTRY_RELEASE (see .env.example)
       # Whisper fallback (local container)
       WHISPER_MODE: "local"
       WHISPER_BASE_URL: "http://whisper:9000"
