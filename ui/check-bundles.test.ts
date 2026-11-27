@@ -133,6 +133,34 @@ describe('ui/check-bundles.mjs', () => {
     expect(run().stderr).toMatch(/search\.html:4: the script imports a chunk that is not inlined/);
   });
 
+  it('fails on a root-relative chunk import and on new URL to a chunk', () => {
+    write('search', page('import("/assets/chunk-abc.js");'));
+    write('transcript', page('const u = new URL("./chunk-abc.js", import.meta.url);'));
+    const result = run();
+    expect(result.stderr).toMatch(/search\.html:4: the script imports a chunk that is not inlined/);
+    expect(result.stderr).toMatch(
+      /transcript\.html:4: the script imports a chunk that is not inlined/
+    );
+  });
+
+  it('fails on a classic script', () => {
+    write('search', page('export {};', 'type="module"', '<script nomodule>var a = 1;</script>\n'));
+    write(
+      'transcript',
+      page('export {};', 'type="module"', '<script type="text/javascript">1</script>\n')
+    );
+    const result = run();
+    expect(result.stderr).toMatch(
+      /search\.html:4: a classic script, which this check does not parse/
+    );
+    expect(result.stderr).toMatch(/transcript\.html:4: a classic script/);
+  });
+
+  it('reads the type the way the browser does', () => {
+    write('search', page(BROKEN, 'type=" Module "'));
+    expect(run().stderr).toMatch(/search\.html:4: SyntaxError/);
+  });
+
   it('fails on "<!--" in a script', () => {
     write('search', page('const s = 1;\nconst t = "<!--";'));
     expect(run().stderr).toMatch(/search\.html:5: "<!--" in a script/);

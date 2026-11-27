@@ -1,4 +1,6 @@
-// Fails `npm run build` when a widget bundle is missing or a browser would not run its code.
+// Fails `npm run build` when a widget bundle is missing, when its module script is empty, not
+// inlined or does not parse, or when the script imports a chunk that is not inlined. It does not
+// run the code, so errors at run time pass.
 // Nothing else in the gate reads these files: ui/ is outside tsc and eslint, and Jest runs before
 // the build. On 2026-11-27, vite 8.4.0 gave its preload marker a 32-hex suffix, and
 // vite-plugin-singlefile 2.3.3 replaced only the part before the suffix with `void 0`. That wrote
@@ -19,6 +21,11 @@ import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { isAbsolute, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
+
+// The JavaScript MIME types of the HTML standard. A script with one of them, or with no type, is a
+// classic script.
+const JAVASCRIPT_TYPE =
+  /^(?:(?:application|text)\/(?:x-)?(?:ecma|java)script|text\/javascript1\.[0-5]|text\/(?:jscript|livescript))$/;
 
 const uiDir = fileURLToPath(new URL('./', import.meta.url));
 const dir = process.argv[2] ?? join(uiDir, '../dist/ui');
@@ -55,12 +62,21 @@ function checkBundle(file) {
     /<script\b((?:[^>"']|"[^"]*"|'[^']*')*)>([\s\S]*?)<\/script/gi
   )) {
     const attributes = parseAttributes(match[1]);
-    // Data blocks (JSON, import maps) are not code, and vite writes no classic scripts.
-    if (attributes.type?.toLowerCase() !== 'module') continue;
+    // Data blocks (JSON, import maps) are not code. vite writes no classic scripts, so a classic
+    // script fails: the check parses only module scripts.
+    const type = attributes.type?.trim().toLowerCase();
+    if (type !== 'module') {
+      if (!type || JAVASCRIPT_TYPE.test(type)) {
+        failures.push(`${where(match.index)}: a classic script, which this check does not parse`);
+      }
+      continue;
+    }
     modules++;
     const start = match.index + '<script'.length + match[1].length + 1;
     const code = html.slice(start, start + match[2].length);
-    const chunk = /\b(?:from|import)\s*\(?\s*["'`]\.\.?\//.exec(code);
+    // ponytail: a text search, not a parse. It finds `from "./x"`, `import("/x")` and
+    // `new URL("./x", ...)`, and a library string with the same text fails the build too.
+    const chunk = /\b(?:from|import|new URL)\s*\(?\s*["'`](?:\.\.?)?\//.exec(code);
     if ('src' in attributes) {
       failures.push(`${where(match.index)}: the module script ${attributes.src} is not inlined`);
     } else if (!code.trim()) {
