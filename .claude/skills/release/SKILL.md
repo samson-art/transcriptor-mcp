@@ -69,6 +69,8 @@ If two versions merged back-to-back, tag each merge commit. Nobody tagged 1.5.3,
 
 ## 4. After the deploy
 
+Step 4 uses two tools that are not in this repo: the `transcriptor-prod-analytics` skill and the scheduled task `transcriptor-weekly-prod-report`. They are on the machine of the maintainer on purpose, because they need access to production. If you do not have them, skip items 2 and 3 of this step.
+
 1. Run the After merge checks of the PR.
 2. Schedule a one-off check about two hours after the tag. Fill in this self-contained prompt. Then schedule it with the scheduled-tasks tool (`fireAt`, local time):
 
