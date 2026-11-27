@@ -58,7 +58,7 @@ test: ## Run Jest tests
 test-watch: ## Run Jest in watch mode
 	npm run test:watch
 
-test-coverage: ## Run Jest with coverage
+test-coverage: ## Run Jest with coverage; fails below the floor in jest.config.cjs
 	npm run test:coverage
 
 smoke: docker-smoke-api-local docker-smoke-mcp-local ## Run all Docker-based smoke tests
@@ -85,8 +85,8 @@ verify-pool: ## Verify VIDEO_POOL: call /subtitles/available for each video (req
 
 prepare: lint-fix format ## Run lint, format
 
-check-no-smoke: format-check lint typecheck test build ## CI checks without Docker smoke (used by publish)
-check: format-check lint typecheck test build smoke ## Run CI-like checks locally
+check-no-smoke: format-check lint typecheck test-coverage build ## CI checks without Docker smoke (used by publish)
+check: format-check lint typecheck test-coverage build smoke ## Run CI-like checks locally
 
 docker-build-api: ## Build local REST API image (Dockerfile --target api)
 	docker build -t $(DOCKER_API_IMAGE):$(TAG) -f Dockerfile --target api .

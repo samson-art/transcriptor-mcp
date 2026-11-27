@@ -18,7 +18,13 @@ module.exports = {
     '!src/e2e/**', // E2E smoke scripts (Docker; top-level await in api-smoke)
   ],
   coverageDirectory: 'coverage',
-  coverageReporters: ['text', 'lcov', 'html'],
+  // json-summary feeds the CI job summary. text-summary keeps the pre-commit output short.
+  coverageReporters: ['text-summary', 'json-summary', 'lcov', 'html'],
+  // #144: on 2026-11-26 main had 90.68% of lines and 85.37% of branches. The floor sits a
+  // little below, so that a change which drops tests or adds untested code fails the gate.
+  coverageThreshold: {
+    global: { lines: 88, branches: 82 },
+  },
   moduleFileExtensions: ['ts', 'js', 'json'],
   verbose: true,
 };

@@ -9,7 +9,7 @@ A person and a coding agent use the same steps for every change.
 1. Intent. Open an issue with the "Change proposal" template. Describe the problem, the outcome and the acceptance criteria, not the implementation. You can skip this step for a change that you can describe in one sentence. That change must touch none of the areas under "When to run the full cycle" in [AGENTS.md](AGENTS.md).
 2. Plan. Write the plan in the pull request description, with the template: files that change, order of work, risks.
 3. Test first. For a bug, first add a test that fails for the reported reason, and note its failing output. Then fix the code without a change to that test, and commit both together. For a feature, write tests for the acceptance criteria.
-4. Checks. Run `make check-no-smoke` (format, lint, typecheck, tests, build). The pre-commit hook also runs it, so do not skip it with `--no-verify`.
+4. Checks. Run `make check-no-smoke` (format, lint, typecheck, tests with coverage, build). It fails when coverage falls below the floor in `jest.config.cjs`. The pre-commit hook also runs it, so do not skip it with `--no-verify`.
 5. Pull request. Fill in "Verified" (what you ran and what it showed) and "Not verified" (what you were not able to run, and why).
 6. Review. The maintainer reviews against the acceptance criteria in the issue. The maintainer also cuts releases.
 
