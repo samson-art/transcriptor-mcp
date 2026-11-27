@@ -9,8 +9,13 @@ on:
 jobs:
   check:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read # the hook self-check asks GitHub which PR a merge commit belongs to
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # the hook self-check reads the merge commits of PRs #32 and #43
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -20,6 +25,13 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      # The agent hooks guard secrets and release tags. publish-docker.yml also runs guard-release.mjs.
+      # A broken lexer in git-commands.mjs would otherwise show up only at a release.
+      - name: Self-check of the agent hooks
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node .claude/hooks/guards.check.mjs
 
       - name: Run checks (format, lint, typecheck, test, build)
         run: make check-no-smoke

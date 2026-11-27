@@ -11,7 +11,7 @@ transcriptor-mcp is an MCP server (8 tools, 4 widgets) and a REST API. Both wrap
 - `npx jest src/youtube.test.ts -t '<name>'` runs one suite or one test.
 - `npm run build` runs `tsc` to `dist/`, then four vite builds to `dist/ui/<app>.html`. Then `ui/check-bundles.mjs` fails the build if one of those files is missing, or if its module script is empty, not inlined, does not parse, or imports a chunk that is not inlined. The check does not run the code. The server reads those HTML files at runtime.
 - To run locally: `npm run build`, then `npm run --silent start:mcp` (stdio), `start:mcp:http` (port 4200) or `start` (REST, port 3000). You need `yt-dlp` on `PATH`, `ffmpeg` for frames, and `ffprobe` for `WHISPER_MAX_DURATION_SECONDS`. To run the server code from `src/`, use `npm run dev` (REST), `dev:mcp:http` or `--silent dev:mcp`. They use `node --watch` with the `tsx` loader and restart when a file in `src/` changes. The widgets still come from `dist/ui/`: run `npm run build:ui` first, and again after a `ui/` edit, then restart the server. On a restart, `node --watch` writes a line to stdout, so `dev:mcp` is for manual runs only. Do not connect a client to it.
-- `node .claude/hooks/guards.check.mjs` self-checks the agent hooks. It needs `gh` and network access.
+- `node .claude/hooks/guards.check.mjs` self-checks the agent hooks. It needs `gh` and network access. CI runs it on every push to main and every PR.
 
 ## Map
 
