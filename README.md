@@ -272,7 +272,7 @@ npm run start:mcp:http       # Streamable HTTP on port 4200
 npm test
 ```
 
-To run from `src/` without a build, and restart on each file change, use `npm run dev` (REST API on port 3000), `npm run dev:mcp:http` (port 4200) or `npm run --silent dev:mcp` (stdio). A restart writes a line to stdout, so use `dev:mcp` only for manual runs, not with an MCP client.
+To run the server code from `src/` and restart on each change there, use `npm run dev` (REST API on port 3000), `npm run dev:mcp:http` (port 4200) or `npm run --silent dev:mcp` (stdio). A restart writes a line to stdout, so use `dev:mcp` only for manual runs, not with an MCP client. The widgets still come from `dist/ui/`, so run `npm run build:ui` first and after each `ui/` edit.
 
 You need Node.js 22 or later (20 still works, but it reached end of life in April 2026), and `yt-dlp` in your PATH. Frame capture needs `ffmpeg`, and `WHISPER_MAX_DURATION_SECONDS` needs `ffprobe` (both ship in the same package, and in the Docker image). Other scripts: `lint`, `type-check`, `format`, `test:coverage`, `test:e2e:api`, and `test:e2e:mcp`.
 
