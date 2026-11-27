@@ -1,0 +1,359 @@
+import Fastify, { type preHandlerAsyncHookHandler } from 'fastify';
+import cors from '@fastify/cors';
+import rateLimit from '@fastify/rate-limit';
+import { parse as parseDuration } from '@lukeed/ms';
+import swagger from '@fastify/swagger';
+import swaggerUi from '@fastify/swagger-ui';
+import { TypeBoxTypeProvider } from '@fastify/type-provider-typebox';
+import { Type } from '@sinclair/typebox';
+import { parseSubtitles, detectSubtitleFormat } from './youtube.js';
+import {
+  GetAvailableSubtitlesRequest,
+  GetAvailableSubtitlesRequestSchema,
+  GetSubtitlesRequest,
+  GetSubtitlesRequestSchema,
+  GetVideoInfoRequest,
+  GetVideoInfoRequestSchema,
+  validateAndDownloadSubtitles,
+  validateAndFetchAvailableSubtitles,
+  validateAndFetchVideoInfo,
+  validateAndFetchVideoChapters,
+} from './validation.js';
+import { version as API_VERSION } from './version.js';
+import { recordRequest, renderPrometheus } from './metrics.js';
+import { createLoggerWithSentryBreadcrumbs } from './logger-sentry-breadcrumbs.js';
+import { ping as cachePing } from './cache.js';
+import { readChangelog } from './changelog.js';
+import { parseIntEnv } from './env.js';
+import { restErrorHandler, routeOf } from './rest-error-handler.js';
+
+// Response schemas for OpenAPI/Swagger
+const ErrorResponseSchema = Type.Object({
+  error: Type.String(),
+  message: Type.String(),
+});
+
+const NotFoundResponseSchema = Type.Object({
+  error: Type.String(),
+  message: Type.String(),
+  available: Type.Optional(
+    Type.Object({
+      official: Type.Array(Type.String()),
+      auto: Type.Array(Type.String()),
+    })
+  ),
+});
+
+const SubtitlesResponseSchema = Type.Object({
+  videoId: Type.String(),
+  type: Type.Union([Type.Literal('official'), Type.Literal('auto')]),
+  lang: Type.String(),
+  text: Type.String(),
+  length: Type.Number(),
+  source: Type.Optional(Type.String()),
+});
+
+const RawSubtitlesResponseSchema = Type.Object({
+  videoId: Type.String(),
+  type: Type.Union([Type.Literal('official'), Type.Literal('auto')]),
+  lang: Type.String(),
+  format: Type.String(),
+  content: Type.String(),
+  length: Type.Number(),
+  source: Type.Optional(Type.String()),
+});
+
+const AvailableSubtitlesResponseSchema = Type.Object({
+  videoId: Type.String(),
+  official: Type.Array(Type.String()),
+  auto: Type.Array(Type.String()),
+});
+
+const VideoInfoResponseSchema = Type.Object({
+  videoId: Type.String(),
+  title: Type.Optional(Type.String()),
+  description: Type.Optional(Type.String()),
+  duration: Type.Optional(Type.Number()),
+  viewCount: Type.Optional(Type.Number()),
+  uploadDate: Type.Optional(Type.String()),
+  channelId: Type.Optional(Type.String()),
+  channel: Type.Optional(Type.String()),
+});
+
+const ChapterSchema = Type.Object({
+  startTime: Type.Number(),
+  endTime: Type.Number(),
+  title: Type.String(),
+});
+
+const VideoChaptersResponseSchema = Type.Object({
+  videoId: Type.String(),
+  chapters: Type.Array(ChapterSchema),
+});
+
+/**
+ * Builds the REST app without listening, so tests can inject requests. index.ts starts it.
+ * Throws when RATE_LIMIT_TIME_WINDOW is not a time window.
+ */
+export function buildRestApp() {
+  const fastify = Fastify({
+    loggerInstance: createLoggerWithSentryBreadcrumbs(),
+  }).withTypeProvider<TypeBoxTypeProvider>();
+
+  fastify.setErrorHandler(restErrorHandler);
+
+  // Register CORS (optional allowlist via CORS_ALLOWED_ORIGINS comma-separated)
+  const corsAllowedOrigins = process.env.CORS_ALLOWED_ORIGINS?.trim()
+    ? process.env.CORS_ALLOWED_ORIGINS.split(',')
+        .map((o) => o.trim())
+        .filter(Boolean)
+    : undefined;
+  fastify.register(cors, {
+    origin: corsAllowedOrigins && corsAllowedOrigins.length > 0 ? corsAllowedOrigins : true,
+  });
+
+  // Read with the plugin's own parser, so that the start fails here. Given a value it cannot read
+  // ("1 minute" with the quotes, which `docker run --env-file` keeps), the plugin answered 500 to
+  // every limited request. Below 1 ms the plugin truncates the window to 0, and 0 resets the counter
+  // on every request. Keep @lukeed/ms on the major that @fastify/rate-limit uses.
+  const rawTimeWindow = process.env.RATE_LIMIT_TIME_WINDOW || '1 minute';
+  const timeWindow = parseDuration(rawTimeWindow) ?? 0;
+  if (timeWindow < 1) {
+    throw new Error(
+      `RATE_LIMIT_TIME_WINDOW=${JSON.stringify(rawTimeWindow)} is not a time window. ` +
+        'Set a number of milliseconds or a duration such as 1 minute, without quotes.'
+    );
+  }
+  fastify.register(rateLimit, { max: parseIntEnv('RATE_LIMIT_MAX', 100), timeWindow });
+
+  // The rate-limit plugin loads after this synchronous code; routes declared before that miss its
+  // onRoute hook and were never limited (2026-09-25). after() declares them once it has loaded.
+  // Not an await: buildRestApp stays synchronous, so index.ts and the tests need no async start.
+  fastify.after(() => {
+    // Probes must never be refused, and a probe every few seconds must not fill the log.
+    const unlimited = { logLevel: 'warn', config: { rateLimit: false } } as const;
+    fastify.get('/health', unlimited, () => ({ status: 'ok' }));
+    fastify.get('/health/ready', unlimited, async (_request, reply) => {
+      if (!(await cachePing())) {
+        return reply.code(503).send({ status: 'not ready', redis: 'unreachable' });
+      }
+      return { status: 'ready' };
+    });
+    // Each call serializes the whole registry. A scrape every 15 s is 4 a minute. A route config
+    // gets its own counter, so the other routes cannot use up the scraper's limit.
+    fastify.get(
+      '/metrics',
+      { logLevel: 'warn', config: { rateLimit: { max: 60, timeWindow: 60_000 } } },
+      () => renderPrometheus()
+    );
+    fastify.get('/changelogs', async (_request, reply) =>
+      reply.header('Content-Type', 'text/markdown; charset=utf-8').send(await readChangelog())
+    );
+    // A path with no route is limited too. The answer is Fastify's own 404. The cast only drops our
+    // logger type: Fastify types the hooks of setNotFoundHandler for its default logger.
+    const preHandler = fastify.rateLimit() as preHandlerAsyncHookHandler;
+    fastify.setNotFoundHandler({ preHandler }, (request, reply) =>
+      reply.code(404).send({
+        message: `Route ${request.method}:${request.url} not found`,
+        error: 'Not Found',
+        statusCode: 404,
+      })
+    );
+  });
+
+  const requestStartTimes = new WeakMap<object, number>();
+  fastify.addHook('onRequest', (request, _reply, done) => {
+    requestStartTimes.set(request.raw, Date.now());
+    done();
+  });
+
+  fastify.addHook('onResponse', (request, reply, done) => {
+    const start = requestStartTimes.get(request.raw);
+    if (start !== undefined) {
+      const duration = (Date.now() - start) / 1000;
+      recordRequest(request.method, routeOf(request), reply.statusCode, duration);
+    }
+    done();
+  });
+
+  // Register Swagger and API routes in the same context so OpenAPI discovers the routes
+  fastify.register(async (instance) => {
+    instance.register(swagger, {
+      openapi: {
+        openapi: '3.0.0',
+        info: {
+          title: 'YT Captions API',
+          description:
+            'API for downloading subtitles and video metadata from supported platforms (YouTube, Twitter/X, Instagram, TikTok, Twitch, Vimeo, Facebook, Bilibili, VK, Dailymotion, Reddit)',
+          version: API_VERSION,
+        },
+        servers: [{ url: 'http://localhost:3000', description: 'Development server' }],
+      },
+    });
+
+    await instance.register(swaggerUi, {
+      routePrefix: '/docs',
+      uiConfig: {
+        docExpansion: 'list',
+        deepLinking: false,
+      },
+      staticCSP: true,
+    });
+
+    // Main endpoint
+    instance.post(
+      '/subtitles',
+      {
+        schema: {
+          description: 'Download and parse subtitles (cleaned plain text)',
+          body: GetSubtitlesRequestSchema,
+          response: {
+            200: SubtitlesResponseSchema,
+            400: ErrorResponseSchema,
+            404: NotFoundResponseSchema,
+            500: ErrorResponseSchema,
+          },
+        },
+      },
+      async (request, reply) => {
+        const body = request.body as GetSubtitlesRequest;
+
+        const result = await validateAndDownloadSubtitles(body, instance.log);
+        const { videoId, type, lang, subtitlesContent, source } = result;
+
+        const plainText = parseSubtitles(subtitlesContent, instance.log);
+
+        return reply.send({
+          videoId,
+          type,
+          lang,
+          text: plainText,
+          length: plainText.length,
+          ...(source && { source }),
+        });
+      }
+    );
+
+    // Endpoint for getting raw subtitles without cleaning
+    instance.post(
+      '/subtitles/raw',
+      {
+        schema: {
+          description: 'Download raw subtitles without cleaning',
+          body: GetSubtitlesRequestSchema,
+          response: {
+            200: RawSubtitlesResponseSchema,
+            400: ErrorResponseSchema,
+            404: NotFoundResponseSchema,
+            500: ErrorResponseSchema,
+          },
+        },
+      },
+      async (request, reply) => {
+        const body = request.body as GetSubtitlesRequest;
+
+        const result = await validateAndDownloadSubtitles(body, instance.log);
+        const { videoId, type, lang, subtitlesContent, source } = result;
+
+        const format = detectSubtitleFormat(subtitlesContent);
+
+        return reply.send({
+          videoId,
+          type,
+          lang,
+          format,
+          content: subtitlesContent,
+          length: subtitlesContent.length,
+          ...(source && { source }),
+        });
+      }
+    );
+
+    // Endpoint for getting available subtitles (official vs auto) for a video
+    instance.post(
+      '/subtitles/available',
+      {
+        schema: {
+          description: 'Get list of available subtitle languages (official and auto-generated)',
+          body: GetAvailableSubtitlesRequestSchema,
+          response: {
+            200: AvailableSubtitlesResponseSchema,
+            400: ErrorResponseSchema,
+            404: ErrorResponseSchema,
+            500: ErrorResponseSchema,
+          },
+        },
+      },
+      async (request, reply) => {
+        const body = request.body as GetAvailableSubtitlesRequest;
+
+        const result = await validateAndFetchAvailableSubtitles(body, instance.log);
+        const { videoId, official, auto } = result;
+
+        return reply.send({
+          videoId,
+          official,
+          auto,
+        });
+      }
+    );
+
+    // Endpoint for getting extended video info
+    instance.post(
+      '/video/info',
+      {
+        schema: {
+          description: 'Get extended video metadata',
+          body: GetVideoInfoRequestSchema,
+          response: {
+            200: VideoInfoResponseSchema,
+            400: ErrorResponseSchema,
+            404: ErrorResponseSchema,
+            500: ErrorResponseSchema,
+          },
+        },
+      },
+      async (request, reply) => {
+        const body = request.body as GetVideoInfoRequest;
+
+        const result = await validateAndFetchVideoInfo(body, instance.log);
+        const { videoId, info } = result;
+
+        return reply.send({
+          videoId,
+          ...info,
+        });
+      }
+    );
+
+    // Endpoint for getting video chapters
+    instance.post(
+      '/video/chapters',
+      {
+        schema: {
+          description: 'Get video chapters',
+          body: GetVideoInfoRequestSchema,
+          response: {
+            200: VideoChaptersResponseSchema,
+            400: ErrorResponseSchema,
+            404: ErrorResponseSchema,
+            500: ErrorResponseSchema,
+          },
+        },
+      },
+      async (request, reply) => {
+        const body = request.body as GetVideoInfoRequest;
+
+        const result = await validateAndFetchVideoChapters(body, instance.log);
+        const { videoId, chapters } = result;
+
+        return reply.send({
+          videoId,
+          chapters,
+        });
+      }
+    );
+  });
+
+  return fastify;
+}
