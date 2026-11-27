@@ -9,7 +9,7 @@ transcriptor-mcp is an MCP server (8 tools, 4 widgets) and a REST API. Both wrap
 - `npm ci` installs dependencies and the husky pre-commit hook. Run it in every clone and every git worktree. Without it, git runs no pre-commit hook in that checkout.
 - `make check-no-smoke` is the gate: format-check, lint, typecheck, Jest with coverage, build. Coverage below the floor in `jest.config.cjs` fails it. CI, pre-commit and the publish workflow all run it. It must be green before you say you are done.
 - `npx jest src/youtube.test.ts -t '<name>'` runs one suite or one test.
-- `npm run build` runs `tsc` to `dist/`, then four vite builds to `dist/ui/<app>.html`. The server reads those HTML files at runtime.
+- `npm run build` runs `tsc` to `dist/`, then four vite builds to `dist/ui/<app>.html`. Then `ui/check-bundles.mjs` fails the build if one of those files is missing, or if its module script is empty, not inlined, does not parse, or imports a chunk that is not inlined. The check does not run the code. The server reads those HTML files at runtime.
 - To run locally: `npm run build`, then `npm run --silent start:mcp` (stdio), `start:mcp:http` (port 4200) or `start` (REST, port 3000). You need `yt-dlp` on `PATH`, `ffmpeg` for frames, and `ffprobe` for `WHISPER_MAX_DURATION_SECONDS`. To run the server code from `src/`, use `npm run dev` (REST), `dev:mcp:http` or `--silent dev:mcp`. They use `node --watch` with the `tsx` loader and restart when a file in `src/` changes. The widgets still come from `dist/ui/`: run `npm run build:ui` first, and again after a `ui/` edit, then restart the server. On a restart, `node --watch` writes a line to stdout, so `dev:mcp` is for manual runs only. Do not connect a client to it.
 - `node .claude/hooks/guards.check.mjs` self-checks the agent hooks. It needs `gh` and network access.
 
@@ -53,7 +53,7 @@ For anything else that fits in one sentence, edit, run the gate and open the PR.
 - HTTP MCP is stateless. The server builds a new `McpServer` for each request, so shared state lives at module level. The process has no auth.
 - External contracts: metric names and labels, the per-call log line fields, the attributes of the Sentry log "MCP tool call" (ADR 008), cache key shapes, `ui://` URIs and the widget CSP. The widget CSP is in both `ui.csp` and `openai/widgetCSP`. A change to any of them silently breaks dashboards, alerts, analytics, cached entries or the published ChatGPT app. Never log raw URLs in the per-call line.
 - Widgets must not assume YouTube. Take the page from the result: `url`, or `webpageUrl` for `get_video_info`. Never build it from a YouTube id.
-- `ui/` and `web/` are outside tsc, eslint and prettier. Only `ui/shared/*.test.ts` runs in Jest, so check widget changes by hand.
+- `ui/` and `web/` are outside tsc, eslint and prettier. In `ui/`, Jest runs only `ui/shared/*.test.ts` and `ui/check-bundles.test.ts`, so check widget changes by hand.
 - `legal/*.md` says "provided on request" for the address and the tax ID of the provider. Never add a name, address or tax ID.
 - Some commands use real YouTube or real production. `make check`, `make smoke`, `npm run test:e2e:*` and the load tests call real YouTube from your IP. `make publish*` and `gh workflow run publish-docker.yml` push `:latest`. The hosted deployment auto-pulls `:latest`, so these commands are a production deploy.
 
