@@ -16,7 +16,7 @@ transcriptor-mcp is an MCP server (8 tools, 4 widgets) and a REST API. Both wrap
 ## Map
 
 - `src/mcp-core.ts`: the whole MCP surface (tools, prompts, resources, widget resources and CSP, `withToolErrorHandling`, the per-call log line).
-- `src/mcp.ts` is the stdio entry. `src/mcp-http.ts` is stateless Streamable HTTP ([ADR 001](docs/adr/001-stateless-streamable-http.md)). `src/index.ts` is the REST API (5 of the 8 tools).
+- `src/mcp.ts` is the stdio entry. `src/mcp-http.ts` is stateless Streamable HTTP ([ADR 001](docs/adr/001-stateless-streamable-http.md)). `src/rest-app.ts` is the REST API (5 of the 8 tools), built by `buildRestApp()`. `src/index.ts` starts it.
 - `src/validation.ts`: the service layer shared by MCP and REST (URL and language checks, cache, auto-discovery in the original language, Whisper fallback, in-flight dedupe).
 - `src/youtube.ts`: the `yt-dlp`/`ffmpeg` runs, failure classification, cookies copies. The startup `yt-dlp --version` check is in `src/yt-dlp-check.ts`.
 - `src/errors.ts` (typed errors and caller texts), `src/subtitle-rate-limit.ts` (429 hold), `src/canary.ts`, `src/metrics.ts`, `src/cache.ts` (optional Redis), `src/whisper*.ts`.
