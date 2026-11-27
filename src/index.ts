@@ -94,11 +94,10 @@ const VideoChaptersResponseSchema = Type.Object({
   chapters: Type.Array(ChapterSchema),
 });
 
-// ponytail: exported so index.test.ts can inject requests, but importing this module still starts
-// the server. If another test needs it, split out a buildRestApp() without listen(), like mcp-http.
 // Fastify's trustProxy values: true, a number of hops, or a comma-separated list of addresses and
 // CIDRs. Unset, X-Forwarded-For is ignored and the rate limit keys on the TCP address. Behind a
-// proxy that is the proxy's address, so every caller shared one bucket (#133).
+// proxy that is the proxy's address, so every caller shared one bucket (#133). With true, Fastify
+// takes the leftmost X-Forwarded-For entry, which the caller writes when the proxy appends to it.
 function readTrustProxy(): boolean | number | string {
   const value = process.env.TRUST_PROXY?.trim();
   if (!value || value === 'false') return false;
@@ -106,6 +105,8 @@ function readTrustProxy(): boolean | number | string {
   return /^\d+$/.test(value) ? Number(value) : value;
 }
 
+// ponytail: exported so index.test.ts can inject requests, but importing this module still starts
+// the server. If another test needs it, split out a buildRestApp() without listen(), like mcp-http.
 export const fastify = Fastify({
   loggerInstance: createLoggerWithSentryBreadcrumbs(),
   trustProxy: readTrustProxy(),

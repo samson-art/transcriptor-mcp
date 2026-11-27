@@ -13,7 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- `TRUST_PROXY` names the proxies that the REST API trusts for `X-Forwarded-For` (#133). The values are `true`, a number of hops, or a comma-separated list of addresses and CIDRs. Then `RATE_LIMIT_MAX` counts each client address. Before this, behind a reverse proxy, all callers shared the one bucket of the proxy address. If `TRUST_PROXY` is not set, the REST API ignores `X-Forwarded-For`, as before. Do not set `true` when callers can reach the API directly: they could then send any address and get a new bucket for each one.
+- `TRUST_PROXY` names the proxies that the REST API trusts for `X-Forwarded-For` (#133). The values are `true`, a number of hops, or a comma-separated list of addresses and CIDRs. Then `RATE_LIMIT_MAX` counts each client address. Before this, behind a reverse proxy, all callers shared the one bucket of the proxy address. If `TRUST_PROXY` is not set, the REST API ignores `X-Forwarded-For`, as before. Use the number of proxies (usually `1`) or their addresses. With `true`, the first address in `X-Forwarded-For` counts. Most proxies add to the header that the caller sent, so a caller could then send any address and get a new bucket for each one.
 
 ## [1.5.40] - 2026-11-26
 
