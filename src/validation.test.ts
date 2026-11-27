@@ -2228,7 +2228,7 @@ describe('an omitted lang means the original language', () => {
       (cacheGet as jest.Mock).mock.calls.filter(([key]) => key === availKey).length;
     /** The caller-text rules of src/errors.test.ts. The text also must not say that speech-to-text ran. */
     const NOT_FOR_CALLERS =
-      /\bGET \/|\bPOST \/|WHISPER_|YT_DLP_|CACHE_|yt-dlp|ffmpeg|Whisper|Redis|speech-to-text/i;
+      /\bGET \/|\bPOST \/|WHISPER_|YT_DLP_|CACHE_|MCP_|yt-dlp|ffmpeg|Whisper|Redis|speech-to-text/i;
     const setCeiling = (seconds: string | undefined): void => {
       if (seconds === undefined) delete process.env.WHISPER_MAX_DURATION_SECONDS;
       else process.env.WHISPER_MAX_DURATION_SECONDS = seconds;
