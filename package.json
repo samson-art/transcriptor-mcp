@@ -6,7 +6,7 @@
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc && npm run build:ui",
-    "build:ui": "APP=search vite build && APP=transcript vite build && APP=video-info vite build && APP=video-frame vite build",
+    "build:ui": "APP=search vite build && APP=transcript vite build && APP=video-info vite build && APP=video-frame vite build && node ui/check-bundles.mjs",
     "build:site": "node web/build.mjs",
     "dev:site": "npm run build:site && python3 -m http.server 8799 -d dist-site",
     "start": "node --import ./dist/instrument.js dist/index.js",
