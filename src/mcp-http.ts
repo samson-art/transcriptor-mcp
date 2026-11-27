@@ -115,8 +115,8 @@ function warnAboutDroppedOrigins(log: FastifyBaseLogger): void {
  * tools/list with `Origin: https://example.com` with 200. A browser sends Origin with every
  * POST. So a page that points its own domain name at this listener (DNS rebinding) gets 403
  * here, before a server or a transport exists. Clients outside a browser send no Origin and
- * pass. This is a route hook and not the SDK option: SDK 1.30 marks that option deprecated,
- * and SDK 2.x does not have it.
+ * pass. This is a route hook and not the SDK option: SDK 1.x marks that option deprecated
+ * (1.30 to 1.32.2, checked 2026-11-28), and SDK 2.x does not have it.
  *
  * ponytail: only POST, GET and DELETE carry the hook (HEAD copies it from GET). PUT, PATCH and
  * OPTIONS on /mcp keep the 404 of the not-found handler for every Origin, and no tool runs

@@ -10,7 +10,7 @@ From 1.0.0 to 1.2.0 the server spoke stdio only, and remote clients reached it t
 
 The sidecar became a dead end. Python `mcp` 2.x renamed `streamablehttp_client`, and `mcp-proxy` 0.11.0 still imported the old name (PR #3 says 0.12.0 is not compatible either). The sidecar also owned the HTTP surface that the current MCP spec gives to the server (header validation, JSON-RPC error bodies). It served the legacy HTTP+SSE transport. It also hid the `mcp_*` metrics, because nothing exposed `/metrics`.
 
-The spec says that the server must test the `Origin` header of every incoming connection, against DNS rebinding (a hostile page aims its domain at this server). The browser then sends the requests of the page to the server. Since 2025-11-25, a present `Origin` that is not valid must get 403. On 2026-10-07, a local 1.5.21 build answered `tools/list` with `Origin: https://example.com` with 200. The SDK option `allowedOrigins` is deprecated in SDK 1.30 and off by default, and its 403 text repeats the raw header. SDK 2.x leaves the test to the app.
+The spec says that the server must test the `Origin` header of every incoming connection, against DNS rebinding (a hostile page aims its domain at this server). The browser then sends the requests of the page to the server. Since 2025-11-25, a present `Origin` that is not valid must get 403. On 2026-10-07, a local 1.5.21 build answered `tools/list` with `Origin: https://example.com` with 200. The SDK option `allowedOrigins` is deprecated and off by default in SDK 1.x (1.30 to 1.32.2), and its 403 text repeats the raw header. SDK 2.x leaves the test to the app.
 
 ## Decision
 
