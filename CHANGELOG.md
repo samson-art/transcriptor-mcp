@@ -7,12 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- The MCP SDK is now 1.32.2, up from 1.30.0 (#130). The MCP HTTP server now refuses a JSON-RPC batch of more than 100 messages with HTTP 400 and code -32600. Before this, a batch had no length limit, so one long batch was able to block the server for all other callers (GHSA-f897-62hf-6gxq). The `initialize` and `tools/list` answers do not change.
+- The SDK fix for GHSA-46jr-4wx8-v453 is an option, `maxToolInputElements`, and this server does not set it. No tool input has an array or a record, and the server refuses a body over 1 MiB. In a test on 2026-11-27, a 1 MiB tool call used at most 37 MB of heap for 86 ms, with or without the option.
+- Other production dependencies are now on fixed versions too: zod 4.6.7, fastify 5.12.8, `@sentry/node` 10.78.0, and the packages under them and under the SDK. One of them is a new major version: `@hono/node-server` 2.1.11, the adapter between Node and the SDK for each MCP HTTP request. On 2026-11-26, `npm audit --omit=dev` reported 30 vulnerable packages (1 critical, 12 high, 17 moderate), and now it reports 4 (1 high, 3 moderate). The 4 are `@fastify/swagger-ui` 5.2.5, which serves the `/docs` page of the REST API, and packages under it. Their advisories need a route guard, an `allowedPath` filter, a glob walk that an AbortSignal stops, or a glob pattern from a caller. This server has none of these.
+
 ### Changed
 
 - yt-dlp now loads only the extractors of the 11 supported platforms (ADR 009). A post on a supported site that points to a video on another site, such as Imgur or Streamable, now fails as `unavailable`.
 - Links on `fb.watch`, `fb.com` and `v.redd.it`, and the share links `facebook.com/share/…` and `reddit.com/r/<sub>/s/…`, are no longer accepted. The caller gets the invalid-URL text, which asks for the full page link. In yt-dlp, only the generic extractor opens these links. If `CANARY_URL` is such a link, set it to a full link before the upgrade, or every probe fails.
 - `YT_DLP_EXTRA_ARGS` can no longer change the extractor list. The server adds `--use-extractors` after it.
 - "No suitable extractor" from yt-dlp now gets the class `unavailable`. Before this, it got `unknown`, and the caller heard "retry once".
+- The MCP server answers some malformed requests in a new way, because of the new SDK, `@hono/node-server` and fastify:
+  - A `tools/call` or `prompts/get` without `arguments` now gets the same answer as one with empty arguments. The text "Required" is now "Required at url". `search_videos` now answers "Query is required for search.", and the call counts in the tool metrics and the "MCP tool call" logs.
+  - The empty 202 answer to a notification has no `Content-Type` header.
+  - A path with a bad percent escape, for example `/%zz`, now gets the 400 answer of fastify, which is not JSON-RPC, for every method. Before this, only GET and POST got it, and other methods got the JSON-RPC 404.
+- The REST metrics count `GET /docs/` under `route="/docs"`. The `route="/docs/"` series of `http_requests_total` stops.
+- Each widget is about 123 KB larger, 32 KB with gzip, because the widgets bundle zod, and zod 4.6.7 is larger than 4.3.6. The widgets work the same.
+- In Sentry, the span of an HTTP request gets two new attributes. `url.full` has the same value as `http.url`, and `url.path` is `http.target` without the query string. The request handler span is now `request_handler.fastify` (it was `request-handler.fastify`), and the hook spans name `@sentry/instrumentation-fastify`. Each Sentry log also gets the SDK attribute `sentry.timestamp.sequence`. The attributes that the server sets on the "MCP tool call" log do not change. As before, no request header and no IP address goes to Sentry.
 
 ## [1.5.40] - 2026-11-26
 
