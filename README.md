@@ -260,7 +260,7 @@ The Node process does not check bearer tokens. Put a reverse proxy or a gateway 
 docker run --rm -p 3000:3000 artsamsonov/transcriptor-mcp-api:latest
 ```
 
-The Swagger interface is at `http://localhost:3000/docs`. The REST API sends no CORS headers by default, so web pages of other origins cannot read its answers. To let a browser app read them, set `CORS_ALLOWED_ORIGINS` to a comma-separated list of origins. Behind a reverse proxy, set `TRUST_PROXY` to the number of proxies in front of the API (usually `1`) or to a comma-separated list of their addresses. Then `RATE_LIMIT_MAX` counts each client address from `X-Forwarded-For`, not the address of the proxy. Do not use `true` unless the proxy replaces `X-Forwarded-For`: with `true`, the first address counts, and a caller can write it. For a full stack with the API and the MCP server, read [docker-compose.example.yml](docker-compose.example.yml).
+The Swagger interface is at `http://localhost:3000/docs`. The REST API sends no CORS headers by default, so web pages of other origins cannot read its answers. To let a browser app read them, set `CORS_ALLOWED_ORIGINS` to a comma-separated list of origins. Behind a reverse proxy, set `TRUST_PROXY` to the addresses or CIDRs of your proxies, comma-separated. Then `RATE_LIMIT_MAX` counts each client address from `X-Forwarded-For`, not the address of the proxy. Do not use `true` unless the proxy replaces `X-Forwarded-For`: with `true`, the first address counts, and a caller can write it. For a full stack with the API and the MCP server, read [docker-compose.example.yml](docker-compose.example.yml).
 
 **Development.**
 
@@ -276,7 +276,7 @@ You need Node.js 22 or later (20 still works, but it reached end of life in Apri
 
 **Releases.** The maintainer cuts them. The steps are in [.claude/skills/release/SKILL.md](.claude/skills/release/SKILL.md). The version comes from `package.json` at runtime, through [src/version.ts](src/version.ts). Pushing a `v*` tag makes CI build both images and publish the [MCP Registry](https://registry.modelcontextprotocol.io) entry from [server.json](server.json).
 
-**Layout.** `src/mcp.ts` (stdio entry), `src/mcp-http.ts` (Streamable HTTP), `src/mcp-core.ts` (tools, prompts, widgets), `src/youtube.ts` (yt-dlp), `src/whisper.ts`, `src/cache.ts`, `src/index.ts` (REST API), `load/` (k6), and `src/e2e/` (Docker smoke tests).
+**Layout.** `src/mcp.ts` (stdio entry), `src/mcp-http.ts` (Streamable HTTP), `src/mcp-core.ts` (tools, prompts, widgets), `src/youtube.ts` (yt-dlp), `src/whisper.ts`, `src/cache.ts`, `src/rest-app.ts` (REST API), `load/` (k6), and `src/e2e/` (Docker smoke tests).
 
 </details>
 
