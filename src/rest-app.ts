@@ -1,3 +1,4 @@
+import { isIP } from 'node:net';
 import Fastify, { type preHandlerAsyncHookHandler } from 'fastify';
 import cors from '@fastify/cors';
 import rateLimit from '@fastify/rate-limit';
@@ -91,9 +92,29 @@ const VideoChaptersResponseSchema = Type.Object({
   chapters: Type.Array(ChapterSchema),
 });
 
+// Unset, X-Forwarded-For is ignored and the rate limit keys on the TCP address. Behind a proxy that
+// is the proxy's address, so every caller shared one bucket (#133). A number of hops is refused:
+// fastify 5.12 trusts no proxy for it. With true, fastify takes the leftmost X-Forwarded-For
+// entry, which the caller writes when the proxy appends to the header.
+const PROXY_NAMES = ['loopback', 'linklocal', 'uniquelocal'];
+function readTrustProxy(): boolean | string {
+  const value = process.env.TRUST_PROXY?.trim();
+  if (!value || value === 'false') return false;
+  if (value === 'true') return true;
+  const isProxy = (entry: string) =>
+    PROXY_NAMES.includes(entry) || isIP(entry.replace(/\/\d{1,3}$/, '')) !== 0;
+  if (!value.split(',').every((entry) => isProxy(entry.trim()))) {
+    throw new Error(
+      `TRUST_PROXY=${JSON.stringify(value)} is not a list of proxy addresses. ` +
+        'Set the addresses or CIDRs of your proxies, comma-separated, such as 10.0.0.0/8.'
+    );
+  }
+  return value;
+}
+
 /**
  * Builds the REST app without listening, so tests can inject requests. index.ts starts it.
- * Throws when RATE_LIMIT_TIME_WINDOW is not a time window.
+ * Throws when RATE_LIMIT_TIME_WINDOW is not a time window or TRUST_PROXY is not a proxy list.
  */
 export function buildRestApp() {
   // Read with the plugin's own parser, so that the start fails here, before anything is built.
@@ -110,20 +131,24 @@ export function buildRestApp() {
     );
   }
 
+  const trustProxy = readTrustProxy();
+
   const fastify = Fastify({
     loggerInstance: createLoggerWithSentryBreadcrumbs(),
+    trustProxy,
   }).withTypeProvider<TypeBoxTypeProvider>();
 
   fastify.setErrorHandler(restErrorHandler);
 
-  // Register CORS (optional allowlist via CORS_ALLOWED_ORIGINS comma-separated)
+  // CORS only for the origins in CORS_ALLOWED_ORIGINS. With every origin allowed, any page a user
+  // opened could read the answers of a REST API on localhost, cookies-only videos included (#133).
   const corsAllowedOrigins = process.env.CORS_ALLOWED_ORIGINS?.trim()
     ? process.env.CORS_ALLOWED_ORIGINS.split(',')
         .map((o) => o.trim())
         .filter(Boolean)
     : undefined;
   fastify.register(cors, {
-    origin: corsAllowedOrigins && corsAllowedOrigins.length > 0 ? corsAllowedOrigins : true,
+    origin: corsAllowedOrigins && corsAllowedOrigins.length > 0 ? corsAllowedOrigins : false,
   });
 
   fastify.register(rateLimit, { max: parseIntEnv('RATE_LIMIT_MAX', 100), timeWindow });

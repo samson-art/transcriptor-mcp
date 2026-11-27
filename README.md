@@ -260,7 +260,7 @@ The Node process does not check bearer tokens. Put a reverse proxy or a gateway 
 docker run --rm -p 3000:3000 artsamsonov/transcriptor-mcp-api:latest
 ```
 
-The Swagger interface is at `http://localhost:3000/docs`. For a full stack with the API and the MCP server, read [docker-compose.example.yml](docker-compose.example.yml).
+The Swagger interface is at `http://localhost:3000/docs`. The REST API sends no CORS headers by default, so web pages of other origins cannot read its answers. To let a browser app read them, set `CORS_ALLOWED_ORIGINS` to a comma-separated list of origins. Behind a reverse proxy, set `TRUST_PROXY` to the addresses or CIDRs of your proxies, comma-separated. Then `RATE_LIMIT_MAX` counts each client address from `X-Forwarded-For`, not the address of the proxy. Do not use `true` unless the proxy replaces `X-Forwarded-For`: with `true`, the first address counts, and a caller can write it. For a full stack with the API and the MCP server, read [docker-compose.example.yml](docker-compose.example.yml).
 
 **Development.**
 

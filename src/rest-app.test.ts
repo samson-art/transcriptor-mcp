@@ -40,9 +40,72 @@ Object.assign(process.env, {
   RATE_LIMIT_MAX: String(MAX),
   RATE_LIMIT_TIME_WINDOW: '1 minute',
 });
+delete process.env.CORS_ALLOWED_ORIGINS;
+delete process.env.TRUST_PROXY;
 const app = buildRestApp();
 
 afterAll(() => app.close());
+
+const extraApps: (typeof app)[] = [];
+function appWith(env: Record<string, string>) {
+  Object.assign(process.env, env);
+  try {
+    const built = buildRestApp();
+    extraApps.push(built);
+    return built;
+  } finally {
+    for (const key of Object.keys(env)) delete process.env[key];
+  }
+}
+afterEach(async () => {
+  await Promise.all(extraApps.splice(0).map((a) => a.close()));
+});
+
+// Every origin could read the answers, so any page a user opened could call a REST API on
+// localhost and read videos that only the operator's cookies can see (#133).
+it('sends no CORS headers when CORS_ALLOWED_ORIGINS is not set', async () => {
+  const res = await app.inject({ url: '/health', headers: { origin: 'https://example.com' } });
+  expect(res.headers['access-control-allow-origin']).toBeUndefined();
+});
+
+it('allows the origins in CORS_ALLOWED_ORIGINS', async () => {
+  const cors = appWith({ CORS_ALLOWED_ORIGINS: 'https://app.example.com' });
+  const allowed = await cors.inject({
+    url: '/health',
+    headers: { origin: 'https://app.example.com' },
+  });
+  expect(allowed.headers['access-control-allow-origin']).toBe('https://app.example.com');
+  const other = await cors.inject({ url: '/health', headers: { origin: 'https://example.com' } });
+  expect(other.headers['access-control-allow-origin']).toBeUndefined();
+});
+
+// Behind a proxy, the TCP address is the proxy's, so all callers shared one bucket (#133).
+const overLimitForSecondClient = async (target: typeof app) => {
+  const remoteAddress = '10.9.0.1';
+  const as = (ip: string) =>
+    target.inject({ url: '/changelogs', remoteAddress, headers: { 'x-forwarded-for': ip } });
+  for (let i = 0; i < MAX; i++) expect((await as('203.0.113.1')).statusCode).toBe(200);
+  return (await as('203.0.113.2')).statusCode;
+};
+
+it('ignores X-Forwarded-For when TRUST_PROXY is not set', async () => {
+  expect(await overLimitForSecondClient(app)).toBe(429);
+});
+
+it.each(['true', '10.9.0.1', '127.0.0.1, 10.9.0.0/16', 'loopback,uniquelocal'])(
+  'counts each X-Forwarded-For client apart with TRUST_PROXY=%s',
+  async (value) => {
+    expect(await overLimitForSecondClient(appWith({ TRUST_PROXY: value }))).toBe(200);
+  }
+);
+
+// fastify 5.12 trusts no proxy for a number of hops, so TRUST_PROXY=1 silently changed nothing.
+// A value that is not an address failed with "invalid IP address" and no variable name.
+it.each(['1', '"10.0.0.1"', 'yes', '10.0.0.1, '])('does not start with TRUST_PROXY=%s', (value) => {
+  expect(() => appWith({ TRUST_PROXY: value })).toThrow(
+    `TRUST_PROXY=${JSON.stringify(value.trim())} is not a list of proxy addresses.`
+  );
+});
 
 // /health/sentry-test let any caller send Sentry an event per request. /failures showed every
 // caller the video URLs that other callers had sent.
