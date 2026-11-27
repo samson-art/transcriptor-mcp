@@ -45,6 +45,8 @@ Override base URL:
 make load-test-health LOAD_BASE_URL=http://localhost:3000
 ```
 
+k6 runs in a container. The Make targets change `localhost` and `127.0.0.1` in `LOAD_BASE_URL` to `host.docker.internal`, so the container reaches the API on your machine.
+
 ### Via npm (uses Docker k6 image)
 
 ```bash
@@ -60,6 +62,8 @@ With custom base URL:
 ```bash
 BASE_URL=http://192.168.1.10:3000 npm run load-test
 ```
+
+The npm scripts pass `BASE_URL` as is. The default is `http://host.docker.internal:3000`, the API on your machine. Do not use `localhost` here: in the container it is the container itself.
 
 ### Direct k6
 
