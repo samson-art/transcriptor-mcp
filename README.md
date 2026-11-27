@@ -11,6 +11,7 @@
 [![MCP Registry](https://img.shields.io/badge/MCP%20Registry-transcriptor--mcp-6E56CF)](https://registry.modelcontextprotocol.io/v0/servers?search=transcriptor)
 [![Docker](https://img.shields.io/badge/Docker-artsamsonov/transcriptor--mcp-2496ED?logo=docker&logoColor=white)](https://hub.docker.com/r/artsamsonov/transcriptor-mcp)
 [![MCP Apps](https://img.shields.io/badge/MCP%20Apps-4%20interactive%20widgets-8A63D2)](#-widgets)
+[![CI](https://github.com/samson-art/transcriptor-mcp/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/samson-art/transcriptor-mcp/actions/workflows/ci.yml?query=branch%3Amain)
 [![License](https://img.shields.io/github/license/samson-art/transcriptor-mcp)](LICENSE)
 
 **[Connect](#-connect-in-30-seconds) · [What to ask](#-what-you-can-ask) · [Widgets](#-widgets) · [Platforms](#-platforms) · [Self-host](#-self-host)**
@@ -283,6 +284,17 @@ You need Node.js 22 or later (20 still works, but it reached end of life in Apri
 </details>
 
 ---
+
+## 🛠️ How it is built
+
+The numbers are from 2026-11-28.
+
+- Each change follows one cycle: intent issue, plan, test first, mutation drill, review. [CONTRIBUTING.md](CONTRIBUTING.md) describes it.
+- A mutation drill breaks the code on purpose and names the test that fails. 47 of the last 60 merged PRs report a drill as "N of N".
+- The gate runs 753 tests in 21 suites with 91.3% line coverage. CI, the pre-commit hook and the publish workflow all run it.
+- Guards stop a forced add of ignored files, a commit that skips the pre-commit checks, and a release tag on an incomplete merge. They are in three places: the [Claude Code hooks](.claude/hooks/), the [pre-commit hook](.husky/pre-commit), and [CI](.github/workflows/ci.yml) with the [publish workflow](.github/workflows/publish-docker.yml).
+- 9 [ADRs](docs/adr/) record decisions that are easy to undo by accident. Each ADR has a "Do not" list.
+- 124 of the 127 commits since 2026-09-26 have a Claude co-author. [AGENTS.md](AGENTS.md) is the shared context for agents and people.
 
 ## 🤝 Contributing
 
