@@ -7,7 +7,7 @@ transcriptor-mcp is an MCP server (8 tools, 4 widgets) and a REST API. Both wrap
 ## Commands
 
 - `npm ci` installs dependencies and the husky pre-commit hook. Run it in every clone and every git worktree. Without it, git runs no pre-commit hook in that checkout.
-- `make check-no-smoke` is the gate: format-check, lint, typecheck, Jest, build. CI, pre-commit and the publish workflow all run it. It must be green before you say you are done.
+- `make check-no-smoke` is the gate: format-check, lint, typecheck, Jest with coverage, build. Coverage below the floor in `jest.config.cjs` fails it. CI, pre-commit and the publish workflow all run it. It must be green before you say you are done.
 - `npx jest src/youtube.test.ts -t '<name>'` runs one suite or one test.
 - `npm run build` runs `tsc` to `dist/`, then four vite builds to `dist/ui/<app>.html`. The server reads those HTML files at runtime.
 - To run locally: `npm run build`, then `npm run --silent start:mcp` (stdio), `start:mcp:http` (port 4200) or `start` (REST, port 3000). You need `yt-dlp` on `PATH`, `ffmpeg` for frames, and `ffprobe` for `WHISPER_MAX_DURATION_SECONDS`. The `dev`, `dev:mcp` and `dev:mcp:http` scripts currently fail: `ts-node-dev` cannot load this ESM package.
