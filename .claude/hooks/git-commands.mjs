@@ -294,7 +294,7 @@ export function parseOptions(args, shortWithValue, longWithValue, shortWithOptio
       if (!a.includes('=') && longWithValue.includes(name)) i++;
     } else if (a.startsWith('-') && a.length > 1) {
       for (let k = 1; k < a.length; k++) {
-        if (a[k] !== "n") shorts.add(a[k]);
+        shorts.add(a[k]);
         if (shortWithOptional.includes(a[k])) break;
         if (shortWithValue.includes(a[k])) {
           if (k === a.length - 1) i++;
