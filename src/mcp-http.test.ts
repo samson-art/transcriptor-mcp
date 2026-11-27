@@ -36,6 +36,7 @@ jest.mock('@sentry/node', () => ({
 import { execFile } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { Ajv2020, type AnySchemaObject } from 'ajv/dist/2020.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import * as Sentry from '@sentry/node';
 import type { FastifyBaseLogger } from 'fastify';
@@ -155,6 +156,20 @@ describe('POST /mcp', () => {
       writeFileSync(file, `${JSON.stringify(actual, null, 2)}\n`);
     }
     expect(actual).toEqual(JSON.parse(readFileSync(file, 'utf8')));
+  });
+
+  // Some Claude apps refuse a tool whose schema has the draft-07 label (#80). Ajv2020 throws on
+  // that label, so this fails if the relabel in createMcpServer stops working.
+  it('lists schemas that a JSON Schema 2020-12 validator compiles', async () => {
+    const body = await readMcpBody(await postMcp({ jsonrpc: '2.0', id: 4, method: 'tools/list' }));
+    const tools: Array<{ inputSchema: AnySchemaObject; outputSchema: AnySchemaObject }> =
+      body.result?.tools ?? [];
+    expect(tools).toHaveLength(8);
+    const ajv = new Ajv2020();
+    for (const tool of tools) {
+      expect(() => ajv.compile(tool.inputSchema)).not.toThrow();
+      expect(() => ajv.compile(tool.outputSchema)).not.toThrow();
+    }
   });
 
   it('handles consecutive requests, each with a fresh transport', async () => {

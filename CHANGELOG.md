@@ -32,6 +32,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Each widget is about 123 KB larger, 32 KB with gzip, because the widgets bundle zod, and zod 4.6.7 is larger than 4.3.6. The widgets work the same.
 - In Sentry, the span of an HTTP request gets two new attributes. `url.full` has the same value as `http.url`, and `url.path` is `http.target` without the query string. The request handler span is now `request_handler.fastify` (it was `request-handler.fastify`), and the hook spans name `@sentry/instrumentation-fastify`. Each Sentry log also gets the SDK attribute `sentry.timestamp.sequence`. The attributes that the server sets on the "MCP tool call" log do not change. As before, no request header and no IP address goes to Sentry.
 
+### Fixed
+
+- `tools/list` now labels all 16 input and output schemas of the 8 tools `"$schema": "https://json-schema.org/draft/2020-12/schema"` instead of draft-07, over HTTP and over stdio (#80). The MCP SDK adds the draft-07 label and has no option to change it. Some Claude apps refuse each call to a tool with a draft-07 output schema, before the call reaches the server. anthropics/claude-code#88882 names Cowork, desktop chats that are linked to a computer, and Claude Code builds from about 2.1.229 to 2.1.240. Nobody reproduced the failure with this server yet. The schemas use only keywords that mean the same in both versions, so nothing else in `tools/list` changes, and the REST API does not change.
+- A client whose validator knows only draft-07 can now fail on the new label: a TypeScript MCP SDK 1.x client that passes its own default Ajv throws in `listTools`. Since revision 2025-11-25, the MCP spec makes 2020-12 the default version of JSON Schema.
+- If you publish this server as a ChatGPT app, OpenAI can hold its tools for review until you approve the 16 changed schemas.
+
 ## [1.5.40] - 2026-11-26
 
 ### Fixed
