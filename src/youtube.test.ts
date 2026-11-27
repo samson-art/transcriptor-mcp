@@ -1284,8 +1284,36 @@ today to pay our respects to MCP, which
           true,
         ]);
       }
-      // The generic extractor follows a page to any host. It must never load.
+      // The generic extractor must never load (ADR 009).
       expect(families.some((f) => f.test('generic'))).toBe(false);
+      // Names of the extractors that yt-dlp 2026.03.13 picks for the URL shapes that callers
+      // send (offline suitable() check, 2026-11-27). A rename in yt-dlp shows up here.
+      for (const name of [
+        'youtube',
+        'youtube:tab',
+        'youtube:search',
+        'twitter',
+        'instagram',
+        'instagram:story',
+        'tiktok',
+        'vm.tiktok',
+        'twitch:vod',
+        'twitch:clips',
+        'twitch:stream',
+        'vimeo',
+        'facebook',
+        'facebook:reel',
+        'bilibili',
+        'bilibilibangumi',
+        'vk',
+        'dailymotion',
+        'reddit',
+      ]) {
+        expect([name, families.some((f) => f.test(name))]).toEqual([name, true]);
+      }
+      for (const name of ['generic', 'peertube', 'web.archive:youtube']) {
+        expect([name, families.some((f) => f.test(name))]).toEqual([name, false]);
+      }
     });
 
     const runs: Array<[string, () => Promise<unknown>]> = [

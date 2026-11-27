@@ -1913,9 +1913,7 @@ export type AppendYtDlpEnvArgsOptions = {
 
 /**
  * The yt-dlp extractors that a run may load: the families of the 11 supported platforms
- * (`--use-extractors`, ADR 009). A supported site can hand a run to another extractor, and
- * the generic one follows a page to any host. Without this list, a caller URL on an allowed
- * host can make the server fetch hosts outside `ALLOWED_VIDEO_DOMAINS`. yt-dlp matches each
+ * (`--use-extractors`, ADR 009). yt-dlp matches each
  * comma-separated regex against the whole extractor name, without case. `vm.tiktok` is the
  * TikTok short-link extractor, whose name does not start with its family.
  */

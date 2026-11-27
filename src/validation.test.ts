@@ -205,6 +205,25 @@ describe('validation', () => {
       }
     });
 
+    it('refuses Facebook and Reddit share links, which only the generic extractor opens (ADR 009)', () => {
+      for (const url of [
+        'https://www.facebook.com/share/v/1AbCdEf/',
+        'https://www.facebook.com/share/r/1AbCdEf/',
+        'https://m.facebook.com/share/v/1AbCdEf/',
+        'https://www.reddit.com/r/videos/s/AbCdEf',
+        'https://reddit.com/r/videos/s/AbCdEf/',
+      ]) {
+        expect([url, isValidSupportedUrl(url), normalizeVideoInput(url)]).toEqual([
+          url,
+          false,
+          null,
+        ]);
+      }
+      // The full links of the same posts stay valid.
+      expect(isValidSupportedUrl('https://www.facebook.com/reel/123')).toBe(true);
+      expect(isValidSupportedUrl('https://www.reddit.com/r/videos/comments/abc/title/')).toBe(true);
+    });
+
     it('should return false for unsupported domains and invalid input', () => {
       expect(isValidSupportedUrl('https://unsupported.example.com/video')).toBe(false);
       expect(isValidSupportedUrl('')).toBe(false);
