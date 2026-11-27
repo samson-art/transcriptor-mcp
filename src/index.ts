@@ -96,20 +96,32 @@ const VideoChaptersResponseSchema = Type.Object({
 
 // ponytail: exported so index.test.ts can inject requests, but importing this module still starts
 // the server. If another test needs it, split out a buildRestApp() without listen(), like mcp-http.
+// Fastify's trustProxy values: true, a number of hops, or a comma-separated list of addresses and
+// CIDRs. Unset, X-Forwarded-For is ignored and the rate limit keys on the TCP address. Behind a
+// proxy that is the proxy's address, so every caller shared one bucket (#133).
+function readTrustProxy(): boolean | number | string {
+  const value = process.env.TRUST_PROXY?.trim();
+  if (!value || value === 'false') return false;
+  if (value === 'true') return true;
+  return /^\d+$/.test(value) ? Number(value) : value;
+}
+
 export const fastify = Fastify({
   loggerInstance: createLoggerWithSentryBreadcrumbs(),
+  trustProxy: readTrustProxy(),
 }).withTypeProvider<TypeBoxTypeProvider>();
 
 fastify.setErrorHandler(restErrorHandler);
 
-// Register CORS (optional allowlist via CORS_ALLOWED_ORIGINS comma-separated)
+// CORS only for the origins in CORS_ALLOWED_ORIGINS. With every origin allowed, any page a user
+// opened could read the answers of a REST API on localhost, cookies-only videos included (#133).
 const corsAllowedOrigins = process.env.CORS_ALLOWED_ORIGINS?.trim()
   ? process.env.CORS_ALLOWED_ORIGINS.split(',')
       .map((o) => o.trim())
       .filter(Boolean)
   : undefined;
 fastify.register(cors, {
-  origin: corsAllowedOrigins && corsAllowedOrigins.length > 0 ? corsAllowedOrigins : true,
+  origin: corsAllowedOrigins && corsAllowedOrigins.length > 0 ? corsAllowedOrigins : false,
 });
 
 // Read with the plugin's own parser, so that the start fails here. Given a value it cannot read
