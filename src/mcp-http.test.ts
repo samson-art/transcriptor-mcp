@@ -144,8 +144,11 @@ describe('POST /mcp', () => {
   // real registerAppTool adds are not in the file. Pin those when ts-jest can load ESM.
   it('keeps the tool contract equal to src/mcp-tools-contract.json', async () => {
     const response = await postMcp({ jsonrpc: '2.0', id: 3, method: 'tools/list' });
+    expect(response.status).toBe(200);
     const body = await readMcpBody(response);
     const actual = body.result?.tools;
+    // A failed answer must not overwrite the stored file in update mode.
+    expect(Array.isArray(actual)).toBe(true);
     const file = join(process.cwd(), 'src', 'mcp-tools-contract.json');
 
     if (process.env.UPDATE_TOOLS_CONTRACT === '1') {
