@@ -3,7 +3,9 @@
  * Usage: import from other scripts or use as k6 shared module.
  */
 
-export const BASE_URL = 'http://100.65.116.45:3000';
+// k6 sets __ENV; verify-pool.js imports this file in Node, where __ENV does not exist.
+export const BASE_URL =
+  (typeof __ENV !== 'undefined' && __ENV.BASE_URL) || 'http://127.0.0.1:3000';
 
 /**
  * Video pool entry: id, duration (seconds), optional subtitle language codes.
