@@ -47,7 +47,7 @@
         "url"
       ],
       "additionalProperties": false,
-      "$schema": "http://json-schema.org/draft-07/schema#"
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
     },
     "annotations": {
       "readOnlyHint": true,
@@ -118,7 +118,7 @@
         "end_offset"
       ],
       "additionalProperties": false,
-      "$schema": "http://json-schema.org/draft-07/schema#"
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
     }
   },
   {
@@ -169,7 +169,7 @@
         "url"
       ],
       "additionalProperties": false,
-      "$schema": "http://json-schema.org/draft-07/schema#"
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
     },
     "annotations": {
       "readOnlyHint": true,
@@ -239,7 +239,7 @@
         "end_offset"
       ],
       "additionalProperties": false,
-      "$schema": "http://json-schema.org/draft-07/schema#"
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
     }
   },
   {
@@ -269,7 +269,7 @@
         "url"
       ],
       "additionalProperties": false,
-      "$schema": "http://json-schema.org/draft-07/schema#"
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
     },
     "annotations": {
       "readOnlyHint": true,
@@ -305,7 +305,7 @@
         "auto"
       ],
       "additionalProperties": false,
-      "$schema": "http://json-schema.org/draft-07/schema#"
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
     }
   },
   {
@@ -335,7 +335,7 @@
         "url"
       ],
       "additionalProperties": false,
-      "$schema": "http://json-schema.org/draft-07/schema#"
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
     },
     "annotations": {
       "readOnlyHint": true,
@@ -551,7 +551,7 @@
         "thumbnails"
       ],
       "additionalProperties": false,
-      "$schema": "http://json-schema.org/draft-07/schema#"
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
     }
   },
   {
@@ -581,7 +581,7 @@
         "url"
       ],
       "additionalProperties": false,
-      "$schema": "http://json-schema.org/draft-07/schema#"
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
     },
     "annotations": {
       "readOnlyHint": true,
@@ -627,7 +627,7 @@
         "chapters"
       ],
       "additionalProperties": false,
-      "$schema": "http://json-schema.org/draft-07/schema#"
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
     }
   },
   {
@@ -676,7 +676,7 @@
         "url"
       ],
       "additionalProperties": false,
-      "$schema": "http://json-schema.org/draft-07/schema#"
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
     },
     "annotations": {
       "readOnlyHint": true,
@@ -732,7 +732,7 @@
         "width"
       ],
       "additionalProperties": false,
-      "$schema": "http://json-schema.org/draft-07/schema#"
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
     }
   },
   {
@@ -783,7 +783,7 @@
         "url"
       ],
       "additionalProperties": false,
-      "$schema": "http://json-schema.org/draft-07/schema#"
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
     },
     "annotations": {
       "readOnlyHint": true,
@@ -821,7 +821,7 @@
         "results"
       ],
       "additionalProperties": false,
-      "$schema": "http://json-schema.org/draft-07/schema#"
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
     }
   },
   {
@@ -879,7 +879,7 @@
         }
       },
       "additionalProperties": false,
-      "$schema": "http://json-schema.org/draft-07/schema#"
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
     },
     "annotations": {
       "readOnlyHint": true,
@@ -963,7 +963,7 @@
         "results"
       ],
       "additionalProperties": false,
-      "$schema": "http://json-schema.org/draft-07/schema#"
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
     }
   }
 ]
