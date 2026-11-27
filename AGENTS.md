@@ -32,7 +32,7 @@ The `change` skill runs the full cycle: interview → intent issue → plan → 
 - Env vars: added, changed or removed.
 - Caption rate limit, retry, cache or strike logic: `src/subtitle-rate-limit.ts`, `execFileAsync` and `downloadSubtitles` in `src/youtube.ts`, auto-discovery in `src/validation.ts`, `src/cache.ts`, `src/canary.ts`.
 - Release plumbing: `Dockerfile`, `server.json`, `.github/workflows/`, Makefile publish targets.
-- Metrics names or labels, or the fields of the "MCP tool call" log line or of the Sentry log of the same name.
+- Metrics names or labels (the stored list is `CONTRACT` in `src/metrics.test.ts`; a change fails that test until you edit the list), or the fields of the "MCP tool call" log line or of the Sentry log of the same name.
 - Widgets: `ui/`, `vite.config.ts`, the widget CSP and `ui://` URIs.
 
 For anything else that fits in one sentence, edit, run the gate and open the PR.
