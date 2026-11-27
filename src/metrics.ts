@@ -9,7 +9,8 @@ import { Counter, Gauge, Histogram, Registry } from 'prom-client';
 import type { CacheKeyType } from './cache.js';
 import { version } from './version.js';
 
-const register = new Registry();
+// Exported for the contract test in metrics.test.ts. Other code records through the helpers below.
+export const register = new Registry();
 
 const defaultLabels = { service: 'api' };
 register.setDefaultLabels(defaultLabels);
