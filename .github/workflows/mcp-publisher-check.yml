@@ -9,6 +9,11 @@ on:
     - cron: '23 6 * * 1' # Mondays; a release is rarely urgent, the registry job fails loudly if one is
   workflow_dispatch:
 
+# A dispatch at the same time as the cron must not open the issue twice.
+concurrency:
+  group: mcp-publisher-check
+  cancel-in-progress: false
+
 permissions:
   contents: read
   issues: write # gh issue create
@@ -33,7 +38,8 @@ jobs:
           valid "$pinned" pinned
           valid "$newest" newest
           echo "::notice::mcp-publisher pinned: $pinned; newest release: $newest"
-          if [ "$pinned" = "$newest" ]; then
+          # GitHub can mark a late backport (an older version) Latest. Never ask for a downgrade.
+          if [ "$(printf '%s\n' "$pinned" "$newest" | sort -V | tail -1)" = "$pinned" ]; then
             echo "Up to date. Nothing to open."
             exit 0
           fi
