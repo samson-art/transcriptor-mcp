@@ -28,6 +28,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- The MCP HTTP server now serves the MCP protocol version 2026-07-28 next to the 2025 versions, on the same `POST /mcp` (#85). Before this, it answered a 2026-07-28 request with HTTP 400 and code -32000. Clients that speak both versions, such as Claude Code and the SDK 2.x clients in auto mode, then fell back to `initialize`, and a client that speaks only 2026-07-28 failed. Now such a client gets `server/discover` and each answer of the new version, with `resultType` and the cache hints of the SDK (`ttlMs: 0`, `cacheScope: "private"`). A client that starts with `initialize` gets the same answers as before. There is one exception: a server fault now carries the id of the request, not `id: null`. stdio and the REST API do not change.
+- A 2026-07-28 answer is an SSE stream with a comment every 15 s, as a 2025 answer is. A proxy with an idle timeout therefore keeps a long tool call open.
+- The "MCP tool call" log line has a new field, `era`: `modern` for a 2026-07-28 call and `legacy` for a 2025 call. The share of `legacy` calls tells when the 2025 versions can go. The other fields, the metrics and the Sentry log "MCP tool call" do not change.
+- A request that the server refuses with a 4xx answer of the MCP protocol, such as a missing `Mcp-Method` header or an unsupported version, writes one warn line with the HTTP status, the JSON-RPC code, the JSON-RPC method and the `MCP-Protocol-Version` header. It sends nothing to Sentry. A server fault writes an error line and goes to Sentry.
+
 - `TRUST_PROXY` names the proxies that the REST API trusts for `X-Forwarded-For` (#133). The value is a comma-separated list of addresses and CIDRs, or `true`. The REST API does not start with a number of hops or with a value it cannot read: fastify 5.12 trusts no proxy for a number of hops. Then `RATE_LIMIT_MAX` counts each client address. Before this, behind a reverse proxy, all callers shared the one bucket of the proxy address. If `TRUST_PROXY` is not set, the REST API ignores `X-Forwarded-For`, as before. Use the addresses of your proxies. With `true`, the first address in `X-Forwarded-For` counts. Most proxies add to the header that the caller sent, so a caller could then send any address and get a new bucket for each one.
 
 ### Changed

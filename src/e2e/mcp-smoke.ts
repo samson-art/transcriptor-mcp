@@ -211,6 +211,49 @@ async function checkMcpToolsList(baseUrl: string): Promise<void> {
   console.log(`[smoke] MCP tools/list OK (${tools.length} tools)`);
 }
 
+/** A 2026-07-28 client starts with this probe (#85). The 2025 steps above stay as they are. */
+async function checkMcpDiscover(baseUrl: string): Promise<void> {
+  const fetchImpl: any = (globalThis as any).fetch;
+  const response = await fetchImpl(`${baseUrl}/mcp`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      Accept: 'application/json, text/event-stream',
+      'MCP-Protocol-Version': '2026-07-28',
+      'Mcp-Method': 'server/discover',
+      ...getMcpAuthHeaders(),
+    },
+    body: JSON.stringify({
+      jsonrpc: '2.0',
+      id: 4,
+      method: 'server/discover',
+      params: {
+        _meta: {
+          'io.modelcontextprotocol/protocolVersion': '2026-07-28',
+          'io.modelcontextprotocol/clientCapabilities': {},
+          'io.modelcontextprotocol/clientInfo': { name: 'mcp-smoke', version: '1.0.0' },
+        },
+      },
+    }),
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`MCP server/discover failed with HTTP ${response.status}: ${text}`);
+  }
+
+  const data = await readMcpBody(response, 'server/discover');
+  const versions = (data as { result?: { supportedVersions?: unknown } }).result?.supportedVersions;
+  if (!Array.isArray(versions) || !versions.includes('2026-07-28')) {
+    throw new Error(
+      `MCP server/discover does not offer 2026-07-28: ${JSON.stringify(data).slice(0, 300)}`
+    );
+  }
+
+  // eslint-disable-next-line no-console
+  console.log(`[smoke] MCP server/discover OK (${versions.join(', ')})`);
+}
+
 async function checkMcpStreamableGetTranscript(baseUrl: string): Promise<void> {
   const fetchImpl: any = (globalThis as any).fetch;
   if (!fetchImpl) {
@@ -430,6 +473,7 @@ export async function runMcpSmokeTest(mcpImage: string): Promise<void> {
     await waitForMcpReady(mcpBaseUrl, 60000);
     await checkMcpStreamable(mcpBaseUrl);
     await checkMcpToolsList(mcpBaseUrl);
+    await checkMcpDiscover(mcpBaseUrl);
     if (!isFlagSet('SMOKE_SKIP_TRANSCRIPT')) await checkMcpStreamableGetTranscript(mcpBaseUrl);
     await checkMcpGetRejected(mcpBaseUrl);
     await checkMcpStdio(mcpImage);

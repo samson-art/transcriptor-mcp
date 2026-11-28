@@ -40,7 +40,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import type { AddressInfo } from 'node:net';
 import { join } from 'node:path';
 import { Ajv2020, type AnySchemaObject } from 'ajv/dist/2020.js';
-import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
+import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import * as Sentry from '@sentry/node';
 import type { FastifyBaseLogger } from 'fastify';
 import pino from 'pino';
@@ -50,6 +50,7 @@ import {
   UNEXPECTED_ERROR_MESSAGE,
   YtDlpError,
 } from './errors.js';
+import * as mcpCore from './mcp-core.js';
 import { buildMcpHttpApp } from './mcp-http.js';
 import * as whisperJobs from './whisper-jobs.js';
 
@@ -96,6 +97,40 @@ function initializeBody(id = 1) {
       capabilities: {},
       clientInfo: { name: 'mcp-http-test', version: '1.0.0' },
     },
+  };
+}
+
+const MODERN = '2026-07-28';
+
+/** A 2026-07-28 request: the version and the client capabilities ride in `_meta`. */
+function modernBody(id: number, method: string, params: Record<string, unknown> = {}) {
+  const body: {
+    jsonrpc: '2.0';
+    id: number;
+    method: string;
+    params: Record<string, unknown> & { _meta: Record<string, unknown> };
+  } = {
+    jsonrpc: '2.0',
+    id,
+    method,
+    params: {
+      ...params,
+      _meta: {
+        'io.modelcontextprotocol/protocolVersion': MODERN,
+        'io.modelcontextprotocol/clientCapabilities': {},
+        'io.modelcontextprotocol/clientInfo': { name: 'mcp-http-test', version: '1.0.0' },
+        ...(params._meta as Record<string, unknown> | undefined),
+      },
+    },
+  };
+  return body;
+}
+
+function modernHeaders(method: string, name?: string): Record<string, string> {
+  return {
+    'mcp-protocol-version': MODERN,
+    'mcp-method': method,
+    ...(name ? { 'mcp-name': name } : {}),
   };
 }
 
@@ -258,19 +293,10 @@ describe('POST /mcp', () => {
     expect(body.error?.code).toBe(-32600);
   });
 
-  // A client that speaks both 2025-11-25 and 2026-07-28 first sends this probe. HTTP 400 with
-  // -32000 sends it to initialize. A DiscoverResult, or -32022 with a version that the client
-  // speaks, would keep it on 2026-07-28, which this server does not serve until #85.
-  it('answers a 2026-07-28 server/discover probe with HTTP 400 and -32000', async () => {
-    const response = await postMcp(
-      { jsonrpc: '2.0', id: 40, method: 'server/discover', params: {} },
-      { 'mcp-protocol-version': '2026-07-28', 'mcp-method': 'server/discover' }
-    );
-    const body = await readMcpBody(response);
+  it('answers initialize with 2025-06-18 in 2025-06-18', async () => {
+    const body = await readMcpBody(await postMcp(initializeBody()));
 
-    expect(response.status).toBe(400);
-    expect(body.error?.code).toBe(-32000);
-    expect(body.error?.message).toMatch(/^Bad Request: Unsupported protocol version/);
+    expect(body.result?.protocolVersion).toBe('2025-06-18');
   });
 });
 
@@ -472,29 +498,43 @@ describe('unplanned errors', () => {
     );
   });
 
-  it('answers a failed transport with the generic text, not its message', async () => {
-    jest
-      .spyOn(NodeStreamableHTTPServerTransport.prototype, 'handleRequest')
-      .mockRejectedValue(new Error(PATH_ERROR));
-    const { local, lines } = appWithLogLines();
+  // Before #85 the answer had `id: null`. The SDK handler knows the id, so the client can match it.
+  it.each([
+    ['2025', initializeBody(7), {}],
+    ['2026-07-28', modernBody(7, 'tools/list'), modernHeaders('tools/list')],
+  ])(
+    'answers a failed server build in the %s era with the generic text and the request id',
+    async (_era, payload, headers) => {
+      jest.spyOn(mcpCore, 'createMcpServer').mockImplementation(() => {
+        throw new Error(PATH_ERROR);
+      });
+      const { local, lines } = appWithLogLines();
 
-    const response = await local.inject({
-      method: 'POST',
-      url: '/mcp',
-      payload: initializeBody(),
-      headers: { 'content-type': 'application/json', accept: MCP_ACCEPT },
-    });
-    await local.close();
+      const response = await local.inject({
+        method: 'POST',
+        url: '/mcp',
+        payload,
+        headers: { 'content-type': 'application/json', accept: MCP_ACCEPT, ...headers },
+      });
+      await local.close();
 
-    expect(response.statusCode).toBe(500);
-    expect(response.json().error.message).toBe(UNEXPECTED_ERROR_MESSAGE);
-    expect(lines).toContainEqual(
-      expect.objectContaining({ level: 50, err: expect.objectContaining({ message: PATH_ERROR }) })
-    );
-    expect(Sentry.captureException).toHaveBeenCalledWith(
-      expect.objectContaining({ message: PATH_ERROR })
-    );
-  });
+      expect(response.statusCode).toBe(500);
+      expect(response.json()).toEqual({
+        jsonrpc: '2.0',
+        error: { code: -32603, message: UNEXPECTED_ERROR_MESSAGE },
+        id: 7,
+      });
+      expect(lines).toContainEqual(
+        expect.objectContaining({
+          level: 50,
+          err: expect.objectContaining({ message: PATH_ERROR }),
+        })
+      );
+      expect(Sentry.captureException).toHaveBeenCalledWith(
+        expect.objectContaining({ message: PATH_ERROR })
+      );
+    }
+  );
 });
 
 describe('Origin rule (#82)', () => {
@@ -520,7 +560,7 @@ describe('Origin rule (#82)', () => {
       (_file: string, _args: string[], _options: unknown, callback: (e: null, r: object) => void) =>
         callback(null, { stdout: '', stderr: '' })
     );
-    const handleRequest = jest.spyOn(NodeStreamableHTTPServerTransport.prototype, 'handleRequest');
+    const createMcpServer = jest.spyOn(mcpCore, 'createMcpServer');
 
     try {
       const response = await postMcp(
@@ -548,10 +588,10 @@ describe('Origin rule (#82)', () => {
         id: null,
       });
       expect(text).not.toContain('example.com');
-      expect(handleRequest).not.toHaveBeenCalled();
+      expect(createMcpServer).not.toHaveBeenCalled();
       expect(execFileMock).not.toHaveBeenCalled();
     } finally {
-      handleRequest.mockRestore();
+      createMcpServer.mockRestore();
     }
   });
 
@@ -764,5 +804,337 @@ describe('Origin rule (#82)', () => {
       expect(lines).toEqual([expect.objectContaining({ entryPosition: 2 })]);
       expect(lines[0].msg).not.toContain('refuses every Origin');
     });
+  });
+});
+
+describe('MCP 2026-07-28 (#85)', () => {
+  afterEach(() => {
+    jest.restoreAllMocks();
+    jest.clearAllMocks();
+  });
+
+  function postModern(body: ReturnType<typeof modernBody>, headers?: Record<string, string>) {
+    const name = typeof body.params.name === 'string' ? body.params.name : undefined;
+    return postMcp(body, { ...modernHeaders(body.method, name), ...headers });
+  }
+
+  it('answers server/discover with the 2026-07-28 result and no session id', async () => {
+    const response = await postModern(modernBody(40, 'server/discover'));
+    const body = await readMcpBody(response);
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get('mcp-session-id')).toBeNull();
+    expect(body.result).toMatchObject({
+      resultType: 'complete',
+      supportedVersions: [MODERN],
+      // The capabilities of #84.
+      capabilities: {
+        tools: { listChanged: false },
+        prompts: { listChanged: false },
+        resources: { listChanged: false },
+        extensions: { 'io.modelcontextprotocol/ui': {} },
+      },
+      ttlMs: expect.any(Number),
+      cacheScope: expect.any(String),
+      _meta: { 'io.modelcontextprotocol/serverInfo': { name: 'transcriptor-mcp' } },
+    });
+  });
+
+  it('lists the tools of the stored contract', async () => {
+    const body = await readMcpBody(await postModern(modernBody(41, 'tools/list')));
+    const file = join(process.cwd(), 'src', 'mcp-tools-contract.json');
+
+    expect(body.result?.resultType).toBe('complete');
+    expect(body.result?.tools).toEqual(JSON.parse(readFileSync(file, 'utf8')));
+  });
+
+  it('runs get_transcript and answers with resultType complete', async () => {
+    const execFileMock = execFile as unknown as jest.Mock;
+    execFileMock.mockImplementation(
+      (_file: string, _args: string[], _options: unknown, callback: (e: null, r: object) => void) =>
+        callback(null, { stdout: '', stderr: '' })
+    );
+
+    const body = await readMcpBody(
+      await postModern(
+        modernBody(42, 'tools/call', {
+          name: 'get_transcript',
+          arguments: { url: 'https://www.facebook.com/watch?v=1', lang: 'en_US' },
+        })
+      )
+    );
+
+    expect(execFileMock).toHaveBeenCalled();
+    expect(body.result?.resultType).toBe('complete');
+    expect(body.result?.content?.[0]?.type).toBe('text');
+  });
+
+  it.each([
+    ['no Mcp-Method header', { 'mcp-method': '' }],
+    ['an Mcp-Name that does not match the body', { 'mcp-name': 'get_video_info' }],
+    [
+      'an MCP-Protocol-Version header that does not match _meta',
+      { 'mcp-protocol-version': '2025-11-25' },
+    ],
+  ])('answers a request with %s with HTTP 400 and -32020', async (_case, headers) => {
+    const call = modernBody(43, 'tools/call', { name: 'get_transcript', arguments: { url: 'x' } });
+    const sent: Record<string, string> = {
+      ...modernHeaders('tools/call', 'get_transcript'),
+      ...headers,
+    };
+    for (const [key, value] of Object.entries(sent)) if (value === '') delete sent[key];
+
+    const response = await postMcp(call, sent);
+
+    expect(response.status).toBe(400);
+    expect((await readMcpBody(response)).error?.code).toBe(-32020);
+  });
+
+  it('answers an unsupported version with HTTP 400, -32022 and the supported versions', async () => {
+    const body = modernBody(44, 'tools/list');
+    body.params._meta['io.modelcontextprotocol/protocolVersion'] = '2099-01-01';
+
+    const response = await postMcp(body, {
+      ...modernHeaders('tools/list'),
+      'mcp-protocol-version': '2099-01-01',
+    });
+    const answer = (await readMcpBody(response)) as { error?: { code?: number; data?: any } };
+
+    expect(response.status).toBe(400);
+    expect(answer.error?.code).toBe(-32022);
+    expect(answer.error?.data?.supported).toContain(MODERN);
+    expect(answer.error?.data?.requested).toBe('2099-01-01');
+  });
+
+  it.each([
+    'io.modelcontextprotocol/protocolVersion',
+    'io.modelcontextprotocol/clientCapabilities',
+  ])('answers a 2026-07-28 header without %s in _meta with HTTP 400 and -32602', async (key) => {
+    const body = modernBody(45, 'tools/list');
+    delete body.params._meta[key];
+
+    const response = await postMcp(body, modernHeaders('tools/list'));
+
+    expect(response.status).toBe(400);
+    expect((await readMcpBody(response)).error?.code).toBe(-32602);
+  });
+
+  it('answers an unknown method with HTTP 404 and -32601', async () => {
+    const response = await postModern(modernBody(46, 'tools/unknown'));
+
+    expect(response.status).toBe(404);
+    expect((await readMcpBody(response)).error?.code).toBe(-32601);
+  });
+
+  // No list changes (#84), so the stream has nothing to wait for. The SDK ends it with the
+  // completion result of the Subscriptions page, not with notifications/cancelled.
+  it('acknowledges subscriptions/listen and ends the stream with a complete result', async () => {
+    const response = await postModern(
+      modernBody(53, 'subscriptions/listen', {
+        notifications: { toolsListChanged: true, resourcesListChanged: true },
+      })
+    );
+    // text() resolves only when the server ends the response.
+    const frames = (await response.text())
+      .split('\n')
+      .filter((line) => line.startsWith('data:'))
+      .map((line) => JSON.parse(line.slice('data:'.length)) as JsonRpcBody);
+
+    expect(response.status).toBe(200);
+    expect(frames).toEqual([
+      expect.objectContaining({ method: 'notifications/subscriptions/acknowledged' }),
+      expect.objectContaining({
+        id: 53,
+        result: expect.objectContaining({ resultType: 'complete' }),
+      }),
+    ]);
+  });
+
+  it('refuses server/discover with a foreign Origin with 403', async () => {
+    const response = await postModern(modernBody(47, 'server/discover'), {
+      origin: 'https://example.com',
+    });
+
+    expect(response.status).toBe(403);
+    expect((await readMcpBody(response)).error?.message).toBe(ORIGIN_NOT_ALLOWED_MESSAGE);
+  });
+
+  // The `era` field tells how much traffic still needs the 2025 protocol (ADR 001).
+  it('writes era, reqId and source on the "MCP tool call" line in both eras', async () => {
+    const { local, lines } = appWithLogLines();
+    await local.listen({ port: 0, host: '127.0.0.1' });
+    const url = `http://127.0.0.1:${(local.server.address() as AddressInfo).port}/mcp`;
+    const send = (body: unknown, headers: Record<string, string>) =>
+      fetch(url, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', accept: MCP_ACCEPT, ...headers },
+        body: JSON.stringify(body),
+      }).then((response) => response.text());
+    const args = { name: 'get_video_info', arguments: { url: 'not a video link' } };
+    const widget = { 'transcriptor/source': 'widget' };
+
+    try {
+      await send(modernBody(48, 'tools/call', { ...args, _meta: widget }), {
+        ...modernHeaders('tools/call', 'get_video_info'),
+        'x-request-id': 'req-modern',
+      });
+      await send(toolCallBody(49, 'get_video_info', args.arguments, widget), {
+        'x-request-id': 'req-legacy',
+      });
+    } finally {
+      await local.close();
+    }
+
+    const toolLines = lines.filter((line) => line.msg === 'MCP tool call');
+    expect(toolLines.map((line) => [line.era, line.reqId, line.source, line.tool])).toEqual([
+      ['modern', 'req-modern', 'widget', 'get_video_info'],
+      ['legacy', 'req-legacy', 'widget', 'get_video_info'],
+    ]);
+  });
+
+  it('counts a 2026-07-28 tool call in mcp_tool_calls_total', async () => {
+    const metric = async () => {
+      const text = await (await fetch(`${baseUrl}/metrics`)).text();
+      const line = text
+        .split('\n')
+        .find(
+          (l) =>
+            l.startsWith('mcp_tool_calls_total{') &&
+            l.includes('tool="get_video_info"') &&
+            l.includes('source="model"')
+        );
+      return Number(line?.split(' ').pop() ?? 0);
+    };
+    const before = await metric();
+
+    await readMcpBody(
+      await postModern(
+        modernBody(50, 'tools/call', {
+          name: 'get_video_info',
+          arguments: { url: 'not a video link' },
+        })
+      )
+    );
+
+    expect(await metric()).toBe(before + 1);
+  });
+
+  it('writes a warn line for a refused request, and sends nothing to Sentry', async () => {
+    const { local, lines } = appWithLogLines();
+
+    const response = await local.inject({
+      method: 'POST',
+      url: '/mcp',
+      payload: modernBody(51, 'tools/list'),
+      headers: {
+        'content-type': 'application/json',
+        accept: MCP_ACCEPT,
+        'mcp-protocol-version': MODERN,
+      },
+    });
+    await local.close();
+
+    expect(response.statusCode).toBe(400);
+    expect(lines).toContainEqual(
+      expect.objectContaining({
+        level: 40,
+        status: 400,
+        rpcCode: -32020,
+        rpcMethod: 'tools/list',
+        protocolVersion: MODERN,
+      })
+    );
+    expect(lines.filter((line) => (line.level as number) >= 50)).toEqual([]);
+    expect(Sentry.captureException).not.toHaveBeenCalled();
+  });
+
+  // A proxy with an idle timeout cuts a silent response. 2025 calls get an SSE comment every
+  // 15 s from the SDK transport, and the modern ones must get it too.
+  it('sends an SSE comment every 15 s while a tool call runs', async () => {
+    const execFileMock = execFile as unknown as jest.Mock;
+    let answer: (() => void) | undefined;
+    execFileMock.mockImplementation(
+      (
+        _file: string,
+        _args: string[],
+        _options: unknown,
+        callback: (e: null, r: object) => void
+      ) => {
+        const reply = () => callback(null, { stdout: '', stderr: '' });
+        // The first yt-dlp run waits for the test; the runs after it answer at once.
+        if (answer) reply();
+        else answer = reply;
+      }
+    );
+    // Only the keep-alive runs on setInterval; HTTP, fetch and the tool keep real time.
+    jest.useFakeTimers({
+      doNotFake: [
+        'Date',
+        'hrtime',
+        'nextTick',
+        'performance',
+        'queueMicrotask',
+        'requestAnimationFrame',
+        'cancelAnimationFrame',
+        'requestIdleCallback',
+        'cancelIdleCallback',
+        'setImmediate',
+        'clearImmediate',
+        'setTimeout',
+        'clearTimeout',
+      ],
+    });
+
+    try {
+      // Node sends the headers with the first frame, so the answer starts with the comment.
+      const pending = postModern(
+        modernBody(52, 'tools/call', {
+          name: 'get_transcript',
+          arguments: { url: 'https://www.facebook.com/watch?v=1', lang: 'en_US' },
+        })
+      );
+      while (!answer) await new Promise((resolve) => setImmediate(resolve));
+      jest.advanceTimersByTime(15_000);
+      const response = await pending;
+      expect(response.headers.get('content-type')).toContain('text/event-stream');
+      const reader = response.body!.getReader();
+      const decoder = new TextDecoder();
+      let text = '';
+      const readUntil = async (pattern: RegExp) => {
+        while (!pattern.test(text)) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          text += decoder.decode(value);
+        }
+      };
+
+      await readUntil(/^:/m);
+      expect(text).toMatch(/^:/m);
+      expect(text).not.toContain('"result"');
+
+      answer();
+      await readUntil(/"result"/);
+      expect(text).toContain('"resultType":"complete"');
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it.each([
+    ['auto', MODERN],
+    ['legacy', '2025-11-25'],
+  ] as const)('serves the SDK client in mode %s with %s', async (mode, version) => {
+    const client = new Client(
+      { name: 'mcp-http-test', version: '1.0.0' },
+      { versionNegotiation: { mode } }
+    );
+    await client.connect(new StreamableHTTPClientTransport(new URL(`${baseUrl}/mcp`)));
+
+    try {
+      expect(client.getNegotiatedProtocolVersion()).toBe(version);
+      expect((await client.listTools()).tools.length).toBe(8);
+    } finally {
+      await client.close();
+    }
   });
 });
