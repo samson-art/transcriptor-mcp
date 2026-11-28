@@ -141,7 +141,7 @@ jobs:
       # each job gets a fresh builder, so `pip install -U yt-dlp` resolves anew.
       # The multi-arch builds below reuse the amd64 layers from this same builder.
       - name: Build MCP image for smoke (amd64, kept local)
-        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           file: ./Dockerfile
@@ -161,7 +161,7 @@ jobs:
         run: SMOKE_SKIP_BUILD=1 SMOKE_SKIP_TRANSCRIPT=1 SMOKE_MCP_IMAGE=transcriptor-mcp:smoke npm run test:e2e:mcp
 
       - name: Build API image for smoke (amd64, kept local)
-        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           file: ./Dockerfile
@@ -180,7 +180,7 @@ jobs:
         run: SMOKE_SKIP_BUILD=1 SMOKE_SKIP_MCP=1 SMOKE_SKIP_TRANSCRIPT=1 SMOKE_IMAGE_API=transcriptor-mcp-api:smoke npm run test:e2e:api
 
       - name: Build and push REST API image
-        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           file: ./Dockerfile
@@ -190,7 +190,7 @@ jobs:
           platforms: linux/amd64,linux/arm64
 
       - name: Build and push MCP image
-        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           file: ./Dockerfile
