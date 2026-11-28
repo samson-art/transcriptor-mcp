@@ -23,6 +23,8 @@ assets/store/
 !.claude/hooks/
 !.claude/skills/
 .claude/skills/*-workspace/
+# The release skill is for the maintainer only. It stays local.
+.claude/skills/release/
 # Keys never go into the repo.
 id_rsa
 id_ed25519

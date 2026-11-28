@@ -103,6 +103,6 @@ In Claude Code, hooks in `.claude/settings.json` enforce the secrets rules. They
 
 - Name the branch `fix/<X.Y.Z>-<slug>` or `feat/<X.Y.Z>-<slug>`, where X.Y.Z is the next version after the newest tag. Docs and chore branches (`chore/<slug>`) do not bump the version.
 - Use `.github/pull_request_template.md`. Keep the PR in draft while review fixes are still to come, so that nobody merges it without them.
-- The maintainer cuts releases with the `release` skill. A PR that changes shipped behavior is one release. Tag pushes deploy production.
+- The maintainer cuts releases. A PR that changes shipped behavior is one release. Tag pushes deploy production.
 
 Public intents go to issues in this repo. Intents that need production details go to a private tracker that the maintainer owns. Contributors always use public issues.

@@ -21,7 +21,7 @@ A person and a coding agent use the same steps for every change.
 
 [AGENTS.md](AGENTS.md) is the shared context for every agent. Claude Code reads it through [CLAUDE.md](CLAUDE.md). Claude Code also loads these items:
 
-- The skills in [.claude/skills/](.claude/skills/): `change` (this cycle), `release` and `grilling` (the interview behind step 1).
+- The skills in [.claude/skills/](.claude/skills/): `change` (this cycle) and `grilling` (the interview behind step 1).
 - The hooks in [.claude/settings.json](.claude/settings.json).
 
 With another agent, point it at `.claude/skills/change/SKILL.md` and let it follow that file.
