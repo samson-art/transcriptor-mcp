@@ -39,17 +39,25 @@ jobs:
             echo "Up to date. Nothing to start."
             exit 0
           fi
+          # A yanked release makes PyPI fall back to an older version. Never rebuild down.
+          if [ "$(printf '%s\n' "$(norm "$image")" "$(norm "$pypi")" | sort -V | tail -1)" = "$(norm "$image")" ]; then
+            echo "::notice::The image is newer than PyPI. Nothing to start."
+            exit 0
+          fi
 
-          last=$(gh run list --workflow publish-docker.yml -L 1 --json status,createdAt,url -q '.[0] // empty')
+          last=$(gh run list --workflow publish-docker.yml -L 1 --json status,conclusion,createdAt,url -q '.[0] // empty')
           if [ -n "$last" ] && [ "$(jq -r .status <<<"$last")" != "completed" ]; then
             echo "::notice::A publish run is queued or in progress: $(jq -r .url <<<"$last"). The next check tries again."
             exit 0
           fi
 
-          # A publish run that started after the upload already had its chance. Another
-          # one would most likely end the same way and restart deployments every 12 hours.
+          # A successful publish run that started well after the upload already had its
+          # chance. Another one would most likely end the same way and restart deployments
+          # every 12 hours. A failed or cancelled run does not count. The hour covers the
+          # PyPI index cache, which can serve the old version right after an upload.
           uploaded=$(jq -r '[.urls[].upload_time_iso_8601] | min' <<<"$pypi_json")
-          if [ -n "$last" ] && [ "$(date -d "$(jq -r .createdAt <<<"$last")" +%s)" -gt "$(date -d "$uploaded" +%s)" ]; then
+          if [ -n "$last" ] && [ "$(jq -r .conclusion <<<"$last")" = "success" ] &&
+            [ "$(date -d "$(jq -r .createdAt <<<"$last")" +%s)" -gt "$(($(date -d "$uploaded" +%s) + 3600))" ]; then
             echo "::error::PyPI has had yt-dlp $pypi since $uploaded, and $(jq -r .url <<<"$last") started after that, but $IMAGE still has $image. Check why that build did not install $pypi."
             exit 1
           fi
