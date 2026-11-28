@@ -45,7 +45,6 @@ import type { FastifyBaseLogger } from 'fastify';
 import pino from 'pino';
 import { ORIGIN_NOT_ALLOWED_MESSAGE, UNEXPECTED_ERROR_MESSAGE, YtDlpError } from './errors.js';
 import { buildMcpHttpApp } from './mcp-http.js';
-import { createLoggerWithSentryBreadcrumbs } from './logger-sentry-breadcrumbs.js';
 import * as whisperJobs from './whisper-jobs.js';
 
 const MCP_ACCEPT = 'application/json, text/event-stream';
@@ -95,7 +94,10 @@ function initializeBody(id = 1) {
 }
 
 beforeAll(async () => {
-  app = buildMcpHttpApp({ loggerInstance: createLoggerWithSentryBreadcrumbs({ level: 'silent' }) });
+  // A route with logLevel 'warn' logs even under a silent logger, so send the lines nowhere (#138).
+  app = buildMcpHttpApp({
+    loggerInstance: pino({ level: 'silent' }, { write: () => {} }) as FastifyBaseLogger,
+  });
   await app.listen({ port: 0, host: '127.0.0.1' });
   const address = app.server.address();
   if (address === null || typeof address === 'string') {

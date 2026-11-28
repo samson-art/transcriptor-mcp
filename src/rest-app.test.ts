@@ -31,6 +31,12 @@ jest.mock('./validation.js', () => {
     validateAndFetchVideoChapters: jest.fn(actual.validateAndFetchVideoChapters),
   };
 });
+// The /health and /metrics routes log at warn even when LOG_LEVEL is silent, and the real logger
+// writes to stdout. Send the lines nowhere (#138).
+jest.mock('./logger-sentry-breadcrumbs.js', () => ({
+  createLoggerWithSentryBreadcrumbs: () =>
+    jest.requireActual<typeof import('pino')>('pino')({}, { write: () => {} }),
+}));
 
 const MAX = 2;
 // Pin what a shell can set: Redis would keep Jest from exiting, and a short window makes 429s flaky.
