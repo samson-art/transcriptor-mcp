@@ -40,23 +40,32 @@ async function stdioSession() {
   const server = createMcpServer({ logger: pino({ level: 'silent' }) as FastifyBaseLogger });
   await server.connect(new StdioServerTransport(stdin, stdout));
 
-  const waiting = new Map<number, (answer: Answer) => void>();
+  const waiting = new Map<number, { resolve: (a: Answer) => void; reject: (e: Error) => void }>();
   let buffer = '';
   stdout.on('data', (chunk: Buffer) => {
     buffer += chunk.toString('utf8');
     for (let end = buffer.indexOf('\n'); end >= 0; end = buffer.indexOf('\n')) {
-      // stdout carries only JSON-RPC: any other line throws here and fails the test.
-      const answer = JSON.parse(buffer.slice(0, end)) as Answer;
+      const line = buffer.slice(0, end);
       buffer = buffer.slice(end + 1);
-      if (answer.id !== undefined) waiting.get(answer.id)?.(answer);
+      let answer: Answer;
+      try {
+        answer = JSON.parse(line) as Answer;
+      } catch {
+        // stdout carries only JSON-RPC: any other line fails every request that waits.
+        for (const { reject } of waiting.values()) {
+          reject(new Error(`stdout line that is not JSON-RPC: ${line}`));
+        }
+        continue;
+      }
+      if (answer.id !== undefined) waiting.get(answer.id)?.resolve(answer);
     }
   });
 
   let lastId = 0;
   const request = (method: string, params?: Record<string, unknown>) =>
-    new Promise<Answer>((resolve) => {
+    new Promise<Answer>((resolve, reject) => {
       const id = ++lastId;
-      waiting.set(id, resolve);
+      waiting.set(id, { resolve, reject });
       stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id, method, ...(params && { params }) })}\n`);
     });
   const notify = (method: string) => stdin.write(`${JSON.stringify({ jsonrpc: '2.0', method })}\n`);

@@ -359,6 +359,15 @@ describe('Sentry user from the gateway (#118)', () => {
     expect(mockLogs).toHaveLength(0);
   });
 
+  // The SDK gives the headers as a web Headers object, which joins a repeated header with ", ".
+  // The gateway sends one value, so a joined one is not a user id (SDK 1.x gave an array).
+  it('sends no log when the header holds more than one value', async () => {
+    await callTool('get_video_info', { url: INFO_URL }, 'sub-a, sub-b');
+    await Sentry.flush();
+
+    expect(mockLogs).toHaveLength(0);
+  });
+
   it('keeps the user of each request when two calls overlap', async () => {
     const slowUser = `sub-${randomUUID()}`;
     const fastUser = `sub-${randomUUID()}`;

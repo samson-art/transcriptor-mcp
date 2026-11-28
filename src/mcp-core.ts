@@ -461,7 +461,8 @@ type ToolCall = {
 function sentryUserId({ ctx }: ToolCall): string | undefined {
   const secret = process.env.SENTRY_USER_HASH_SECRET;
   const header = ctx.http?.req?.headers.get('x-mcpal-user-id');
-  if (!secret || !header) return undefined;
+  // Headers.get joins a repeated header with ", ". SDK 1.x gave an array, which got no id.
+  if (!secret || !header || header.includes(',')) return undefined;
   return createHmac('sha256', secret).update(header).digest('hex').slice(0, 16);
 }
 
