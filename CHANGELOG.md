@@ -58,6 +58,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - A tool call with bad arguments still gets a tool result with `isError`, but the text has a new form, without the "MCP error -32602: " prefix. For example, "MCP error -32602: Input validation error: Invalid arguments for tool get_transcript: String must contain at least 1 character(s) at url" is now "Input validation error: Invalid arguments for tool get_transcript: url: Too small: expected string to have >=1 characters".
   - A `resources/read` of an unknown URI gets -32602 "Resource not found: <uri>", with the URI in `data.uri`. Before, the text was "MCP error -32602: Resource <uri> not found".
   - A `resources/read` with a value that is not a URI gets -32602 "Resource URI <value> is invalid". Before, it got -32603 "Invalid URL".
+- The `initialize` answer changes in two ways, over HTTP and over stdio (#84):
+  - It says `listChanged: false` for tools, resources and prompts. Before, it said `true`, but these lists never change while the server runs. Under MCP 2026-07-28, `true` lets a client hold a `subscriptions/listen` stream open with no time limit.
+  - It declares the MCP Apps extension: `capabilities.extensions["io.modelcontextprotocol/ui"]` is `{}`.
+- A read of `transcriptor://transcript/{videoId}` that fails for a cause that the REST API answers with 400 or 404 now gets -32602, with `data.uri` (#84). Examples are no tracks, the track list of ADR 006, a removed video and a bad id. Before, it got -32603. The text does not change. A cause that the REST API answers with 5xx, such as a busy server or a bot check, still gets -32603.
 - Each widget is about 215 KB smaller, 47 KB with gzip, with ext-apps 2.0.4. ext-apps 2.0.4 uses the same version of the protocol between a widget and its host as 1.7.4 (2026-01-26).
 
 ### Fixed

@@ -3,7 +3,13 @@ import {
   registerAppTool,
   RESOURCE_MIME_TYPE,
 } from '@modelcontextprotocol/ext-apps/server';
-import { McpServer, ResourceTemplate, type ServerContext } from '@modelcontextprotocol/server';
+import {
+  McpServer,
+  ProtocolError,
+  ProtocolErrorCode,
+  ResourceTemplate,
+  type ServerContext,
+} from '@modelcontextprotocol/server';
 import { createHash, createHmac } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -533,17 +539,25 @@ function errorText(err: unknown, log: FastifyBaseLogger, where: Record<string, s
   return err instanceof YtDlpError ? err.message : UNEXPECTED_ERROR_MESSAGE;
 }
 
-/** The SDK answers a failed resource read with the thrown message, so it gets the tools' rule. */
+/**
+ * The SDK answers a failed resource read with the thrown message, so it gets the tools' rule.
+ * A cause that the REST API answers with 4xx means that the resource does not exist, and
+ * MCP 2026-07-28 wants -32602 for it (#84). Any other cause stays -32603.
+ */
 function withResourceErrorHandling<A extends unknown[], R>(
   log: FastifyBaseLogger,
   resource: string,
-  read: (...args: A) => Promise<R>
-): (...args: A) => Promise<R> {
-  return async (...args) => {
+  read: (uri: URL, ...args: A) => Promise<R>
+): (uri: URL, ...args: A) => Promise<R> {
+  return async (uri, ...args) => {
     try {
-      return await read(...args);
+      return await read(uri, ...args);
     } catch (err) {
-      throw new Error(errorText(err, log, { resource }));
+      const text = errorText(err, log, { resource });
+      if (err instanceof HttpError && err.statusCode < 500) {
+        throw new ProtocolError(ProtocolErrorCode.InvalidParams, text, { uri: uri.href });
+      }
+      throw new Error(text);
     }
   };
 }
@@ -621,10 +635,21 @@ export function createMcpServer(opts?: CreateMcpServerOptions) {
   // array or a record, and Fastify refuses a body over 1 MiB. On 2026-11-27, a 1 MiB call used at
   // most 37 MB of heap for 86 ms, with or without the option. If a tool input gets an array or a
   // record, set the option just above the largest input that the tool needs.
-  const server = new McpServer({
-    name: 'transcriptor-mcp',
-    version,
-  });
+  const server = new McpServer(
+    { name: 'transcriptor-mcp', version },
+    {
+      capabilities: {
+        // The lists never change while the server runs. With listChanged true, a 2026-07-28
+        // client may hold a subscriptions/listen stream open, and SDK 2.4.0 sets no time
+        // limit on it (typescript-sdk#2873).
+        tools: { listChanged: false },
+        resources: { listChanged: false },
+        prompts: { listChanged: false },
+        // The 4 widget tools are MCP Apps.
+        extensions: { 'io.modelcontextprotocol/ui': {} },
+      },
+    }
+  );
 
   /**
    * Get video transcript
