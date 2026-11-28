@@ -1,4 +1,4 @@
-import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
+import type { CallToolResult } from '@modelcontextprotocol/client';
 import type { Cue } from './types.js';
 
 const TIMESTAMP_RE = /^(\d{1,2}):(\d{2}):(\d{2})[,.](\d{1,3})$/;

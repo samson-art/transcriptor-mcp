@@ -3,16 +3,13 @@ import {
   registerAppTool,
   RESOURCE_MIME_TYPE,
 } from '@modelcontextprotocol/ext-apps/server';
-import { McpServer, ResourceTemplate } from '@modelcontextprotocol/sdk/server/mcp.js';
-import type { ListToolsResult } from '@modelcontextprotocol/sdk/types.js';
+import { McpServer, ResourceTemplate, type ServerContext } from '@modelcontextprotocol/server';
 import { createHash, createHmac } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-// IMPORTANT: use Zod v3 schemas for MCP JSON Schema compatibility.
-// Some MCP clients (e.g. n8n) are strict about JSON Schema shapes and can fail
-// on Zod v4 JSON schema output ($ref-heavy / missing "type" in some branches).
-// The MCP SDK already supports Zod v3 via `zod/v3` + `zod-to-json-schema`.
-import { z } from 'zod/v3';
+// zod v4 (ADR 010). tools/list shows the JSON Schema that the SDK makes from these schemas, and
+// src/mcp-tools-contract.json pins it. The objects are not strict: an unknown key is dropped.
+import { z } from 'zod';
 import type { FastifyBaseLogger } from 'fastify';
 import pino from 'pino';
 import * as Sentry from '@sentry/node';
@@ -445,16 +442,14 @@ function trackHint(details?: NotFoundDetails): string {
   return ` Available tracks — official: ${show(official, 'official')}; auto: ${show(auto, 'auto')}.`;
 }
 
-/** What a tool was called with, as far as the per-call log line needs it. */
+/**
+ * What a tool was called with, as far as the per-call log line needs it. `ctx.http.req` is the
+ * HTTP request, and over stdio it is not there. The SDK aborts `ctx.mcpReq.signal` when the
+ * transport of the request closes.
+ */
 type ToolCall = {
   args: Record<string, unknown>;
-  extra: {
-    _meta?: Record<string, unknown>;
-    /** Only over HTTP. The SDK gives the request headers with lowercase names. */
-    requestInfo?: { headers?: Record<string, string | string[] | undefined> };
-    /** The SDK aborts it when the transport of the request closes. */
-    signal?: AbortSignal;
-  };
+  ctx: ServerContext;
 };
 
 /**
@@ -463,10 +458,11 @@ type ToolCall = {
  * HMAC of it, not the id itself. Without SENTRY_USER_HASH_SECRET there is no id. Only the
  * gateway reaches the HTTP listener, so the server trusts the header, as with `x-request-id`.
  */
-function sentryUserId({ extra }: ToolCall): string | undefined {
+function sentryUserId({ ctx }: ToolCall): string | undefined {
   const secret = process.env.SENTRY_USER_HASH_SECRET;
-  const header = extra.requestInfo?.headers?.['x-mcpal-user-id'];
-  if (!secret || typeof header !== 'string' || header === '') return undefined;
+  const header = ctx.http?.req?.headers.get('x-mcpal-user-id');
+  // Headers.get joins a repeated header with ", ". SDK 1.x gave an array, which got no id.
+  if (!secret || !header || header.includes(',')) return undefined;
   return createHmac('sha256', secret).update(header).digest('hex').slice(0, 16);
 }
 
@@ -474,8 +470,8 @@ function sentryUserId({ extra }: ToolCall): string | undefined {
 const WIDGET_SOURCE_META_KEY = 'transcriptor/source';
 
 /** The `source` of the log line and of `mcp_tool_calls_total`: two values only. */
-function toolCallSource(extra: ToolCall['extra']): 'widget' | 'model' {
-  return extra._meta?.[WIDGET_SOURCE_META_KEY] === 'widget' ? 'widget' : 'model';
+function toolCallSource(ctx: ServerContext): 'widget' | 'model' {
+  return ctx.mcpReq._meta?.[WIDGET_SOURCE_META_KEY] === 'widget' ? 'widget' : 'model';
 }
 
 /** For an input that is neither a URL nor an id: the host it would have, or `invalid`. */
@@ -492,7 +488,7 @@ function hostOfSchemeless(input: string): string {
  * Fields of the one log line per tool call. No URL: `addr` is the hash the
  * analytics collector also derives from yt-dlp command lines.
  */
-function toolCallLogFields({ args, extra }: ToolCall) {
+function toolCallLogFields({ args, ctx }: ToolCall) {
   const input = typeof args.url === 'string' ? args.url.trim() : '';
   const resolved = input ? normalizeVideoInput(input) : null;
   const url = input ? (resolved ?? input) : '';
@@ -514,7 +510,7 @@ function toolCallLogFields({ args, extra }: ToolCall) {
     explicit: args.type !== undefined || args.lang !== undefined,
     addr: url ? createHash('sha256').update(url).digest('hex').slice(0, 12) : undefined,
     vid: videoId ? createHash('sha256').update(videoId).digest('hex').slice(0, 12) : undefined,
-    source: toolCallSource(extra),
+    source: toolCallSource(ctx),
   };
 }
 
@@ -559,7 +555,7 @@ async function withToolErrorHandling(
   fn: () => Promise<ToolSuccessResult>
 ): Promise<ToolResult> {
   const start = performance.now();
-  recordMcpToolCall(toolName, toolCallSource(call.extra));
+  recordMcpToolCall(toolName, toolCallSource(call.ctx));
   let reason: string | undefined;
   let answer: NoSubtitlesAnswer | undefined;
   try {
@@ -597,7 +593,7 @@ async function withToolErrorHandling(
       // A closed transport means that the caller never got the answer: a proxy cut the call,
       // or the client left. The call keeps its own reason: a slow call that the edge cut and
       // that then timed out is still a timeout.
-      const cancelled = call.extra.signal?.aborted === true;
+      const cancelled = call.ctx.mcpReq.signal.aborted;
       Sentry.startNewTrace(() =>
         Sentry.logger.info('MCP tool call', {
           'user.id': userId,
@@ -613,40 +609,6 @@ async function withToolErrorHandling(
       );
     }
   }
-}
-
-const DRAFT_07_SCHEMA_URI = 'http://json-schema.org/draft-07/schema#';
-const DRAFT_2020_12_SCHEMA_URI = 'https://json-schema.org/draft/2020-12/schema';
-
-/**
- * Gives each tool schema in tools/list the JSON Schema 2020-12 label instead of draft-07 (#80).
- * The SDK converts our zod/v3 schemas with zod-to-json-schema, which writes the draft-07 label,
- * and no SDK option changes it. A listing of the 1.5.21 build on 2026-10-07 showed the label on
- * all 16 schemas, and SDK 1.32.2 still writes it (2026-11-27). Some Claude apps refuse each call
- * to a tool with a draft-07 output schema, before the call reaches this server. Since revision
- * 2025-11-25, the MCP spec makes 2020-12 the default. Our schemas use only keywords that mean the
- * same in both versions, so only the label changes.
- * ponytail: this reads the private SDK field _requestHandlers. The new label keeps the meaning
- * only while the schemas use no $ref and no tuple items. If the field goes away, this function
- * does nothing, and two tests in src/mcp-http.test.ts fail. The move to SDK 2.x (#83) removes it.
- */
-function relabelToolSchemas(server: McpServer): void {
-  const handlers = (
-    server.server as unknown as {
-      _requestHandlers?: Map<string, (request: unknown, extra: unknown) => Promise<unknown>>;
-    }
-  )._requestHandlers;
-  const listTools = handlers?.get('tools/list');
-  if (!handlers || !listTools) return;
-  handlers.set('tools/list', async (request, extra) => {
-    const result = (await listTools(request, extra)) as ListToolsResult;
-    for (const tool of result.tools) {
-      for (const schema of [tool.inputSchema, tool.outputSchema]) {
-        if (schema?.$schema === DRAFT_07_SCHEMA_URI) schema.$schema = DRAFT_2020_12_SCHEMA_URI;
-      }
-    }
-    return result;
-  });
 }
 
 export type CreateMcpServerOptions = {
@@ -691,8 +653,8 @@ export function createMcpServer(opts?: CreateMcpServerOptions) {
         'openai/toolInvocation/invoked': 'Transcript ready',
       },
     },
-    async (args: z.infer<typeof subtitleInputSchema>, extra) =>
-      withToolErrorHandling(TOOL_GET_TRANSCRIPT, log, { args, extra }, async () => {
+    async (args: z.infer<typeof subtitleInputSchema>, ctx) =>
+      withToolErrorHandling(TOOL_GET_TRANSCRIPT, log, { args, ctx }, async () => {
         const resolved = resolveSubtitleArgs(args);
         const result = await validateAndDownloadSubtitles(
           {
@@ -748,8 +710,8 @@ export function createMcpServer(opts?: CreateMcpServerOptions) {
         destructiveHint: false,
       },
     },
-    async (args, extra) =>
-      withToolErrorHandling(TOOL_GET_RAW_SUBTITLES, log, { args, extra }, async () => {
+    async (args, ctx) =>
+      withToolErrorHandling(TOOL_GET_RAW_SUBTITLES, log, { args, ctx }, async () => {
         const resolved = resolveSubtitleArgs(args);
         const result = await validateAndDownloadSubtitles(
           {
@@ -804,8 +766,8 @@ export function createMcpServer(opts?: CreateMcpServerOptions) {
         destructiveHint: false,
       },
     },
-    async (args, extra) =>
-      withToolErrorHandling(TOOL_GET_AVAILABLE_SUBTITLES, log, { args, extra }, async () => {
+    async (args, ctx) =>
+      withToolErrorHandling(TOOL_GET_AVAILABLE_SUBTITLES, log, { args, ctx }, async () => {
         const url = requireVideoUrl(args.url);
         const result = await validateAndFetchAvailableSubtitles({ url }, log);
         const text = [
@@ -850,8 +812,8 @@ export function createMcpServer(opts?: CreateMcpServerOptions) {
         'openai/toolInvocation/invoked': 'Video info ready',
       },
     },
-    async (args: z.infer<typeof baseInputSchema>, extra) =>
-      withToolErrorHandling(TOOL_GET_VIDEO_INFO, log, { args, extra }, async () => {
+    async (args: z.infer<typeof baseInputSchema>, ctx) =>
+      withToolErrorHandling(TOOL_GET_VIDEO_INFO, log, { args, ctx }, async () => {
         const url = requireVideoUrl(args.url);
         const { videoId, info } = await validateAndFetchVideoInfo({ url }, log);
         const textLines = [
@@ -911,8 +873,8 @@ export function createMcpServer(opts?: CreateMcpServerOptions) {
         destructiveHint: false,
       },
     },
-    async (args, extra) =>
-      withToolErrorHandling(TOOL_GET_VIDEO_CHAPTERS, log, { args, extra }, async () => {
+    async (args, ctx) =>
+      withToolErrorHandling(TOOL_GET_VIDEO_CHAPTERS, log, { args, ctx }, async () => {
         const url = requireVideoUrl(args.url);
         const result = await validateAndFetchVideoChapters({ url }, log);
         const chapters = result.chapters ?? [];
@@ -960,8 +922,8 @@ export function createMcpServer(opts?: CreateMcpServerOptions) {
         'openai/toolInvocation/invoked': 'Frame captured',
       },
     },
-    async (args: z.infer<typeof videoFrameInputSchema>, extra) =>
-      withToolErrorHandling(TOOL_GET_VIDEO_FRAME, log, { args, extra }, async () => {
+    async (args: z.infer<typeof videoFrameInputSchema>, ctx) =>
+      withToolErrorHandling(TOOL_GET_VIDEO_FRAME, log, { args, ctx }, async () => {
         const result = await validateAndCaptureVideoFrame(
           {
             url: args.url,
@@ -1013,8 +975,8 @@ export function createMcpServer(opts?: CreateMcpServerOptions) {
         destructiveHint: false,
       },
     },
-    async (args, extra) =>
-      withToolErrorHandling(TOOL_GET_PLAYLIST_TRANSCRIPTS, log, { args, extra }, async () => {
+    async (args, ctx) =>
+      withToolErrorHandling(TOOL_GET_PLAYLIST_TRANSCRIPTS, log, { args, ctx }, async () => {
         const url = normalizeVideoInput(args.url);
         if (!url) {
           throw new ValidationError(
@@ -1098,8 +1060,8 @@ export function createMcpServer(opts?: CreateMcpServerOptions) {
         'openai/toolInvocation/invoked': 'Videos found',
       },
     },
-    async (args: z.infer<typeof searchInputSchema>, extra) =>
-      withToolErrorHandling(TOOL_SEARCH_VIDEOS, log, { args, extra }, async () => {
+    async (args: z.infer<typeof searchInputSchema>, ctx) =>
+      withToolErrorHandling(TOOL_SEARCH_VIDEOS, log, { args, ctx }, async () => {
         const query = typeof args.query === 'string' ? args.query.trim() : '';
         if (!query) {
           throw new ValidationError('Query is required for search.');
@@ -1493,8 +1455,6 @@ export function createMcpServer(opts?: CreateMcpServerOptions) {
     })
   );
 
-  // After the tools: the SDK sets its tools/list handler at the first tool registration.
-  relabelToolSchemas(server);
   return server;
 }
 
