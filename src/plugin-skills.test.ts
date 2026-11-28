@@ -7,14 +7,18 @@ import path from 'node:path';
 
 const root = path.join(__dirname, '..');
 const skillsDir = path.join(root, 'plugin', 'skills');
-const toolNames = new Set(
-  (
-    JSON.parse(fs.readFileSync(path.join(__dirname, 'mcp-tools-contract.json'), 'utf8')) as {
-      name: string;
-    }[]
-  ).map((tool) => tool.name)
+const contract = JSON.parse(
+  fs.readFileSync(path.join(__dirname, 'mcp-tools-contract.json'), 'utf8')
+) as { name: string; inputSchema: { properties?: Record<string, unknown> } }[];
+const toolNames = new Set(contract.map((tool) => tool.name));
+const argNames = new Set(
+  contract.flatMap((tool) => Object.keys(tool.inputSchema.properties ?? {}))
 );
-const skills = fs.readdirSync(skillsDir);
+// Directories only: macOS Finder drops a .DS_Store here.
+const skills = fs
+  .readdirSync(skillsDir, { withFileTypes: true })
+  .filter((entry) => entry.isDirectory())
+  .map((entry) => entry.name);
 
 describe('plugin skills', () => {
   it('has the 4 workflows of #75', () => {
@@ -40,6 +44,18 @@ describe('plugin skills', () => {
     const named = [...text.matchAll(/`((?:get|search)_[a-z_]+)`/g)].map((m) => m[1]);
     expect(named.length).toBeGreaterThan(0);
     expect(named.filter((name) => !toolNames.has(name))).toEqual([]);
+  });
+
+  // The server drops an unknown argument key (ADR 010), so a renamed argument fails silently.
+  it.each(skills)('%s names only arguments that the tools have', (skill) => {
+    const text = fs.readFileSync(path.join(skillsDir, skill, 'SKILL.md'), 'utf8');
+    // Every word in backticks is a tool, an argument, or a value that the skills pass.
+    const values = new Set(['auto', 'official', 'en', 'ru']);
+    const args = [...text.matchAll(/`([A-Za-z_]+)`/g)].map((m) => m[1]);
+    expect(args.length).toBeGreaterThan(0);
+    expect(
+      args.filter((name) => !argNames.has(name) && !toolNames.has(name) && !values.has(name))
+    ).toEqual([]);
   });
 
   it('points at the endpoint that the README and the site publish', () => {

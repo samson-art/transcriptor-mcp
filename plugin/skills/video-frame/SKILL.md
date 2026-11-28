@@ -8,7 +8,7 @@ description: Show a still frame of a video at a given time. Use when the user gi
 1. Read the time from the request. Pass it as `timecode` in the form `MM:SS` or `HH:MM:SS`, for example `04:12`. If the user gave seconds, pass `seconds`. If the user gave no time, pass nothing. The tool then returns the first frame.
 2. Call `get_video_frame` one time with `url` and the time.
 3. Show the image. Say the time of the frame.
-4. If the user asks for the moment when something is said, and not for a time, find the time first. Call `get_raw_subtitles` one time, find the cue, and use its start time in step 2.
+4. If the user asks for the moment when something is said, and not for a time, find the time first. Do steps 1 to 3 of the quote-video skill with `get_raw_subtitles`, including its steps for a list of tracks. Use the start time of the cue that you find in step 2.
 
 ## Rules
 

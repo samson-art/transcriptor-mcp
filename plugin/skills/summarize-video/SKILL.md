@@ -5,7 +5,7 @@ description: Summarize a video or answer questions about what is said in it. Use
 
 # Summarize a video
 
-1. Call `get_transcript` one time with the `url` that the user gave. If the user named a language, also pass `lang` with that code. Otherwise, do not pass `type` or `lang`. The server then picks the original language of the video.
+1. Call `get_transcript` one time with the `url` that the user gave. If the user asked for the transcript in a specific language, also pass `lang` with that code. A language for your answer, such as "summarize in German", is not a track language: then do not pass `type` or `lang`. The server then picks the original language of the video.
 2. If the answer is a list of tracks and not the text, do the steps in "If the answer is a list of tracks".
 3. If the answer has `next_cursor` and the summary needs the rest of the text, call `get_transcript` again with the same arguments and that `next_cursor`.
 4. Write the summary or the answer from the transcript text only. Answer in the language of the user, not of the video.

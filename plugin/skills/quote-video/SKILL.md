@@ -5,11 +5,11 @@ description: Find what a video says about a topic and quote it with timestamps. 
 
 # Quote a video with timestamps
 
-1. Call `get_raw_subtitles` one time with the `url` that the user gave. If the user named a language, also pass `lang` with that code. Otherwise, do not pass `type` or `lang`. The answer is SRT or VTT text: each cue has a start time and an end time.
+1. Call `get_raw_subtitles` one time with the `url` that the user gave. If the user asked for the subtitles in a specific language, also pass `lang` with that code. A language for your answer, such as "summarize in German", is not a track language: then do not pass `type` or `lang`. The answer is SRT or VTT text: each cue has a start time and an end time.
 2. If the answer is a list of tracks and not the subtitles, do the steps in "If the answer is a list of tracks".
 3. If the answer has `next_cursor` and you did not find the quote, call `get_raw_subtitles` again with the same arguments and that `next_cursor`.
 4. Find the cues that match the request. Quote the words exactly, in the language of the video. Put the start time of the first cue in front of each quote, as `MM:SS` or `HH:MM:SS`.
-5. If the platform is YouTube, add a link to the moment: the video URL with `&t=<seconds>s`, or `?t=<seconds>s` if the URL has no `?`.
+5. If the video is on YouTube, add a link to the moment: `https://www.youtube.com/watch?v=<video ID>&t=<seconds>s`. Take the video ID from the link or the ID that the user gave.
 
 ## If the answer is a list of tracks
 
