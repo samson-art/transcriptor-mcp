@@ -1,6 +1,7 @@
-import { spawn } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import type { Readable } from 'node:stream';
+import { promisify } from 'node:util';
 
 import { isFlagSet } from './smoke-env.js';
 
@@ -86,6 +87,18 @@ export function runCommandWithStdin(
     child.stdin.on('error', fail);
     child.stdin.end(stdinInput);
   });
+}
+
+/**
+ * Runs `id -u` in an image (the caller passes `docker run --rm <image> id -u`) and fails unless it
+ * prints 1000, the uid of `node`. Before #131 both images ran yt-dlp and ffmpeg as root.
+ */
+export async function checkRunsAsUid1000(command: string, args: string[]): Promise<void> {
+  const { stdout } = await promisify(execFile)(command, args);
+  const uid = stdout.trim();
+  if (uid !== '1000') {
+    throw new Error(`${args.join(' ')} runs as uid ${uid}, expected 1000 (the user node, #131)`);
+  }
 }
 
 /** When true, run `docker build` for images before starting containers. */

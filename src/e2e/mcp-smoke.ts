@@ -5,6 +5,7 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import { parseIntFromString } from '../env.js';
 import {
   buildDockerImage,
+  checkRunsAsUid1000,
   getDockerBuildContext,
   getDockerfileRelativePath,
   getShouldBuildDockerImages,
@@ -394,6 +395,8 @@ export async function runMcpSmokeTest(mcpImage: string): Promise<void> {
   const mcpBaseUrl = getEnvVar('SMOKE_MCP_URL', `http://127.0.0.1:${mcpPort}`);
   const mcpContainerName =
     getEnvVar('SMOKE_MCP_CONTAINER_NAME', 'transcriptor-mcp-smoke') + `-${Date.now()}`;
+
+  await checkRunsAsUid1000('docker', ['run', '--rm', mcpImage, 'id', '-u']);
 
   // eslint-disable-next-line no-console
   console.log(

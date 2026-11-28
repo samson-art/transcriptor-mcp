@@ -2,7 +2,7 @@ import { setTimeout as sleep } from 'node:timers/promises';
 
 import { parseIntFromString } from '../env.js';
 import { runApiSmokeTest } from './api-checks.js';
-import { buildDockerImagesIfNeeded, runCommand } from './docker-utils.js';
+import { buildDockerImagesIfNeeded, checkRunsAsUid1000, runCommand } from './docker-utils.js';
 import { buildMcpImageRef, runMcpSmokeTest } from './mcp-smoke.js';
 import { getEnvVar, isFlagSet } from './smoke-env.js';
 
@@ -67,6 +67,7 @@ async function main(): Promise<void> {
 
   try {
     await buildDockerImagesIfNeeded(image, mcpImage, skipMcp);
+    await checkRunsAsUid1000('docker', ['run', '--rm', image, 'id', '-u']);
 
     // eslint-disable-next-line no-console
     console.log(

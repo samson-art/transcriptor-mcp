@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { Readable } from 'node:stream';
 import { setTimeout as sleep } from 'node:timers/promises';
 
-import { readFirstLineAsJson, runCommandWithStdin } from './docker-utils.js';
+import { checkRunsAsUid1000, readFirstLineAsJson, runCommandWithStdin } from './docker-utils.js';
 
 // The answer of the stdio server to `initialize`, as the SDK writes it: one JSON line.
 const RESPONSE =
@@ -83,6 +83,28 @@ describe('runCommandWithStdin', () => {
     await expect(
       runCommandWithStdin(process.execPath, ['-e', script], 'x'.repeat(1 << 22), 10000)
     ).rejects.toThrow(/EPIPE|ECONNRESET/);
+  });
+});
+
+// A local node child stands in for `docker run <image> id -u` (#131).
+describe('checkRunsAsUid1000', () => {
+  const printUid = (uid: string) =>
+    checkRunsAsUid1000(process.execPath, ['-e', `console.log(${JSON.stringify(uid)})`]);
+
+  it('fails when the image runs as root', async () => {
+    await expect(printUid('0')).rejects.toThrow('runs as uid 0, expected 1000');
+  });
+
+  it('fails when the output is not exactly 1000', async () => {
+    await expect(printUid('10000')).rejects.toThrow('runs as uid 10000, expected 1000');
+  });
+
+  it('resolves when the image runs as uid 1000', async () => {
+    await expect(printUid('1000')).resolves.toBeUndefined();
+  });
+
+  it('fails when the command fails', async () => {
+    await expect(checkRunsAsUid1000(process.execPath, ['-e', 'process.exit(3)'])).rejects.toThrow();
   });
 });
 
