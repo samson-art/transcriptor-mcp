@@ -1,4 +1,5 @@
-# Publish Docker images on: version tag push, new GitHub release, or manual run.
+# Publish Docker images on: version tag push or manual run. A tag push also creates
+# the GitHub Release of the tag (#149). A GitHub Release does not start this workflow.
 # A `latest_only` run rebuilds the newest release tag so the baked-in yt-dlp stays
 # current; ytdlp-rebuild.yml starts one when PyPI has a newer yt-dlp than :latest.
 # Requires DOCKERHUB_USERNAME and DOCKERHUB_TOKEN (or other registry secrets).
@@ -229,3 +230,35 @@ jobs:
         run: |
           ./mcp-publisher login github-oidc
           ./mcp-publisher publish
+
+  # The Releases list follows the tags (#149): before this, GitHub showed v1.2.0 of
+  # 2026-07-02 as the latest release, months after the newest tag.
+  # This job runs after both images are pushed, so it cannot stop or delay a deploy.
+  # It needs the CHANGELOG section of the version and fails without it.
+  github-release:
+    needs: publish
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # gh release create
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create the GitHub Release with the CHANGELOG section as notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          VERSION: ${{ needs.publish.outputs.version }}
+        run: |
+          set -euo pipefail
+          # A re-run of this job finds the release of the first run.
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "::notice::Release $TAG exists. Nothing to do."
+            exit 0
+          fi
+          awk -v v="$VERSION" 'index($0, "## [" v "]") == 1 { f = 1; next } f && /^## \[/ { exit } f' CHANGELOG.md > notes.md
+          grep -q . notes.md || { echo "::error::CHANGELOG.md has no section '## [$VERSION]'."; exit 1; }
+          # Without --latest, GitHub marks each new release Latest, even a late tag of an older version.
+          newest=$(git ls-remote --tags --refs origin 'refs/tags/v*' | awk -F/ '{print $NF}' | sort -V | tail -1)
+          latest=$([ "$TAG" = "$newest" ] && echo true || echo false)
+          gh release create "$TAG" --verify-tag --title "$TAG" --notes-file notes.md --latest="$latest"
