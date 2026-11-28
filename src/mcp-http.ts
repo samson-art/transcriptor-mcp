@@ -1,10 +1,13 @@
 /**
  * MCP over Streamable HTTP, served natively by this process (no mcp-proxy sidecar).
  *
- * Runs in the SDK's stateless mode: no `Mcp-Session-Id` is issued and no state is kept
- * between requests, so any instance can answer any request. Authentication is NOT handled
- * here — the deployment terminates OAuth at the gateway in front of this listener.
+ * One endpoint serves both protocol eras (#85, ADR 001): 2026-07-28 requests, which carry
+ * their version in `_meta`, and 2025 requests, which start with `initialize`. Both are
+ * stateless: no `Mcp-Session-Id` is issued and no state is kept between requests, so any
+ * instance can answer any request. Authentication is NOT handled here — the deployment
+ * terminates OAuth at the gateway in front of this listener.
  */
+import { AsyncLocalStorage } from 'node:async_hooks';
 import Fastify, {
   type FastifyBaseLogger,
   type FastifyError,
@@ -13,7 +16,8 @@ import Fastify, {
   type FastifyRequest,
   type FastifyServerOptions,
 } from 'fastify';
-import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
+import { toNodeHandler } from '@modelcontextprotocol/node';
+import { createMcpHandler } from '@modelcontextprotocol/server';
 import * as Sentry from '@sentry/node';
 import { httpErrorAnswer, ORIGIN_NOT_ALLOWED_MESSAGE, UNEXPECTED_ERROR_MESSAGE } from './errors.js';
 import { createMcpServer } from './mcp-core.js';
@@ -40,19 +44,38 @@ const JSONRPC_SERVER_ERROR = -32000;
 /** Fastify body-parser failures that map to a JSON-RPC parse error. */
 const PARSE_ERROR_CODES = new Set(['FST_ERR_CTP_INVALID_JSON_BODY', 'FST_ERR_CTP_EMPTY_JSON_BODY']);
 
+type JsonRpcId = string | number | null;
+
 type JsonRpcErrorBody = {
   jsonrpc: '2.0';
   error: { code: number; message: string };
-  id: null;
+  id: JsonRpcId;
 };
 
 /**
  * Every error on the MCP endpoint must be a valid JSON-RPC envelope: clients use the
  * response body (not just the status) to tell an MCP server apart from an unrelated one.
  */
-function jsonRpcError(code: number, message: string): JsonRpcErrorBody {
-  return { jsonrpc: '2.0', error: { code, message }, id: null };
+function jsonRpcError(code: number, message: string, id: JsonRpcId = null): JsonRpcErrorBody {
+  return { jsonrpc: '2.0', error: { code, message }, id };
 }
+
+/** The id and the method of a single JSON-RPC message, for an error answer and a log line. */
+function messageOf(body: unknown): { id: JsonRpcId; method?: string } {
+  if (typeof body !== 'object' || body === null || Array.isArray(body)) return { id: null };
+  const { id, method } = body as { id?: unknown; method?: unknown };
+  return {
+    id: typeof id === 'string' || typeof id === 'number' ? id : null,
+    ...(typeof method === 'string' && { method }),
+  };
+}
+
+/**
+ * What the SDK handler needs of the Fastify request that it serves. The handler lives as long
+ * as the app, so the server factory and `onerror` read the request from here.
+ */
+type McpExchange = { log: FastifyBaseLogger; error?: Error };
+const exchange = new AsyncLocalStorage<McpExchange>();
 
 /** A DNS rebinding page never has a loopback origin, so these pass when no list is set. */
 const LOOPBACK_HOSTNAMES = new Set(['localhost', '127.0.0.1', '[::1]']);
@@ -197,49 +220,92 @@ export function buildMcpHttpApp(opts?: BuildMcpHttpAppOptions): FastifyInstance 
     return reply.header('Content-Type', 'text/plain; charset=utf-8').send(metrics);
   });
 
-  app.post(MCP_PATH, { onRequest: refuseForeignOrigin }, async (request, reply) => {
-    // The transport writes status, headers and body straight to the raw response
-    // (including SSE frames), so Fastify must stop managing this reply.
-    reply.hijack();
-
-    // Stateless mode requires a fresh transport per request: the SDK throws when one is
-    // reused, because concurrent clients would collide on JSON-RPC message ids. The
-    // server is per-request for the same reason; tool registration is in-memory only.
-    const server = createMcpServer({ logger: request.log });
-    const transport = new NodeStreamableHTTPServerTransport({ sessionIdGenerator: undefined });
-
-    let disposed = false;
-    const dispose = () => {
-      if (disposed) return;
-      disposed = true;
-      void transport.close().catch(() => undefined);
-      void server.close().catch(() => undefined);
-    };
-    // Fires on normal completion and on client disconnect; a disconnect mid-call is the
-    // client cancelling, so tearing the server down is the intended behavior.
-    reply.raw.on('close', dispose);
-
-    try {
-      await server.connect(transport);
-      await transport.handleRequest(request.raw, reply.raw, request.body);
-    } catch (err) {
-      const error = err instanceof Error ? err : new Error(String(err), { cause: err });
-      request.log.error({ err: error }, 'MCP HTTP transport failed');
-      Sentry.captureException(error);
-      if (!reply.raw.headersSent) {
-        reply.raw.writeHead(500, { 'Content-Type': 'application/json' });
-        reply.raw.end(
-          JSON.stringify(jsonRpcError(JSONRPC_INTERNAL_ERROR, UNEXPECTED_ERROR_MESSAGE))
-        );
-      } else {
-        reply.raw.end();
-      }
-      dispose();
+  // The SDK builds a new server for each request from this factory, in both eras (ADR 001).
+  // The child logger keeps the reqId of the request on the "MCP tool call" line and adds `era`:
+  // the share of `legacy` calls says when the 2025 protocol can go.
+  const handler = createMcpHandler(
+    ({ era }) => createMcpServer({ logger: currentExchange().log.child({ era }) }),
+    {
+      // The SDK answers a 2026-07-28 request with one JSON body by default, and sends nothing
+      // until the result. A proxy with an idle timeout then cuts a long call. 'sse' sends an
+      // SSE comment every 15 s from the start, as the 2025 transport does.
+      responseMode: 'sse',
+      // The SDK reports refusals (4xx) and faults (5xx) here alike. Only the status of the
+      // answer tells them apart, so keep the error for the answer to decide.
+      onerror: (error) => {
+        const current = exchange.getStore();
+        if (current) {
+          current.error = error;
+        } else {
+          app.log.error({ err: error }, 'MCP handler failed outside a request');
+          Sentry.captureException(error);
+        }
+      },
     }
+  );
+
+  function currentExchange(): McpExchange {
+    const current = exchange.getStore();
+    if (!current) throw new Error('MCP server factory called outside a request');
+    return current;
+  }
+
+  const nodeHandler = toNodeHandler({
+    fetch: async (request, options) => {
+      const current = currentExchange();
+      const { id, method } = messageOf(options?.parsedBody);
+      let response: Response;
+      try {
+        response = await handler.fetch(request, options);
+      } catch (err) {
+        current.error = err instanceof Error ? err : new Error(String(err), { cause: err });
+        response = new Response(null, { status: 500 });
+      }
+
+      if (response.status >= 500) {
+        const error = current.error ?? new Error(`MCP handler answered ${response.status}`);
+        current.log.error({ err: error }, 'MCP HTTP request failed');
+        Sentry.captureException(error);
+        // The SDK text is not ours, and an error message must not reach the caller.
+        return Response.json(jsonRpcError(JSONRPC_INTERNAL_ERROR, UNEXPECTED_ERROR_MESSAGE, id), {
+          status: 500,
+        });
+      }
+      if (response.status >= 400) {
+        const answer = (await response
+          .clone()
+          .json()
+          .catch(() => undefined)) as { error?: { code?: unknown } } | undefined;
+        current.log.warn(
+          {
+            status: response.status,
+            rpcCode: answer?.error?.code,
+            rpcMethod: method,
+            protocolVersion: request.headers.get('mcp-protocol-version') ?? undefined,
+          },
+          'Refused an MCP request'
+        );
+      }
+      return response;
+    },
   });
 
-  // The transport does NOT reject GET/DELETE in stateless mode — a GET would open an SSE
-  // stream that nothing ever writes to and that only closes on disconnect. Answer here.
+  // preClose and not onClose: Fastify waits for open connections before onClose, and an open
+  // 2026-07-28 stream would hold the shutdown until SHUTDOWN_TIMEOUT.
+  app.addHook('preClose', async () => {
+    await handler.close();
+  });
+
+  app.post(MCP_PATH, { onRequest: refuseForeignOrigin }, async (request, reply) => {
+    // The handler writes status, headers and body straight to the raw response
+    // (including SSE frames), so Fastify must stop managing this reply.
+    reply.hijack();
+    await exchange.run({ log: request.log }, () =>
+      nodeHandler(request.raw, reply.raw, request.body)
+    );
+  });
+
+  // Here and not in the SDK handler: the Origin hook and the log level of this route stay.
   app.route({
     method: ['GET', 'DELETE'],
     url: MCP_PATH,

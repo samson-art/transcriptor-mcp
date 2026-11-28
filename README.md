@@ -253,6 +253,8 @@ The same port serves `GET /health` and `GET /metrics`. The metrics are in Promet
 
 **Transport.** The server accepts `POST /mcp` only. `GET` and `DELETE` return `405`. The server is stateless and sends no `Mcp-Session-Id`.
 
+The endpoint speaks both versions of the MCP protocol. A client of the 2026-07-28 version sends `server/discover` and puts the version in each request. A client of an older version (2024-10-07 to 2025-11-25) starts with `initialize`. Both get the same tools. A long tool call gets an SSE comment every 15 s in both versions, so a proxy with an idle timeout keeps the connection open.
+
 If a `POST`, `GET` or `DELETE` request to `/mcp` has an `Origin` header that `MCP_ALLOWED_ORIGINS` does not allow, the server answers `403`. A browser sends this header with every `POST`. This stops DNS rebinding, in which a hostile web page points its own domain name at your server. Most MCP clients run outside a browser and send no `Origin`, so their requests pass.
 
 The Node process does not check bearer tokens. Put a reverse proxy or a gateway in front of it for authentication and TLS. The hosted endpoint works this way.
