@@ -26,6 +26,7 @@ module.exports = {
   coverageThreshold: {
     global: { lines: 88, statements: 88, functions: 84, branches: 82 },
   },
+  setupFiles: ['<rootDir>/jest.setup.cjs'],
   moduleFileExtensions: ['ts', 'js', 'json'],
   verbose: true,
 };
