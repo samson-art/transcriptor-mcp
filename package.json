@@ -15,7 +15,7 @@
     "dev": "node --watch --watch-preserve-output --import tsx --import ./src/instrument.ts src/index.ts",
     "dev:mcp": "node --watch --watch-preserve-output --import tsx --import ./src/instrument.ts src/mcp.ts",
     "dev:mcp:http": "node --watch --watch-preserve-output --import tsx --import ./src/instrument.ts src/mcp-http-entry.ts",
-    "type-check": "tsc --noEmit",
+    "type-check": "tsc --noEmit && tsc -p ui",
     "lint": "eslint src --ext .ts",
     "lint:fix": "eslint src --ext .ts --fix",
     "format": "prettier --write \"src/**/*.ts\"",
