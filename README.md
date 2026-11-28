@@ -143,7 +143,7 @@ Input:
 - `url` — a playlist URL, or a watch URL with `list=`
 - `type`, `lang`, `format` — the same as `get_raw_subtitles`, except that `lang` is required: the original language is picked only for one video at a time
 - `playlistItems` — a yt-dlp `-I` value such as `1:5`, `1,3,7`, or `-1`
-- `maxItems` — the maximum number of videos
+- `maxItems` — the maximum number of videos, from 1 to 20. The default is 10. A larger value gets an input error
 
 Response: `results`. Each item has `videoId` and `text`.
 
@@ -239,6 +239,7 @@ The server starts with no environment variables. Each variable below is optional
 | `MCP_ALLOWED_ORIGINS` | `localhost`, `127.0.0.1` and `[::1]`, any port | The web origins that the `/mcp` Origin rule allows. An origin is the scheme, host and port of a web page, such as `https://app.example.com` or `https://app.example.com:8443`. Comma separated, no quotes. A request with another `Origin` header gets `403`. A request without `Origin` always passes. A value replaces the default. An entry that is not an http or https origin, such as `null`, is dropped with one warning at start. If no entry is left, every `Origin` gets `403`. `*` turns the rule off. This list only stops the `403`: if a page on another origin calls `/mcp` directly, it also needs CORS handling in front of the server, because the server answers no preflight |
 | `COOKIES_FILE_PATH` | — | A Netscape cookies file for videos that need an account. See [cookies.example.txt](cookies.example.txt). The image runs as uid 1000, so this user must be able to read the mounted file, for example with mode 0644 |
 | `WHISPER_MODE` | `off` | Set `local` or `api` to transcribe the audio when a video has no subtitles. Then set `WHISPER_BASE_URL` or `WHISPER_API_KEY`. `WHISPER_MAX_DURATION_SECONDS` skips longer videos and live streams; a video whose length the platform does not report is measured with `ffprobe` after the audio download |
+| `WHISPER_MAX_CONCURRENCY` | `2` | How many speech-to-text jobs may run at once. A call that needs a new job above this number is refused at once with "server busy". A call for the same video, language and format joins the running job. Each job holds its audio file in memory. `0` sets no limit |
 | `CACHE_MODE` | `off` | Set `redis` and `CACHE_REDIS_URL` to cache subtitles and metadata |
 | `YT_DLP_MAX_CONCURRENCY` | `4` | How many yt-dlp/ffmpeg processes may run at once. `YT_DLP_MAX_QUEUE` (`8`) is how many calls may wait; beyond that a call is refused at once with "server busy". A call peaks at ~40 MiB, so the cap bounds platform throttling and latency, not memory |
 | `SUBTITLES_RATE_LIMIT_HOLD_MS` | `600000` | After a platform answers 429 to a subtitle download, the server stops asking that platform for subtitles for this long and answers `rate_limited` right away. Each repeat doubles the wait, up to an hour; a successful download clears it. Metadata is not held back |

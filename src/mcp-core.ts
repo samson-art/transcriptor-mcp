@@ -341,12 +341,15 @@ const playlistTranscriptsInputSchema = z.object({
     .string()
     .optional()
     .describe('yt-dlp -I spec: "1:5", "1,3,7", "-1" for last, "1:10:2" for every 2nd'),
+  // Each video costs one caption request from the quota of the server's IP, and a limit there
+  // stops captions for every caller (ADR 002, #132).
   maxItems: z
     .number()
     .int()
     .min(1)
-    .optional()
-    .describe('Max number of videos to fetch (yt-dlp --max-downloads)'),
+    .max(20)
+    .default(10)
+    .describe('Max number of videos to fetch: 1 to 20 (default 10)'),
 });
 
 const playlistTranscriptsOutputSchema = z.object({

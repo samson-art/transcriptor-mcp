@@ -753,10 +753,11 @@
           "type": "string"
         },
         "maxItems": {
-          "description": "Max number of videos to fetch (yt-dlp --max-downloads)",
+          "default": 10,
+          "description": "Max number of videos to fetch: 1 to 20 (default 10)",
           "type": "integer",
           "minimum": 1,
-          "maximum": 9007199254740991
+          "maximum": 20
         }
       },
       "required": [

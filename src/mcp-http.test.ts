@@ -349,6 +349,43 @@ describe('tools/call', () => {
     expect(subArgs?.[subArgs.indexOf('--sub-lang') + 1]).toBe('en_US');
   });
 
+  // One playlist run asks for a caption track per video, and the quota is per IP (#132).
+  describe('get_playlist_transcripts maxItems', () => {
+    const playlist = 'https://www.youtube.com/playlist?list=PLlimits132';
+    const execFileMock = execFile as unknown as jest.Mock;
+
+    beforeEach(() => {
+      execFileMock.mockReset();
+      execFileMock.mockImplementation(
+        (_f: string, _a: string[], _o: unknown, callback: (e: null, r: object) => void) =>
+          callback(null, { stdout: '', stderr: '' })
+      );
+    });
+
+    it('refuses maxItems above 20 with an input error that names the limit, before any run', async () => {
+      const body = await readMcpBody(
+        await postMcp(
+          toolCallBody(40, 'get_playlist_transcripts', { url: playlist, lang: 'en', maxItems: 21 })
+        )
+      );
+
+      expect(body.result?.isError).toBe(true);
+      expect(body.result?.content?.[0]?.text).toMatch(/20/);
+      expect(execFileMock).not.toHaveBeenCalled();
+    });
+
+    it('asks yt-dlp for at most 10 videos when maxItems is not given', async () => {
+      await readMcpBody(
+        await postMcp(toolCallBody(41, 'get_playlist_transcripts', { url: playlist, lang: 'en' }))
+      );
+
+      const args = execFileMock.mock.calls
+        .map((call) => call[1] as string[])
+        .find((a) => a.includes('--yes-playlist'));
+      expect(args?.[args.indexOf('--max-downloads') + 1]).toBe('10');
+    });
+  });
+
   it('does not start speech-to-text for get_transcript without lang when YT_DLP_NO_WARNINGS=1 hides a bot check', async () => {
     process.env.YT_DLP_NO_WARNINGS = '1';
     process.env.WHISPER_MODE = 'local';

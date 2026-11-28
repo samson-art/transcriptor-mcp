@@ -1,5 +1,6 @@
 import type { FastifyBaseLogger } from 'fastify';
 import { parseIntEnv } from './env.js';
+import { ServerBusyError } from './errors.js';
 import { setWhisperBackgroundJobsActive } from './metrics.js';
 import { getWhisperConfig, transcribeWithWhisper, type WhisperResponseFormat } from './whisper.js';
 
@@ -43,6 +44,12 @@ export function startOrReuseWhisperJob(
   const existing = inflightJobs.get(key);
   if (existing) {
     return existing;
+  }
+  // Each job holds its whole audio file in memory, and in API mode it costs money (#132). A call
+  // that joins a running job above costs nothing, so only a new job is refused.
+  const max = parseIntEnv('WHISPER_MAX_CONCURRENCY', 2);
+  if (max > 0 && inflightJobs.size >= max) {
+    throw new ServerBusyError();
   }
 
   const bgTimeoutMs = getWhisperBackgroundTimeoutMs();

@@ -4,6 +4,7 @@ import {
   getWhisperBackgroundTimeoutMs,
   startOrReuseWhisperJob,
 } from './whisper-jobs.js';
+import { ServerBusyError } from './errors.js';
 
 jest.mock('./metrics.js', () => ({
   setWhisperBackgroundJobsActive: jest.fn(),
@@ -31,6 +32,7 @@ beforeEach(() => {
   clearInflightJobsForTests();
   process.env = { ...originalEnv };
   delete process.env.WHISPER_BACKGROUND_TIMEOUT;
+  delete process.env.WHISPER_MAX_CONCURRENCY;
   whisperMock.getWhisperConfig.mockReturnValue({
     mode: 'local',
     timeout: 60_000,
@@ -96,5 +98,46 @@ describe('startOrReuseWhisperJob', () => {
       undefined,
       222_000
     );
+  });
+
+  // Each job holds its audio in memory, and in API mode it costs money (#132).
+  describe('WHISPER_MAX_CONCURRENCY', () => {
+    const pending = () => new Promise<string | null>(() => {});
+
+    it('refuses a third distinct job at once with server busy when 2 run (the default)', () => {
+      whisperMock.transcribeWithWhisper.mockImplementation(pending);
+      void startOrReuseWhisperJob('https://example.com/a', 'en', 'srt');
+      void startOrReuseWhisperJob('https://example.com/b', 'en', 'srt');
+
+      expect(() => startOrReuseWhisperJob('https://example.com/c', 'en', 'srt')).toThrow(
+        ServerBusyError
+      );
+      expect(whisperMock.transcribeWithWhisper).toHaveBeenCalledTimes(2);
+    });
+
+    it('still lets a call join a job that runs while the limit is full', () => {
+      whisperMock.transcribeWithWhisper.mockImplementation(pending);
+      const first = startOrReuseWhisperJob('https://example.com/a', 'en', 'srt');
+      void startOrReuseWhisperJob('https://example.com/b', 'en', 'srt');
+
+      expect(startOrReuseWhisperJob('https://example.com/a', 'en', 'srt')).toBe(first);
+    });
+
+    it('starts a new job after one of the running jobs ends', async () => {
+      process.env.WHISPER_MAX_CONCURRENCY = '1';
+      whisperMock.transcribeWithWhisper.mockResolvedValueOnce('a').mockResolvedValueOnce('b');
+      await startOrReuseWhisperJob('https://example.com/a', 'en', 'srt');
+
+      await expect(startOrReuseWhisperJob('https://example.com/b', 'en', 'srt')).resolves.toBe('b');
+    });
+
+    it('sets no limit with 0', () => {
+      process.env.WHISPER_MAX_CONCURRENCY = '0';
+      whisperMock.transcribeWithWhisper.mockImplementation(pending);
+      for (const id of ['a', 'b', 'c', 'd']) {
+        void startOrReuseWhisperJob(`https://example.com/${id}`, 'en', 'srt');
+      }
+      expect(getPendingWhisperJobCount()).toBe(4);
+    });
   });
 });
