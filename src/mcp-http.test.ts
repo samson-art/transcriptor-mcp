@@ -138,6 +138,13 @@ describe('POST /mcp', () => {
     const body = await readMcpBody(response);
     expect(body.result?.serverInfo?.name).toBe('transcriptor-mcp');
     expect(typeof body.result?.protocolVersion).toBe('string');
+    // The lists never change, and the 4 widgets are MCP Apps (#84).
+    expect(body.result?.capabilities).toEqual({
+      tools: { listChanged: false },
+      resources: { listChanged: false },
+      prompts: { listChanged: false },
+      extensions: { 'io.modelcontextprotocol/ui': {} },
+    });
   });
 
   it('serves tools/list on its own request, with no prior initialize', async () => {

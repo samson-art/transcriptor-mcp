@@ -25,12 +25,14 @@ import { PassThrough } from 'node:stream';
 import { StdioServerTransport } from '@modelcontextprotocol/server/stdio';
 import type { FastifyBaseLogger } from 'fastify';
 import pino from 'pino';
+import { NotFoundError } from './errors.js';
 import { createMcpServer } from './mcp-core.js';
+import * as validation from './validation.js';
 
 type Answer = {
   id?: number;
   result?: { [key: string]: any };
-  error?: { code?: number; message?: string };
+  error?: { code?: number; message?: string; data?: unknown };
 };
 
 /** What `npm run start:mcp` serves (src/mcp.ts), on in-memory streams instead of the process. */
@@ -90,13 +92,30 @@ describe('MCP over stdio', () => {
     await session.close();
   });
 
-  it('answers initialize with the 2025 protocol and the same capabilities as before', () => {
+  it('answers initialize with the 2025 protocol and the capabilities of #84', () => {
     expect(initialize.result?.protocolVersion).toBe('2025-11-25');
     expect(initialize.result?.serverInfo?.name).toBe('transcriptor-mcp');
     expect(initialize.result?.capabilities).toEqual({
-      tools: { listChanged: true },
-      resources: { listChanged: true },
-      prompts: { listChanged: true },
+      tools: { listChanged: false },
+      resources: { listChanged: false },
+      prompts: { listChanged: false },
+      extensions: { 'io.modelcontextprotocol/ui': {} },
+    });
+  });
+
+  it('answers a transcript read for a missing video with -32602 and the text of the cause', async () => {
+    const read = jest
+      .spyOn(validation, 'validateAndDownloadSubtitles')
+      .mockRejectedValue(new NotFoundError('No subtitles.'));
+    const answer = await session.request('resources/read', {
+      uri: 'transcriptor://transcript/abc',
+    });
+    read.mockRestore();
+
+    expect(answer.error).toEqual({
+      code: -32602,
+      message: 'No subtitles.',
+      data: { uri: 'transcriptor://transcript/abc' },
     });
   });
 

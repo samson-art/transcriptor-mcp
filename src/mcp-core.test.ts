@@ -57,7 +57,15 @@ jest.mock('@modelcontextprotocol/server', () => {
     constructor(_uriTemplate: string, _callbacks: { list?: unknown }) {}
   }
 
-  return { McpServer: FakeMcpServer, ResourceTemplate: FakeResourceTemplate };
+  const { ProtocolError, ProtocolErrorCode } = jest.requireActual<
+    typeof import('@modelcontextprotocol/server')
+  >('@modelcontextprotocol/server');
+  return {
+    McpServer: FakeMcpServer,
+    ResourceTemplate: FakeResourceTemplate,
+    ProtocolError,
+    ProtocolErrorCode,
+  };
 });
 
 jest.mock('@sentry/node', () => ({
@@ -777,6 +785,42 @@ describe('mcp-core tools', () => {
         read(new URL('transcriptor://transcript/abc'), { videoId: 'abc' })
       ).rejects.toThrow(new Error('No subtitles.'));
       expect(captureExceptionMock).not.toHaveBeenCalled();
+    });
+
+    // MCP 2026-07-28: a resource that does not exist gets -32602 (#84). The REST API answers
+    // these causes with 400 or 404.
+    it.each([
+      ['no tracks', new NotFoundError('No subtitles.')],
+      ['a bad id', new ValidationError(INVALID_VIDEO_URL_MESSAGE)],
+      ['a removed video', new YtDlpError('unavailable')],
+    ])('answer %s with -32602 and the same text', async (_cause, error) => {
+      validateAndDownloadSubtitlesMock.mockRejectedValue(error);
+      const server = createMcpServer({ logger: logger as any }) as any;
+      const read = server.resources.get('transcript');
+
+      await expect(
+        read(new URL('transcriptor://transcript/abc'), { videoId: 'abc' })
+      ).rejects.toMatchObject({
+        code: -32602,
+        message: error.message,
+        data: { uri: 'transcriptor://transcript/abc' },
+      });
+    });
+
+    // The REST API answers these with 5xx: the resource may exist, so -32603 stays.
+    it.each([
+      ['a busy server', new ServerBusyError()],
+      ['a bot check', new YtDlpError('bot_check')],
+    ])('answer %s with a plain error and the same text', async (_cause, error) => {
+      validateAndDownloadSubtitlesMock.mockRejectedValue(error);
+      const server = createMcpServer({ logger: logger as any }) as any;
+      const read = server.resources.get('transcript');
+
+      const thrown = await read(new URL('transcriptor://transcript/abc'), {
+        videoId: 'abc',
+      }).catch((e: unknown) => e);
+      expect(thrown).toEqual(new Error(error.message));
+      expect((thrown as { code?: unknown }).code).toBeUndefined();
     });
 
     // Runs before 'widget resources' below, which fills the module's HTML cache.
