@@ -1,3 +1,6 @@
+# Deno, the JS runtime for yt-dlp, at a fixed version (#135). Dependabot updates this tag.
+FROM denoland/deno:bin-2.9.8 AS deno
+
 # ============================================
 # Stage 1: Build
 # ============================================
@@ -23,16 +26,15 @@ RUN apt-get update && apt-get install -y \
     python3 \
     python3-pip \
     curl \
-    unzip \
     ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
 # Ensure Node/npm are on PATH (avoid 127 when building api/mcp stages)
 ENV PATH="/usr/local/bin:${PATH}"
 
-# Deno (JS runtime for yt-dlp)
-ENV DENO_INSTALL=/usr/local
-RUN curl -fsSL https://deno.land/x/install/install.sh | sh
+# Deno from the fixed stage at the top. The version line goes into the build log.
+COPY --from=deno /deno /usr/local/bin/deno
+RUN deno --version
 
 # Install the latest stable yt-dlp from pip. curl-cffi adds browser impersonation.
 # Without curl-cffi, TikTok and some Dailymotion videos fail to open.
