@@ -1,6 +1,6 @@
 # Publish Docker images on: version tag push, new GitHub release, or manual run.
 # A `latest_only` run rebuilds the newest release tag so the baked-in yt-dlp stays
-# current; an n8n workflow fires one whenever yt-dlp cuts a release.
+# current; ytdlp-rebuild.yml starts one when PyPI has a newer yt-dlp than :latest.
 # Requires DOCKERHUB_USERNAME and DOCKERHUB_TOKEN (or other registry secrets).
 name: Publish Docker
 
