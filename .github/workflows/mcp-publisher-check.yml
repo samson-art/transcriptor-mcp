@@ -1,0 +1,65 @@
+# Opens an issue when mcp-publisher has a newer release than the version that
+# publish-docker.yml uses (#135). Dependabot cannot see that binary, because a curl
+# line downloads it. This workflow does not open a PR: a PR from GITHUB_TOKEN starts
+# no CI, and a personal token would be one more secret to keep.
+name: mcp-publisher check
+
+on:
+  schedule:
+    - cron: '23 6 * * 1' # Mondays; a release is rarely urgent, the registry job fails loudly if one is
+  workflow_dispatch:
+
+# A dispatch at the same time as the cron must not open the issue twice.
+concurrency:
+  group: mcp-publisher-check
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  issues: write # gh issue create
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Compare the pinned mcp-publisher with the newest release, open an issue if they differ
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          valid() { [[ "$1" =~ ^[0-9]+(\.[0-9]+)+$ ]] || { echo "::error::cannot read the $2 version: '$1'"; exit 1; }; }
+
+          pinned=$(sed -n 's/.*MCP_PUBLISHER_VERSION: *\([0-9.]*\).*/\1/p' .github/workflows/publish-docker.yml | head -1)
+          newest=$(gh release view -R modelcontextprotocol/registry --json tagName -q .tagName)
+          newest=${newest#v}
+          valid "$pinned" pinned
+          valid "$newest" newest
+          echo "::notice::mcp-publisher pinned: $pinned; newest release: $newest"
+          # GitHub can mark a late backport (an older version) Latest. Never ask for a downgrade.
+          if [ "$(printf '%s\n' "$pinned" "$newest" | sort -V | tail -1)" = "$pinned" ]; then
+            echo "Up to date. Nothing to open."
+            exit 0
+          fi
+
+          title="mcp-publisher v$newest is out"
+          if gh issue list --state open --search "\"$title\" in:title" --json title -q '.[].title' | grep -Fxq "$title"; then
+            echo "::notice::An open issue \"$title\" exists. Nothing to open."
+            exit 0
+          fi
+
+          gh issue create --title "$title" --body "$(cat <<EOF
+          The release job uses mcp-publisher $pinned. The newest release is [v$newest](https://github.com/modelcontextprotocol/registry/releases/tag/v$newest).
+
+          To update:
+
+          - [ ] In \`.github/workflows/publish-docker.yml\`, set \`MCP_PUBLISHER_VERSION\` to \`$newest\`.
+          - [ ] Set \`MCP_PUBLISHER_SHA256\` to the sum of \`mcp-publisher_linux_amd64.tar.gz\` in \`registry_${newest}_checksums.txt\` of the release.
+          - [ ] Add a CHANGELOG line.
+
+          The check workflow \`mcp-publisher-check.yml\` opened this issue.
+          EOF
+          )"
+          echo "::notice::Opened the issue \"$title\"."

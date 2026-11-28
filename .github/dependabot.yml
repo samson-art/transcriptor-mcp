@@ -1,0 +1,26 @@
+# Update PRs for the fixed versions of the release path (#135).
+# npm is not here on purpose: npm updates come in manual batches, because one minor
+# update (vite 8.4.0) broke all four widgets. mcp-publisher is a downloaded binary that
+# Dependabot cannot see; mcp-publisher-check.yml covers it. yt-dlp is not fixed at all.
+version: 2
+updates:
+  # Changes the commit SHA and the version comment of each `uses:` line together.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    # Minor and patch updates in one PR. Each major gets its own PR, because it can break.
+    groups:
+      actions:
+        patterns: ['*']
+        update-types: ['minor', 'patch']
+
+  # The FROM lines of the Dockerfile: the node base image and the Deno stage.
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+    ignore:
+      # A new Node major is its own change, with its own tests.
+      - dependency-name: node
+        update-types: ['version-update:semver-major']
