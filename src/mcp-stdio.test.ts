@@ -107,10 +107,12 @@ describe('MCP over stdio', () => {
     const read = jest
       .spyOn(validation, 'validateAndDownloadSubtitles')
       .mockRejectedValue(new NotFoundError('No subtitles.'));
-    const answer = await session.request('resources/read', {
-      uri: 'transcriptor://transcript/abc',
-    });
-    read.mockRestore();
+    let answer: Answer;
+    try {
+      answer = await session.request('resources/read', { uri: 'transcriptor://transcript/abc' });
+    } finally {
+      read.mockRestore();
+    }
 
     expect(answer.error).toEqual({
       code: -32602,

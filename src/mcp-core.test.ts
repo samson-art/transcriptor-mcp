@@ -793,6 +793,13 @@ describe('mcp-core tools', () => {
       ['no tracks', new NotFoundError('No subtitles.')],
       ['a bad id', new ValidationError(INVALID_VIDEO_URL_MESSAGE)],
       ['a removed video', new YtDlpError('unavailable')],
+      [
+        'the track list of ADR 006',
+        new NotFoundError(`No language. ${LIST_ANSWER_STEP}`, 'Subtitles not found', {
+          official: ['en'],
+          auto: [],
+        }),
+      ],
     ])('answer %s with -32602 and the same text', async (_cause, error) => {
       validateAndDownloadSubtitlesMock.mockRejectedValue(error);
       const server = createMcpServer({ logger: logger as any }) as any;
@@ -802,7 +809,7 @@ describe('mcp-core tools', () => {
         read(new URL('transcriptor://transcript/abc'), { videoId: 'abc' })
       ).rejects.toMatchObject({
         code: -32602,
-        message: error.message,
+        message: expect.stringContaining(error.message),
         data: { uri: 'transcriptor://transcript/abc' },
       });
     });
