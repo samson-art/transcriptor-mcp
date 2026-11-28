@@ -620,6 +620,8 @@ describe('Origin rule (#82)', () => {
     'localhost:3000',
     'ws://app.example.com',
     'https://*.example.com',
+    'https://app.example.com/admin',
+    'https://app.example.com/?x=1',
   ])('refuses every Origin when the list has only the bad value %s', async (value) => {
     process.env.MCP_ALLOWED_ORIGINS = value;
     const { local, lines } = appWithLogLines();

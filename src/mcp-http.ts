@@ -75,10 +75,19 @@ function isHttpUrl(url: URL): boolean {
  * Null if it is not an http or https origin: `null` (a hostile page can send that too), a bare
  * host, or a value in the quotes that `docker run --env-file` keeps. The host test is here
  * because URL accepts `https://a.example"` and `https://*.a.example`, and no browser sends them.
+ * An entry with a path or a query is dropped too: an origin has neither, and keeping only its
+ * origin would allow every page of that site without a word to the operator.
  */
 function listedOrigin(entry: string): string | null {
   const url = parseOrigin(entry);
-  return url !== null && isHttpUrl(url) && /^[a-z0-9.:_[\]-]+$/.test(url.host) ? url.origin : null;
+  return url !== null &&
+    isHttpUrl(url) &&
+    /^[a-z0-9.:_[\]-]+$/.test(url.host) &&
+    url.pathname === '/' &&
+    !url.search &&
+    !url.hash
+    ? url.origin
+    : null;
 }
 
 /** Read on each request. A list replaces the loopback default, and `*` allows all origins. */
