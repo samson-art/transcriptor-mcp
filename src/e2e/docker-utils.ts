@@ -1,6 +1,7 @@
-import { spawn } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import type { Readable } from 'node:stream';
+import { promisify } from 'node:util';
 
 import { isFlagSet } from './smoke-env.js';
 
@@ -86,6 +87,20 @@ export function runCommandWithStdin(
     child.stdin.on('error', fail);
     child.stdin.end(stdinInput);
   });
+}
+
+/**
+ * Runs `id -u` in an image (the caller passes `docker run --rm <image> id -u`) and fails unless it
+ * prints 1000, the uid of `node`. Before #131 both images ran yt-dlp and ffmpeg as root.
+ */
+export async function checkRunsAsUid1000(command: string, args: string[]): Promise<void> {
+  // A stuck Docker daemon took 26 s for one `id -u` on 2026-11-28; without a limit it hangs the smoke.
+  const { stdout } = await promisify(execFile)(command, args, { timeout: 120_000 });
+  const uid = stdout.trim();
+  if (uid !== '1000') {
+    const cmd = [command, ...args].join(' ');
+    throw new Error(`${cmd} runs as uid ${uid}, expected 1000 (the user node, #131)`);
+  }
 }
 
 /** When true, run `docker build` for images before starting containers. */

@@ -58,6 +58,11 @@ COPY --from=builder /app/dist ./dist
 # GET /changelogs reads it from the working directory.
 COPY CHANGELOG.md ./
 
+# yt-dlp and ffmpeg parse pages and media from the internet, so the server does not run as root
+# (#131). `node` (uid 1000) comes with the base image. It writes only to /tmp and its home
+# (~/.cache for yt-dlp and Deno). /app stays owned by root, and the server only reads it.
+USER node
+
 EXPOSE 3000
 
 CMD ["npm", "start"]
@@ -87,6 +92,9 @@ COPY --from=builder /app/dist ./dist
 # lines back, run the image with -e NPM_CONFIG_LOGLEVEL=notice.
 # This line comes after `npm ci`, so that the build log keeps the npm output.
 ENV NPM_CONFIG_LOGLEVEL=silent
+
+# Same reason as in the api stage (#131).
+USER node
 
 EXPOSE 4200
 
