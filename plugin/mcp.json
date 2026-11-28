@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "transcriptor": {
+      "type": "streamable-http",
+      "url": "https://transcriptor.gateway.mcpal.io/mcp"
+    }
+  }
+}
