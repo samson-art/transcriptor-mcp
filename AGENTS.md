@@ -28,7 +28,7 @@ Do not edit generated files by hand. They are `dist/`, `dist-site/`, `web/widget
 
 The `change` skill runs the full cycle: interview → intent issue → plan → test first → checks → PR → review. If a change touches any of these areas, use it:
 
-- MCP tool contract: tool names, input/output schemas, descriptions, annotations, `_meta`, error texts and shapes. The code is in `src/mcp-core.ts`, `src/errors.ts`, and `LANG_PATTERN` and `ALLOWED_VIDEO_DOMAINS` in `src/validation.ts`. Mirrors that must follow: `src/mcp-tools-contract.json` (the stored `tools/list` answer; a test in `src/mcp-http.test.ts` fails when it differs, and `UPDATE_TOOLS_CONTRACT=1` rewrites it), `src/e2e/mcp-smoke.ts`, `web/clients.mjs`, the README tool reference, `ui/`.
+- MCP tool contract: tool names, input/output schemas, descriptions, annotations, `_meta`, error texts and shapes. The code is in `src/mcp-core.ts`, `src/errors.ts`, and `LANG_PATTERN` and `ALLOWED_VIDEO_DOMAINS` in `src/validation.ts`. Mirrors that must follow: `src/mcp-tools-contract.json` (the stored `tools/list` answer; a test in `src/mcp-http.test.ts` fails when it differs, and `UPDATE_TOOLS_CONTRACT=1` rewrites it), `src/e2e/mcp-smoke.ts`, `web/clients.mjs`, the README tool reference, `ui/`, the skills in `plugin/skills/` (`src/plugin-skills.test.ts` fails on a tool name that the server does not have).
 - Env vars: added, changed or removed.
 - Caption rate limit, retry, cache or strike logic: `src/subtitle-rate-limit.ts`, `execFileAsync` and `downloadSubtitles` in `src/youtube.ts`, auto-discovery in `src/validation.ts`, `src/cache.ts`, `src/canary.ts`.
 - Release plumbing: `Dockerfile`, `server.json`, `.github/workflows/`, Makefile publish targets.

@@ -161,6 +161,8 @@ Response: `results`. Each item has `videoId`, `title`, `url`, `duration`, `uploa
 
 </details>
 
+The [plugin/](plugin/) folder is a plugin package for ChatGPT and Codex. It connects to the hosted endpoint and adds four skills (written workflows for the model): summarize a video, quote it with timestamps, digest a playlist, and show the frame at a time. The skills add no retries and no probes, so they make no extra caption requests. To make the ZIP for the OpenAI submission portal, run `cd plugin && zip -r ../transcriptor-plugin.zip .`.
+
 ---
 
 ## 📺 Widgets

@@ -1,0 +1,10 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "transcriptor",
+  "version": "1.0.0",
+  "description": "Transcripts, quotes with timestamps, playlist digests and still frames from YouTube and 10 more video platforms.",
+  "author": { "name": "samson-art", "url": "https://transcriptor-mcp.org" },
+  "homepage": "https://transcriptor-mcp.org",
+  "repository": "https://github.com/samson-art/transcriptor-mcp",
+  "license": "MIT"
+}
