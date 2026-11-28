@@ -30,11 +30,8 @@ jest.mock('@modelcontextprotocol/ext-apps/server', () => ({
   RESOURCE_MIME_TYPE: 'text/html;profile=mcp-app',
 }));
 
-jest.mock('@modelcontextprotocol/sdk/server/mcp.js', () => {
+jest.mock('@modelcontextprotocol/server', () => {
   class FakeMcpServer {
-    // createMcpServer wraps the tools/list handler of the SDK server here (#80). This fake
-    // has no handlers, so the wrap does nothing.
-    server = {};
     tools = new Map<string, (args: any, extra: any) => any>();
     resources = new Map<string, (...args: any[]) => any>();
 
@@ -117,6 +114,11 @@ function getTool(server: any, name: string) {
   return handler;
 }
 
+/** The parts of the SDK context of a tool call that createMcpServer reads. No `http` is stdio. */
+function toolCtx(meta?: Record<string, unknown>) {
+  return { mcpReq: { _meta: meta, signal: new AbortController().signal } };
+}
+
 describe('mcp-core tools', () => {
   beforeEach(() => {
     jest.clearAllMocks();
@@ -141,7 +143,10 @@ describe('mcp-core tools', () => {
       ];
       searchVideosMock.mockResolvedValue(mockResults);
 
-      const searchResult = await searchHandler({ query: 'react hooks tutorial', limit: 5 }, {});
+      const searchResult = await searchHandler(
+        { query: 'react hooks tutorial', limit: 5 },
+        toolCtx()
+      );
 
       expect(searchResult.structuredContent.results).toEqual(mockResults);
       const firstVideoUrl = mockResults[0].url;
@@ -156,7 +161,7 @@ describe('mcp-core tools', () => {
       });
       parseSubtitlesMock.mockReturnValue('Introduction to hooks');
 
-      const transcriptResult = await transcriptHandler({ url: firstVideoUrl }, {});
+      const transcriptResult = await transcriptHandler({ url: firstVideoUrl }, toolCtx());
 
       expect(validateAndDownloadSubtitlesMock).toHaveBeenCalledWith(
         { url: firstVideoUrl, type: undefined, lang: undefined },
@@ -189,7 +194,7 @@ describe('mcp-core tools', () => {
 
       const first = await handler(
         { url: testUrl, type: 'official', lang: 'en', response_limit: 6 },
-        {}
+        toolCtx()
       );
 
       expect(first.structuredContent).toMatchObject({
@@ -203,7 +208,7 @@ describe('mcp-core tools', () => {
 
       const second = await handler(
         { url: testUrl, type: 'official', lang: 'en', response_limit: 6, next_cursor: '6' },
-        {}
+        toolCtx()
       );
 
       expect(second.structuredContent).toMatchObject({
@@ -235,7 +240,7 @@ describe('mcp-core tools', () => {
       parseSubtitlesMock.mockReturnValue('abcdefghij'); // 10 chars, below default limit
 
       // A bare id in, the resolved page out: tells `url` from the raw argument.
-      const result = await handler({ url: 'video123' }, {});
+      const result = await handler({ url: 'video123' }, toolCtx());
 
       expect(validateAndDownloadSubtitlesMock).toHaveBeenCalledWith(
         { url: testUrl, type: undefined, lang: undefined },
@@ -266,7 +271,7 @@ describe('mcp-core tools', () => {
         new NotFoundError('No auto subtitles available for language "en"', 'Subtitles not found')
       );
 
-      const result = await handler({ url: testUrl }, {});
+      const result = await handler({ url: testUrl }, toolCtx());
 
       expect(result).toMatchObject({ isError: true });
       expect(result.content[0].text).toContain('No auto subtitles available');
@@ -287,7 +292,7 @@ describe('mcp-core tools', () => {
         throw new Error('parse error');
       });
 
-      const result = await handler({ url: testUrl }, {});
+      const result = await handler({ url: testUrl }, toolCtx());
 
       expect(result).toMatchObject({ isError: true });
       expect(result.content[0].text).toBe(UNEXPECTED_ERROR_MESSAGE);
@@ -308,7 +313,7 @@ describe('mcp-core tools', () => {
       });
       parseSubtitlesMock.mockReturnValue('Auto-detected transcript');
 
-      const result = await handler({ url: testUrl }, {});
+      const result = await handler({ url: testUrl }, toolCtx());
 
       expect(validateAndDownloadSubtitlesMock).toHaveBeenCalledWith(
         { url: testUrl, type: undefined, lang: undefined },
@@ -341,7 +346,7 @@ describe('mcp-core tools', () => {
 
       const result = await handler(
         { url: testUrl, type: 'official', lang: 'en', response_limit: 6 },
-        {}
+        toolCtx()
       );
 
       expect(validateAndDownloadSubtitlesMock).toHaveBeenCalledWith(
@@ -370,9 +375,9 @@ describe('mcp-core tools', () => {
       const server = createMcpServer() as any;
       normalizeVideoInputMock.mockReturnValue(null);
 
-      const avail = await getTool(server, 'get_available_subtitles')({ url: 'invalid' }, {});
-      const info = await getTool(server, 'get_video_info')({ url: 'invalid' }, {});
-      const chapters = await getTool(server, 'get_video_chapters')({ url: 'invalid' }, {});
+      const avail = await getTool(server, 'get_available_subtitles')({ url: 'invalid' }, toolCtx());
+      const info = await getTool(server, 'get_video_info')({ url: 'invalid' }, toolCtx());
+      const chapters = await getTool(server, 'get_video_chapters')({ url: 'invalid' }, toolCtx());
 
       for (const result of [avail, info, chapters]) {
         expect(result).toMatchObject({ isError: true });
@@ -398,7 +403,7 @@ describe('mcp-core tools', () => {
         auto: ['en'],
       });
 
-      const result = await handler({ url: 'video123' }, {});
+      const result = await handler({ url: 'video123' }, toolCtx());
 
       expect(validateAndFetchAvailableSubtitlesMock).toHaveBeenCalledWith(
         { url: testUrl },
@@ -426,7 +431,7 @@ describe('mcp-core tools', () => {
         new NotFoundError(UNKNOWN_FAILURE_MESSAGE, 'Video not found')
       );
 
-      const result = await handler({ url: 'video123' }, {});
+      const result = await handler({ url: 'video123' }, toolCtx());
 
       expect(result).toMatchObject({ isError: true });
       // The tool used to answer with 'Failed to fetch video info.' whatever the layer
@@ -457,7 +462,7 @@ describe('mcp-core tools', () => {
         "EACCES: permission denied, copyfile '/cookies/cookies.txt' -> '/tmp/cookies_xxx.txt'";
       validateAndFetchVideoInfoMock.mockRejectedValue(new Error(errMsg));
 
-      const result = await handler({ url: testUrl }, {});
+      const result = await handler({ url: testUrl }, toolCtx());
 
       expect(result).toMatchObject({ isError: true });
       // The raw message holds a cookies path: the caller gets a fixed sentence. Written out,
@@ -482,7 +487,7 @@ describe('mcp-core tools', () => {
 
       const result = await handler(
         { url: 'https://www.youtube.com/playlist?list=PLxxx', lang: 'en' },
-        {}
+        toolCtx()
       );
 
       expect(result).toMatchObject({ isError: true });
@@ -505,9 +510,9 @@ describe('mcp-core tools', () => {
       normalizeVideoInputMock.mockReturnValue(testUrl);
 
       validateAndFetchVideoInfoMock.mockRejectedValue(new YtDlpError('private'));
-      await handler({ url: testUrl }, { _meta: { 'transcriptor/source': 'widget' } });
+      await handler({ url: testUrl }, toolCtx({ 'transcriptor/source': 'widget' }));
       validateAndFetchVideoInfoMock.mockRejectedValue(new YtDlpError('private'));
-      await handler({ url: testUrl, lang: 'en' }, {});
+      await handler({ url: testUrl, lang: 'en' }, toolCtx());
 
       const lines = (logger.warn.mock.calls as Array<[Record<string, unknown>, string]>)
         .filter((c) => c[1] === 'MCP tool call')
@@ -533,7 +538,7 @@ describe('mcp-core tools', () => {
       const short = 'https://youtu.be/video123';
       normalizeVideoInputMock.mockReturnValue(short);
       validateAndFetchVideoInfoMock.mockRejectedValue(new YtDlpError('private'));
-      await handler({ url: short }, {});
+      await handler({ url: short }, toolCtx());
       const viaShortLink = (logger.warn.mock.calls as Array<[Record<string, unknown>, string]>)
         .filter((c) => c[1] === 'MCP tool call')
         .map((c) => c[0])[0];
@@ -544,8 +549,8 @@ describe('mcp-core tools', () => {
       // A link without https:// is rejected: it must not look like a bare video id.
       logger.warn.mockClear();
       normalizeVideoInputMock.mockReturnValue(null);
-      await handler({ url: 'youtube.com/watch?v=video123' }, {});
-      await handler({ url: 'rick astley' }, {});
+      await handler({ url: 'youtube.com/watch?v=video123' }, toolCtx());
+      await handler({ url: 'rick astley' }, toolCtx());
       const hosts = (logger.warn.mock.calls as Array<[Record<string, unknown>, string]>)
         .filter((c) => c[1] === 'MCP tool call')
         .map((c) => c[0].host);
@@ -580,10 +585,10 @@ describe('mcp-core tools', () => {
         );
       const before = await bySource();
 
-      await handler({ url: testUrl }, { _meta: { 'transcriptor/source': 'widget' } });
-      await handler({ url: testUrl }, {});
+      await handler({ url: testUrl }, toolCtx({ 'transcriptor/source': 'widget' }));
+      await handler({ url: testUrl }, toolCtx());
       // Any other value is a model call: the label has two values only.
-      await handler({ url: testUrl }, { _meta: { 'transcriptor/source': 'other' } });
+      await handler({ url: testUrl }, toolCtx({ 'transcriptor/source': 'other' }));
 
       const after = await bySource();
       expect(after).toEqual({ widget: before.widget + 1, model: before.model + 2 });
@@ -623,11 +628,11 @@ describe('mcp-core tools', () => {
       validateAndDownloadSubtitlesMock.mockRejectedValue(
         new NotFoundError('No subtitles.', 'Subtitles not found', undefined, 'list')
       );
-      await handler({ url: testUrl }, {});
+      await handler({ url: testUrl }, toolCtx());
       validateAndDownloadSubtitlesMock.mockRejectedValue(
         new NotFoundError(UNKNOWN_FAILURE_MESSAGE, 'Video not found')
       );
-      await handler({ url: testUrl }, {});
+      await handler({ url: testUrl }, toolCtx());
       expect(lineOf(logger.warn.mock.calls)).toEqual([
         expect.objectContaining({ outcome: 'error', reason: 'not_found', answer: 'list' }),
         expect.not.objectContaining({ answer: expect.anything() }),
@@ -642,7 +647,7 @@ describe('mcp-core tools', () => {
         source: 'youtube',
       });
       parseSubtitlesMock.mockReturnValue('Hi');
-      await handler({ url: testUrl }, {});
+      await handler({ url: testUrl }, toolCtx());
       const ok = lineOf(logger.info.mock.calls);
       expect(ok).toHaveLength(1);
       expect(Object.keys(ok[0])).not.toContain('answer');
@@ -663,7 +668,7 @@ describe('mcp-core tools', () => {
       normalizeVideoInputMock.mockReturnValue(testUrl);
       validateAndFetchVideoInfoMock.mockRejectedValue(new ServerBusyError());
 
-      const result = await handler({ url: testUrl }, {});
+      const result = await handler({ url: testUrl }, toolCtx());
 
       expect(result).toMatchObject({ isError: true });
       expect(result.content[0].text).toBe('The server is busy, try again in a moment.');
@@ -678,7 +683,7 @@ describe('mcp-core tools', () => {
       normalizeVideoInputMock.mockReturnValue(testUrl);
       validateAndFetchVideoInfoMock.mockRejectedValue(new YtDlpError('bot_check'));
 
-      const result = await handler({ url: testUrl }, {});
+      const result = await handler({ url: testUrl }, toolCtx());
 
       expect(result).toMatchObject({ isError: true });
       expect(result.content[0].text).toContain('bot detection');
@@ -717,7 +722,7 @@ describe('mcp-core tools', () => {
 
       validateAndFetchVideoInfoMock.mockResolvedValue({ videoId: 'video123', info });
 
-      const result = await handler({ url: testUrl }, {});
+      const result = await handler({ url: testUrl }, toolCtx());
 
       expect(validateAndFetchVideoInfoMock).toHaveBeenCalledWith(
         { url: testUrl },
@@ -830,7 +835,7 @@ describe('mcp-core tools', () => {
         new NotFoundError(UNKNOWN_FAILURE_MESSAGE, 'Video not found')
       );
 
-      const result = await handler({ url: 'video123' }, {});
+      const result = await handler({ url: 'video123' }, toolCtx());
 
       expect(result).toMatchObject({ isError: true });
       expect(result.content[0].text).toBe(UNKNOWN_FAILURE_MESSAGE);
@@ -851,7 +856,7 @@ describe('mcp-core tools', () => {
         chapters,
       });
 
-      const result = await handler({ url: testUrl }, {});
+      const result = await handler({ url: testUrl }, toolCtx());
 
       expect(validateAndFetchVideoChaptersMock).toHaveBeenCalledWith(
         { url: testUrl },
@@ -875,7 +880,7 @@ describe('mcp-core tools', () => {
         chapters: [],
       });
 
-      const result = await handler({ url: 'video123' }, {});
+      const result = await handler({ url: 'video123' }, toolCtx());
 
       expect(validateAndFetchVideoChaptersMock).toHaveBeenCalledWith(
         { url: testUrl },
@@ -908,7 +913,7 @@ describe('mcp-core tools', () => {
         data: frameData,
       });
 
-      const result = await handler({ url: testUrl, timecode: '01:23.500' }, {});
+      const result = await handler({ url: testUrl, timecode: '01:23.500' }, toolCtx());
 
       expect(validateAndCaptureVideoFrameMock).toHaveBeenCalledWith(
         {
@@ -949,7 +954,7 @@ describe('mcp-core tools', () => {
         new ValidationError('Provide either timecode or seconds, not both', 'Invalid timestamp')
       );
 
-      const result = await handler({ url: testUrl, timecode: '01:23', seconds: 83 }, {});
+      const result = await handler({ url: testUrl, timecode: '01:23', seconds: 83 }, toolCtx());
 
       expect(result).toMatchObject({ isError: true });
       expect(result.content[0].text).toContain('Provide either timecode or seconds');
@@ -965,7 +970,7 @@ describe('mcp-core tools', () => {
         new NotFoundError(thrown, 'Frame capture failed')
       );
 
-      const result = await handler({ url: testUrl }, {});
+      const result = await handler({ url: testUrl }, toolCtx());
 
       expect(result).toMatchObject({ isError: true });
       // Exact: the timestamp is the only thing that tells the caller which retry is worth
@@ -979,15 +984,15 @@ describe('mcp-core tools', () => {
       const server = createMcpServer() as any;
       const handler = getTool(server, 'search_videos');
 
-      const result1 = await handler({}, {});
+      const result1 = await handler({}, toolCtx());
       expect(result1).toMatchObject({ isError: true });
       expect(result1.content[0].text).toContain('Query is required');
 
-      const result2 = await handler({ query: '' }, {});
+      const result2 = await handler({ query: '' }, toolCtx());
       expect(result2).toMatchObject({ isError: true });
       expect(result2.content[0].text).toContain('Query is required');
 
-      const result3 = await handler({ query: '   ' }, {});
+      const result3 = await handler({ query: '   ' }, toolCtx());
       expect(result3).toMatchObject({ isError: true });
       expect(result3.content[0].text).toContain('Query is required');
 
@@ -1011,7 +1016,7 @@ describe('mcp-core tools', () => {
       ];
       searchVideosMock.mockResolvedValue(mockResults);
 
-      const result = await handler({ query: 'test query', limit: 10 }, {});
+      const result = await handler({ query: 'test query', limit: 10 }, toolCtx());
 
       expect(searchVideosMock).toHaveBeenCalledWith(
         'test query',
@@ -1031,7 +1036,7 @@ describe('mcp-core tools', () => {
 
       searchVideosMock.mockResolvedValue([]);
 
-      await handler({ query: 'test' }, {});
+      await handler({ query: 'test' }, toolCtx());
 
       expect(searchVideosMock).toHaveBeenCalledWith(
         'test',
@@ -1047,7 +1052,10 @@ describe('mcp-core tools', () => {
 
       searchVideosMock.mockResolvedValue([]);
 
-      await handler({ query: 'react hooks', limit: 5, offset: 10, uploadDateFilter: 'week' }, {});
+      await handler(
+        { query: 'react hooks', limit: 5, offset: 10, uploadDateFilter: 'week' },
+        toolCtx()
+      );
 
       expect(searchVideosMock).toHaveBeenCalledWith(
         'react hooks',
@@ -1076,7 +1084,7 @@ describe('mcp-core tools', () => {
 
       const result = await handler(
         { query: 'tutorial', limit: 10, response_format: 'markdown' },
-        {}
+        toolCtx()
       );
 
       expect(result.content[0].text).toContain('**First Video**');
@@ -1090,7 +1098,7 @@ describe('mcp-core tools', () => {
 
       searchVideosMock.mockResolvedValue(null);
 
-      const result = await handler({ query: 'test' }, {});
+      const result = await handler({ query: 'test' }, toolCtx());
 
       expect(result).toMatchObject({ isError: true });
       const text = result.content[0].text;
@@ -1106,7 +1114,7 @@ describe('mcp-core tools', () => {
 
       searchVideosMock.mockResolvedValue([]);
 
-      const result = await handler({ query: 'test' }, {});
+      const result = await handler({ query: 'test' }, toolCtx());
 
       expect(result.structuredContent).toEqual({ results: [] });
       expect(result.content[0].text).toContain('No results found');
@@ -1120,7 +1128,7 @@ describe('mcp-core tools', () => {
       const server = createMcpServer() as any;
       normalizeVideoInputMock.mockReturnValue(null);
 
-      const result = await getTool(server, 'get_video_info')({ url: 'rick astley' }, {});
+      const result = await getTool(server, 'get_video_info')({ url: 'rick astley' }, toolCtx());
 
       expect(result).toMatchObject({ isError: true });
       expect(result.content[0].text).toBe(INVALID_VIDEO_URL_MESSAGE);
@@ -1130,7 +1138,7 @@ describe('mcp-core tools', () => {
       const server = createMcpServer() as any;
       normalizeVideoInputMock.mockReturnValue(null);
 
-      const result = await getTool(server, 'get_playlist_transcripts')({ url: 'nope' }, {});
+      const result = await getTool(server, 'get_playlist_transcripts')({ url: 'nope' }, toolCtx());
 
       expect(result).toMatchObject({ isError: true });
       expect(result.content[0].text).toMatch(/playlist/i);
@@ -1152,7 +1160,7 @@ describe('mcp-core tools', () => {
 
       const result = await getTool(server, 'get_transcript')(
         { ...transcriptArgs, type: 'auto', lang: 'de' },
-        {}
+        toolCtx()
       );
 
       const text = result.content[0].text as string;
@@ -1176,7 +1184,7 @@ describe('mcp-core tools', () => {
         })
       );
 
-      const result = await getTool(server, 'get_transcript')(transcriptArgs, {});
+      const result = await getTool(server, 'get_transcript')(transcriptArgs, toolCtx());
 
       const text = result.content[0].text as string;
       expect(/auto: ([^.]+)\./.exec(text)?.[1].split(', ')).toEqual([
@@ -1200,7 +1208,7 @@ describe('mcp-core tools', () => {
         new NotFoundError('none', 'x', { official: [], auto: many })
       );
 
-      const result = await getTool(server, 'get_transcript')(transcriptArgs, {});
+      const result = await getTool(server, 'get_transcript')(transcriptArgs, toolCtx());
 
       // The whole sentence: the transcript widget reads it back (ui/shared/subtitleTracks.ts).
       expect(result.content[0].text).toBe(
@@ -1218,7 +1226,7 @@ describe('mcp-core tools', () => {
         })
       );
 
-      const result = await getTool(server, 'get_transcript')(transcriptArgs, {});
+      const result = await getTool(server, 'get_transcript')(transcriptArgs, toolCtx());
 
       expect(result.content[0].text).not.toContain('Available tracks');
     });
@@ -1230,7 +1238,7 @@ describe('mcp-core tools', () => {
         new NotFoundError(UNKNOWN_FAILURE_MESSAGE, 'Video not found')
       );
 
-      const result = await getTool(server, 'get_available_subtitles')(transcriptArgs, {});
+      const result = await getTool(server, 'get_available_subtitles')(transcriptArgs, toolCtx());
 
       // This override had no test at all: deleting it was the one change nothing made red.
       expect(result.content[0].text).toBe(UNKNOWN_FAILURE_MESSAGE);
@@ -1241,7 +1249,10 @@ describe('mcp-core tools', () => {
       normalizeVideoInputMock.mockReturnValue(null);
       sanitizeLangMock.mockReturnValue(null);
 
-      const result = await getTool(server, 'get_transcript')({ url: 'nope', lang: '!!' }, {});
+      const result = await getTool(server, 'get_transcript')(
+        { url: 'nope', lang: '!!' },
+        toolCtx()
+      );
 
       expect(result.content[0].text).toBe(INVALID_VIDEO_URL_MESSAGE);
     });
@@ -1259,7 +1270,7 @@ describe('mcp-core tools', () => {
       parseSubtitlesMock.mockReturnValue('0123456789');
       const past = await getTool(server, 'get_transcript')(
         { ...transcriptArgs, next_cursor: '99' },
-        {}
+        toolCtx()
       );
       expect(past).toMatchObject({ isError: true });
       expect(past.content[0].text).toContain('10 characters long');
@@ -1269,7 +1280,7 @@ describe('mcp-core tools', () => {
       // end-of-text cursor into an error.
       const atEnd = await getTool(server, 'get_transcript')(
         { ...transcriptArgs, next_cursor: '10' },
-        {}
+        toolCtx()
       );
       expect(atEnd.isError).toBeFalsy();
       expect(atEnd.structuredContent).toMatchObject({ text: '', total_length: 10 });
@@ -1283,7 +1294,7 @@ describe('mcp-core tools', () => {
 
       const result = await getTool(server, 'get_playlist_transcripts')(
         { url: 'PL1', lang: ' de ' },
-        {}
+        toolCtx()
       );
 
       const text = result.content[0].text as string;
@@ -1301,7 +1312,7 @@ describe('mcp-core tools', () => {
 
       const result = await getTool(server, 'get_playlist_transcripts')(
         { url: 'PL1', lang: 'zz!!' },
-        {}
+        toolCtx()
       );
 
       expect(result).toMatchObject({ isError: true });
@@ -1316,7 +1327,7 @@ describe('mcp-core tools', () => {
       // info."; the layer below throws on a missing info, so this shape is a real fault.
       validateAndFetchVideoInfoMock.mockResolvedValue({ videoId: 'video123', info: null });
 
-      const result = await getTool(server, 'get_video_info')(transcriptArgs, {});
+      const result = await getTool(server, 'get_video_info')(transcriptArgs, toolCtx());
 
       expect(result).toMatchObject({ isError: true });
       expect(result.content[0].text).toContain('Internal server error');
@@ -1331,7 +1342,7 @@ describe('mcp-core tools', () => {
       const server = createMcpServer() as any;
       normalizeVideoInputMock.mockReturnValue('https://www.youtube.com/watch?v=video123');
 
-      await getTool(server, 'get_transcript')({ url: 'video123', type: 'official' }, {});
+      await getTool(server, 'get_transcript')({ url: 'video123', type: 'official' }, toolCtx());
 
       expect(validateAndDownloadSubtitlesMock).toHaveBeenCalledWith(
         expect.objectContaining({ type: 'official', lang: undefined }),
@@ -1346,7 +1357,7 @@ describe('mcp-core tools', () => {
       normalizeVideoInputMock.mockReturnValue('https://www.youtube.com/watch?v=video123');
       validateAndDownloadSubtitlesMock.mockRejectedValue(new NotFoundError('none'));
 
-      await getTool(server, 'get_transcript')({ url: 'video123', lang: 'ru' }, {});
+      await getTool(server, 'get_transcript')({ url: 'video123', lang: 'ru' }, toolCtx());
 
       expect(validateAndDownloadSubtitlesMock).toHaveBeenCalledWith(
         expect.objectContaining({ type: undefined, lang: 'ru' }),
@@ -1358,7 +1369,7 @@ describe('mcp-core tools', () => {
       const server = createMcpServer() as any;
       normalizeVideoInputMock.mockReturnValue(playlistUrl);
 
-      const result = await getTool(server, 'get_playlist_transcripts')({ url: 'PL1' }, {});
+      const result = await getTool(server, 'get_playlist_transcripts')({ url: 'PL1' }, toolCtx());
 
       expect(result).toMatchObject({ isError: true });
       expect(result.content[0].text).toContain('Pass lang');
@@ -1408,7 +1419,7 @@ describe('mcp-core tools', () => {
 
       await getTool(server, 'get_playlist_transcripts')(
         { url: 'PL1', type: 'official', lang: 'de' },
-        {}
+        toolCtx()
       );
 
       expect(downloadPlaylistSubtitlesMock).toHaveBeenCalledWith(

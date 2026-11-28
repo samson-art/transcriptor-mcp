@@ -13,7 +13,7 @@ import Fastify, {
   type FastifyRequest,
   type FastifyServerOptions,
 } from 'fastify';
-import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
+import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
 import * as Sentry from '@sentry/node';
 import { httpErrorAnswer, ORIGIN_NOT_ALLOWED_MESSAGE, UNEXPECTED_ERROR_MESSAGE } from './errors.js';
 import { createMcpServer } from './mcp-core.js';
@@ -206,7 +206,7 @@ export function buildMcpHttpApp(opts?: BuildMcpHttpAppOptions): FastifyInstance 
     // reused, because concurrent clients would collide on JSON-RPC message ids. The
     // server is per-request for the same reason; tool registration is in-memory only.
     const server = createMcpServer({ logger: request.log });
-    const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+    const transport = new NodeStreamableHTTPServerTransport({ sessionIdGenerator: undefined });
 
     let disposed = false;
     const dispose = () => {

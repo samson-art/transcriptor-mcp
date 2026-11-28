@@ -22,7 +22,7 @@ jest.mock('@modelcontextprotocol/ext-apps/server', () => ({
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { PassThrough } from 'node:stream';
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { StdioServerTransport } from '@modelcontextprotocol/server/stdio';
 import type { FastifyBaseLogger } from 'fastify';
 import pino from 'pino';
 import { createMcpServer } from './mcp-core.js';

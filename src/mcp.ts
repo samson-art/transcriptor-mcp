@@ -1,4 +1,4 @@
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { StdioServerTransport } from '@modelcontextprotocol/server/stdio';
 import { createMcpServer } from './mcp-core.js';
 import { checkYtDlpAtStartup } from './yt-dlp-check.js';
 

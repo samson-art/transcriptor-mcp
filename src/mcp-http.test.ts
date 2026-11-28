@@ -40,7 +40,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import type { AddressInfo } from 'node:net';
 import { join } from 'node:path';
 import { Ajv2020, type AnySchemaObject } from 'ajv/dist/2020.js';
-import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
+import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
 import * as Sentry from '@sentry/node';
 import type { FastifyBaseLogger } from 'fastify';
 import pino from 'pino';
@@ -179,7 +179,8 @@ describe('POST /mcp', () => {
   });
 
   // Some Claude apps refuse a tool whose schema has the draft-07 label (#80). Ajv2020 throws on
-  // that label, so this fails if the relabel in createMcpServer stops working.
+  // that label, so this fails if tools/list goes back to draft-07. Since SDK 2.x (#83), the SDK
+  // itself writes the 2020-12 label.
   it('lists schemas that a JSON Schema 2020-12 validator compiles', async () => {
     const body = await readMcpBody(await postMcp({ jsonrpc: '2.0', id: 4, method: 'tools/list' }));
     const tools: Array<{ inputSchema: AnySchemaObject; outputSchema: AnySchemaObject }> =
@@ -302,9 +303,7 @@ describe('tools/call', () => {
       const response = await fetch(url, {
         method: 'POST',
         headers: { 'content-type': 'application/json', accept: MCP_ACCEPT },
-        body: JSON.stringify(
-          toolCallBody(id, 'get_video_info', { url: 'not a video link' }, meta)
-        ),
+        body: JSON.stringify(toolCallBody(id, 'get_video_info', { url: 'not a video link' }, meta)),
       });
       // The failed call logs at warn, so the warn logger of the app sees the line.
       return response.text();
@@ -323,7 +322,6 @@ describe('tools/call', () => {
       ['get_video_info', 'model'],
     ]);
   });
-
 
   it("hands a listed track name like Facebook's en_US to yt-dlp unchanged", async () => {
     const execFileMock = execFile as unknown as jest.Mock;
@@ -467,7 +465,7 @@ describe('unplanned errors', () => {
 
   it('answers a failed transport with the generic text, not its message', async () => {
     jest
-      .spyOn(StreamableHTTPServerTransport.prototype, 'handleRequest')
+      .spyOn(NodeStreamableHTTPServerTransport.prototype, 'handleRequest')
       .mockRejectedValue(new Error(PATH_ERROR));
     const { local, lines } = appWithLogLines();
 
@@ -513,7 +511,7 @@ describe('Origin rule (#82)', () => {
       (_file: string, _args: string[], _options: unknown, callback: (e: null, r: object) => void) =>
         callback(null, { stdout: '', stderr: '' })
     );
-    const handleRequest = jest.spyOn(StreamableHTTPServerTransport.prototype, 'handleRequest');
+    const handleRequest = jest.spyOn(NodeStreamableHTTPServerTransport.prototype, 'handleRequest');
 
     try {
       const response = await postMcp(

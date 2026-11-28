@@ -47,7 +47,7 @@ For anything else that fits in one sentence, edit, run the gate and open the PR.
 - yt-dlp exit codes are not reliable in either direction. With `--ignore-no-formats-error`, it exits 0 on private or removed videos. Exit 101 at `--max-downloads` is a normal playlist end. In a `try/finally` that deletes a temp dir, use `return await`.
 - Infra failures are not "no subtitles". `bot_check`, `rate_limited`, `timeout` and `extractor` become 502. They must not start Whisper.
 - Caller-facing error texts reach users verbatim through MCP and REST. Never put these items in them: a command line, stderr, a cookies path, a proxy URL, an env var name or a route. Never put the words yt-dlp, ffmpeg, Whisper or Redis in them. Each text names exactly one next step. `src/errors.test.ts` checks part of this.
-- MCP schemas import `z` from `'zod/v3'`. The installed zod is v4, and its JSON Schema breaks strict clients.
+- MCP schemas are zod v4 objects (`import { z } from 'zod'`), not strict ones, so the server drops an unknown argument key. `tools/list` shows the JSON Schema that the SDK makes from them, and `src/mcp-tools-contract.json` pins it ([ADR 010](docs/adr/010-zod-v4-tool-schemas.md)). SDK 2.x refuses `'zod/v3'` schemas.
 - stdout is JSON-RPC in stdio mode. Log to stderr. `createLoggerWithSentryBreadcrumbs` writes to stdout, so never give it to the stdio server.
 - Relative imports in `src/` end in `.js` (nodenext). `ui/` imports have no extension.
 - HTTP MCP is stateless. The server builds a new `McpServer` for each request, so shared state lives at module level. The process has no auth.
@@ -81,6 +81,7 @@ Read the ADR before you change the code it names. If you make or reverse a decis
 - [007](docs/adr/007-frame-stream-lookup-reuse.md): a frame call reuses the stream lookup of the same URL and width for 5 minutes, in process memory only.
 - [008](docs/adr/008-sentry-user-from-gateway-id.md): Sentry counts users from one Sentry log per tool call, with an HMAC of the gateway user id. No Sentry event gets the id. Off without `SENTRY_USER_HASH_SECRET`.
 - [009](docs/adr/009-supported-extractors-only.md): each yt-dlp run loads only the extractors of the 11 supported platforms. Short links that only the generic extractor opens are not accepted.
+- [010](docs/adr/010-zod-v4-tool-schemas.md): tool schemas are zod v4 objects that drop unknown keys, and `tools/list` shows the JSON Schema of the SDK without changes.
 
 ## Autonomy
 

@@ -1,6 +1,6 @@
 import { useApp, useHostStyles } from '@modelcontextprotocol/ext-apps/react';
 import type { App } from '@modelcontextprotocol/ext-apps';
-import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
+import type { CallToolResult } from '@modelcontextprotocol/client';
 import React, { StrictMode, useCallback, useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { AppShell } from '@shared/AppShell';
