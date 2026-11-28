@@ -95,4 +95,4 @@ While review fixes are still to come, keep the PR in draft. This stops a merge w
 
 After you push the last fix and `make check-no-smoke` is green again, mark the PR ready with `gh pr ready`. Do not mark it ready before that.
 
-The release is a separate step. Use the `release` skill.
+The release is a separate step. The maintainer does it.
