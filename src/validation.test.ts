@@ -54,6 +54,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  jest.useRealTimers();
   jest.restoreAllMocks();
   resetVideoJsonInFlight();
 });
@@ -673,6 +674,8 @@ describe('validation', () => {
     });
 
     it('should call cache.set when Whisper finishes after WHISPER_TIMEOUT (explicit lang)', async () => {
+      // The WHISPER_TIMEOUT race runs on fake time, so no real timer paces the test (#145).
+      jest.useFakeTimers({ doNotFake: ['setImmediate', 'nextTick'] });
       jest.spyOn(youtube, 'downloadSubtitles').mockResolvedValue(null);
       jest.spyOn(youtube, 'fetchYtDlpJson').mockResolvedValue({ id: 'dQw4w9WgXcQ' });
       (whisper.getWhisperConfig as jest.Mock).mockReturnValue({ mode: 'local', timeout: 1 });
@@ -689,7 +692,9 @@ describe('validation', () => {
         lang: 'en',
       } as any);
 
-      await expect(p).rejects.toThrow(NotFoundError);
+      const rejected = expect(p).rejects.toThrow(NotFoundError);
+      await jest.advanceTimersByTimeAsync(1);
+      await rejected;
 
       lateResolve('1\n00:00:00,000 --> 00:00:01,000\nLate explicit');
       await new Promise<void>((resolve) => setImmediate(resolve));
@@ -707,6 +712,8 @@ describe('validation', () => {
     });
 
     it('leaves no unhandled rejection when the audio download fails after WHISPER_TIMEOUT (#104)', async () => {
+      // The WHISPER_TIMEOUT race runs on fake time, so no real timer paces the test (#145).
+      jest.useFakeTimers({ doNotFake: ['setImmediate', 'nextTick'] });
       jest.spyOn(youtube, 'downloadSubtitles').mockResolvedValue(null);
       jest.spyOn(youtube, 'fetchYtDlpJson').mockResolvedValue({ id: 'dQw4w9WgXcQ' });
       (whisper.getWhisperConfig as jest.Mock).mockReturnValue({ mode: 'local', timeout: 1 });
@@ -724,7 +731,11 @@ describe('validation', () => {
               lateReject = reject;
             })
           );
-          await expect(validateAndDownloadSubtitles(request as any)).rejects.toThrow(NotFoundError);
+          const rejected = expect(validateAndDownloadSubtitles(request as any)).rejects.toThrow(
+            NotFoundError
+          );
+          await jest.advanceTimersByTimeAsync(1);
+          await rejected;
           lateReject(new YtDlpError('timeout'));
           // Node reports an unhandled rejection when the microtask queue drains, before
           // the next immediate runs (#145).
@@ -1016,6 +1027,8 @@ describe('validation', () => {
       });
 
       it('should call cache.set when Whisper finishes after WHISPER_TIMEOUT (auto-discover)', async () => {
+        // The WHISPER_TIMEOUT race runs on fake time, so no real timer paces the test (#145).
+        jest.useFakeTimers({ doNotFake: ['setImmediate', 'nextTick'] });
         jest.spyOn(youtube, 'fetchYtDlpJson').mockResolvedValue({
           id: 'dQw4w9WgXcQ',
           subtitles: {},
@@ -1034,7 +1047,9 @@ describe('validation', () => {
         (whisperJobs.startOrReuseWhisperJob as jest.Mock).mockReturnValue(jobPromise);
 
         const p = validateAndDownloadSubtitles({ url: youtubeUrl } as any);
-        await expect(p).rejects.toThrow(NotFoundError);
+        const rejected = expect(p).rejects.toThrow(NotFoundError);
+        await jest.advanceTimersByTimeAsync(1);
+        await rejected;
 
         lateResolve('1\n00:00:00,000 --> 00:00:01,000\nLate transcript');
         await new Promise<void>((resolve) => setImmediate(resolve));
