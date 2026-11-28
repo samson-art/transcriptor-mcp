@@ -258,4 +258,7 @@ jobs:
           fi
           awk -v v="$VERSION" 'index($0, "## [" v "]") == 1 { f = 1; next } f && /^## \[/ { exit } f' CHANGELOG.md > notes.md
           grep -q . notes.md || { echo "::error::CHANGELOG.md has no section '## [$VERSION]'."; exit 1; }
-          gh release create "$TAG" --verify-tag --title "$TAG" --notes-file notes.md
+          # Without --latest, GitHub marks each new release Latest, even a late tag of an older version.
+          newest=$(git ls-remote --tags --refs origin 'refs/tags/v*' | awk -F/ '{print $NF}' | sort -V | tail -1)
+          latest=$([ "$TAG" = "$newest" ] && echo true || echo false)
+          gh release create "$TAG" --verify-tag --title "$TAG" --notes-file notes.md --latest="$latest"
