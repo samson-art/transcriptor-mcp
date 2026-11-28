@@ -37,13 +37,19 @@ jest.mock('@sentry/node', () => ({
 
 import { execFile } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
+import type { AddressInfo } from 'node:net';
 import { join } from 'node:path';
 import { Ajv2020, type AnySchemaObject } from 'ajv/dist/2020.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import * as Sentry from '@sentry/node';
 import type { FastifyBaseLogger } from 'fastify';
 import pino from 'pino';
-import { ORIGIN_NOT_ALLOWED_MESSAGE, UNEXPECTED_ERROR_MESSAGE, YtDlpError } from './errors.js';
+import {
+  INVALID_VIDEO_URL_MESSAGE,
+  ORIGIN_NOT_ALLOWED_MESSAGE,
+  UNEXPECTED_ERROR_MESSAGE,
+  YtDlpError,
+} from './errors.js';
 import { buildMcpHttpApp } from './mcp-http.js';
 import { createLoggerWithSentryBreadcrumbs } from './logger-sentry-breadcrumbs.js';
 import * as whisperJobs from './whisper-jobs.js';
@@ -241,9 +247,84 @@ describe('POST /mcp', () => {
     expect(response.status).toBe(400);
     expect(body.error?.code).toBe(-32600);
   });
+
+  // A client that speaks both 2025-11-25 and 2026-07-28 first sends this probe. HTTP 400 with
+  // -32000 sends it to initialize. A DiscoverResult, or -32022 with a version that the client
+  // speaks, would keep it on 2026-07-28, which this server does not serve until #85.
+  it('answers a 2026-07-28 server/discover probe with HTTP 400 and -32000', async () => {
+    const response = await postMcp(
+      { jsonrpc: '2.0', id: 40, method: 'server/discover', params: {} },
+      { 'mcp-protocol-version': '2026-07-28', 'mcp-method': 'server/discover' }
+    );
+    const body = await readMcpBody(response);
+
+    expect(response.status).toBe(400);
+    expect(body.error?.code).toBe(-32000);
+    expect(body.error?.message).toMatch(/^Bad Request: Unsupported protocol version/);
+  });
 });
 
+function toolCallBody(
+  id: number,
+  name: string,
+  args: Record<string, unknown>,
+  meta?: Record<string, unknown>
+) {
+  return {
+    jsonrpc: '2.0',
+    id,
+    method: 'tools/call',
+    params: { name, arguments: args, ...(meta ? { _meta: meta } : {}) },
+  };
+}
+
 describe('tools/call', () => {
+  // Strict input objects would refuse the key with an input error. Since 1.5.21 at least,
+  // the server drops it and runs the tool, here up to its own check of the link.
+  it('drops an unknown argument key and answers as without it', async () => {
+    const url = 'not a video link';
+    const without = await readMcpBody(await postMcp(toolCallBody(30, 'get_transcript', { url })));
+    const withKey = await readMcpBody(
+      await postMcp(toolCallBody(31, 'get_transcript', { url, extra_key: 1 }))
+    );
+
+    expect(without.result?.content?.[0]?.text).toBe(INVALID_VIDEO_URL_MESSAGE);
+    expect(withKey.result).toEqual(without.result);
+  });
+
+  // The widgets mark their own calls in _meta (#115). The SDK hands the _meta of the request to
+  // the tool, and the "MCP tool call" line and mcp_tool_calls_total take `source` from it.
+  it('logs source widget for a call whose _meta says so, and source model otherwise', async () => {
+    const { local, lines } = appWithLogLines();
+    await local.listen({ port: 0, host: '127.0.0.1' });
+    const url = `http://127.0.0.1:${(local.server.address() as AddressInfo).port}/mcp`;
+    const call = async (id: number, meta?: Record<string, unknown>) => {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', accept: MCP_ACCEPT },
+        body: JSON.stringify(
+          toolCallBody(id, 'get_video_info', { url: 'not a video link' }, meta)
+        ),
+      });
+      // The failed call logs at warn, so the warn logger of the app sees the line.
+      return response.text();
+    };
+
+    try {
+      await call(32, { 'transcriptor/source': 'widget' });
+      await call(33);
+    } finally {
+      await local.close();
+    }
+
+    const toolLines = lines.filter((line) => line.msg === 'MCP tool call');
+    expect(toolLines.map((line) => [line.tool, line.source])).toEqual([
+      ['get_video_info', 'widget'],
+      ['get_video_info', 'model'],
+    ]);
+  });
+
+
   it("hands a listed track name like Facebook's en_US to yt-dlp unchanged", async () => {
     const execFileMock = execFile as unknown as jest.Mock;
     execFileMock.mockImplementation(
