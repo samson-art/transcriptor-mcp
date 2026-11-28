@@ -689,9 +689,7 @@ describe('validation', () => {
         lang: 'en',
       } as any);
 
-      const rejectsAssert = expect(p).rejects.toThrow(NotFoundError);
-      await new Promise<void>((resolve) => setTimeout(resolve, 15));
-      await rejectsAssert;
+      await expect(p).rejects.toThrow(NotFoundError);
 
       lateResolve('1\n00:00:00,000 --> 00:00:01,000\nLate explicit');
       await new Promise<void>((resolve) => setImmediate(resolve));
@@ -728,7 +726,9 @@ describe('validation', () => {
           );
           await expect(validateAndDownloadSubtitles(request as any)).rejects.toThrow(NotFoundError);
           lateReject(new YtDlpError('timeout'));
-          await new Promise<void>((resolve) => setTimeout(resolve, 10));
+          // Node reports an unhandled rejection when the microtask queue drains, before
+          // the next immediate runs (#145).
+          await new Promise<void>((resolve) => setImmediate(resolve));
         }
         expect(unhandled).not.toHaveBeenCalled();
       } finally {
@@ -1034,9 +1034,7 @@ describe('validation', () => {
         (whisperJobs.startOrReuseWhisperJob as jest.Mock).mockReturnValue(jobPromise);
 
         const p = validateAndDownloadSubtitles({ url: youtubeUrl } as any);
-        const rejectsAssert = expect(p).rejects.toThrow(NotFoundError);
-        await new Promise<void>((resolve) => setTimeout(resolve, 15));
-        await rejectsAssert;
+        await expect(p).rejects.toThrow(NotFoundError);
 
         lateResolve('1\n00:00:00,000 --> 00:00:01,000\nLate transcript');
         await new Promise<void>((resolve) => setImmediate(resolve));
