@@ -9,8 +9,13 @@ on:
 jobs:
   check:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read # the hook self-check asks GitHub which PR a merge commit belongs to
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # the hook self-check reads the merge commits of PRs #32 and #43
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -33,8 +38,19 @@ jobs:
             console.log(["### Test coverage", "", "| Metric | Covered |", "| --- | --- |", ...rows].join("\n"));
           ' >> "$GITHUB_STEP_SUMMARY"
 
-      # Local hooks can be missing or skipped. This check runs for every push and PR.
+      # The agent hooks guard secrets and release tags. publish-docker.yml also runs guard-release.mjs.
+      # A broken lexer in git-commands.mjs would otherwise show up only at a release.
+      # It calls GitHub, so it runs after the gate: a network failure here must not hide the gate result.
+      - name: Self-check of the agent hooks
+        if: ${{ !cancelled() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node .claude/hooks/guards.check.mjs
+
+      # Local hooks can be missing or skipped. This check runs for every push and PR,
+      # also when an earlier step fails.
       - name: No gitignored or key files in the repo
+        if: ${{ !cancelled() }}
         run: |
           bad=$(git ls-files -ci --exclude-standard)
           if [ -n "$bad" ]; then echo "::error::These files must stay local:"; echo "$bad"; exit 1; fi
